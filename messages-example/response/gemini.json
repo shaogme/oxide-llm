@@ -1,0 +1,16 @@
+{
+    "candidates": [
+        {
+            "content": {
+                "parts": [
+                    {
+                        "text": "At its core, Artificial Intelligence works by learning from vast amounts of data ..."
+                    }
+                ],
+                "role": "model"
+            },
+            "finishReason": "STOP",
+            "index": 1
+        }
+    ]
+}

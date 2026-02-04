@@ -1,0 +1,11 @@
+[package]
+name = "oxide-llm-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+oxide-llm-proto = { workspace = true }
+error_set = { workspace = true }
