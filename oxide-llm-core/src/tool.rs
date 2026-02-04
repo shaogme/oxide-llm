@@ -51,13 +51,299 @@ pub struct FunctionDefinition {
     ///
     /// JSON Schema 参数定义。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parameters: Option<Value>,
+    pub parameters: Option<JSONSchema>,
 
     /// Strict mode (OpenAI specific, but good to preserve).
     ///
     /// 严格模式 (OpenAI 特有，但在核心层保留有助于兼容)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
+}
+
+/// A strongly-typed JSON Schema definition for tool parameters.
+///
+/// 用于工具参数的强类型 JSON Schema 定义。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct JSONSchema {
+    /// The data type of the schema.
+    ///
+    /// 数据类型。
+    pub schema_type: Option<JSONSchemaType>,
+
+    /// A description of the valid data.
+    ///
+    /// 数据描述。
+    pub description: Option<String>,
+
+    /// Object properties (if type is object).
+    /// Using BTreeMap for deterministic serialization order.
+    ///
+    /// 对象属性（如果类型是 object）。
+    /// 使用 BTreeMap 以保证序列化顺序确定性。
+    pub properties: Option<std::collections::BTreeMap<String, JSONSchema>>,
+
+    /// List of required property names.
+    ///
+    /// 必须的属性名称列表。
+    pub required: Option<Vec<String>>,
+
+    /// Schema for array items (if type is array).
+    ///
+    /// 数组元素的 Schema（如果类型是 array）。
+    pub items: Option<Box<JSONSchema>>,
+
+    /// Enumeration of allowed values.
+    ///
+    /// 允许值的枚举。
+    pub enum_values: Option<Vec<String>>,
+
+    /// Additional properties allowance.
+    /// Important for OpenAI Strict Mode (must be false).
+    ///
+    /// 是否允许额外属性。
+    /// 对于 OpenAI 严格模式很重要（必须为 false）。
+    pub additional_properties: Option<bool>,
+
+    /// Format string (e.g., "date-time", "uri").
+    ///
+    /// 格式字符串。
+    pub format: Option<String>,
+
+    /// Default value.
+    ///
+    /// 默认值。
+    pub default: Option<serde_json::Value>,
+
+    /// Nullable flag.
+    ///
+    /// The source of truth for nullability in this internal representation.
+    /// - When converting TO Gemini: maps to `nullable` field.
+    /// - When converting TO OpenAI/Claude (standard JSON Schema): transforms `type` into `["type", "null"]` during serialization.
+    pub nullable: Option<bool>,
+}
+
+/// JSON Schema data types.
+///
+/// JSON Schema 数据类型。
+#[derive(Debug, Clone, PartialEq)]
+pub enum JSONSchemaType {
+    String,
+    Number,
+    Integer,
+    Boolean,
+    Object,
+    Array,
+    Null,
+}
+
+// Custom Serialize/Deserialize for JSONSchemaType to handle simple strings or arrays (for standard JSON schema compatibility in raw JSON)
+// However, since we are doing custom serialization on the parent struct, we might keep this simple.
+impl Serialize for JSONSchemaType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            JSONSchemaType::String => serializer.serialize_str("string"),
+            JSONSchemaType::Number => serializer.serialize_str("number"),
+            JSONSchemaType::Integer => serializer.serialize_str("integer"),
+            JSONSchemaType::Boolean => serializer.serialize_str("boolean"),
+            JSONSchemaType::Object => serializer.serialize_str("object"),
+            JSONSchemaType::Array => serializer.serialize_str("array"),
+            JSONSchemaType::Null => serializer.serialize_str("null"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for JSONSchemaType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "string" => Ok(JSONSchemaType::String),
+            "number" => Ok(JSONSchemaType::Number),
+            "integer" => Ok(JSONSchemaType::Integer),
+            "boolean" => Ok(JSONSchemaType::Boolean),
+            "object" => Ok(JSONSchemaType::Object),
+            "array" => Ok(JSONSchemaType::Array),
+            "null" => Ok(JSONSchemaType::Null),
+            _ => Err(serde::de::Error::custom(format!("Unknown type: {}", s))),
+        }
+    }
+}
+
+// Custom Serialize for JSONSchema to handle "type": ["string", "null"] when nullable is true
+impl Serialize for JSONSchema {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        let mut map = serializer.serialize_map(None)?;
+
+        // Handle Type & Nullable
+        if let Some(ref t) = self.schema_type {
+            if self.nullable == Some(true) && *t != JSONSchemaType::Null {
+                // Serialize as array: ["type", "null"]
+                let types = vec![t.clone(), JSONSchemaType::Null];
+                map.serialize_entry("type", &types)?;
+            } else {
+                // Standard single type
+                map.serialize_entry("type", t)?;
+            }
+        }
+
+        if let Some(ref v) = self.description {
+            map.serialize_entry("description", v)?;
+        }
+        if let Some(ref v) = self.properties {
+            map.serialize_entry("properties", v)?;
+        }
+        if let Some(ref v) = self.required {
+            map.serialize_entry("required", v)?;
+        }
+        if let Some(ref v) = self.items {
+            map.serialize_entry("items", v)?;
+        }
+        if let Some(ref v) = self.enum_values {
+            map.serialize_entry("enum", v)?;
+        }
+        if let Some(ref v) = self.additional_properties {
+            map.serialize_entry("additionalProperties", v)?;
+        }
+        if let Some(ref v) = self.format {
+            map.serialize_entry("format", v)?;
+        }
+        if let Some(ref v) = self.default {
+            map.serialize_entry("default", v)?;
+        }
+
+        map.end()
+    }
+}
+
+// Custom Deserialize for JSONSchema to handle "type": "string" OR "type": ["string", "null"]
+impl<'de> Deserialize<'de> for JSONSchema {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{MapAccess, Visitor};
+        use std::fmt;
+
+        struct JSONSchemaVisitor;
+
+        impl<'de> Visitor<'de> for JSONSchemaVisitor {
+            type Value = JSONSchema;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a JSON Schema object")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let mut schema = JSONSchema::default();
+                let mut nullable_found = false;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "type" => {
+                            // Can be string or array of strings
+                            let val: Value = map.next_value()?;
+                            if let Some(s) = val.as_str() {
+                                // Single type
+                                schema.schema_type = Some(
+                                    serde_json::from_value(Value::String(s.to_string()))
+                                        .map_err(serde::de::Error::custom)?,
+                                );
+                            } else if let Some(arr) = val.as_array() {
+                                // Array type ["string", "null"]
+                                let mut has_null = false;
+                                let mut primary_type = None;
+
+                                for v in arr {
+                                    if let Some(s) = v.as_str() {
+                                        if s == "null" {
+                                            has_null = true;
+                                        } else {
+                                            // Assume first non-null type is the primary type
+                                            if primary_type.is_none() {
+                                                primary_type = Some(
+                                                    serde_json::from_value(Value::String(
+                                                        s.to_string(),
+                                                    ))
+                                                    .map_err(serde::de::Error::custom)?,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                schema.schema_type = primary_type;
+                                if has_null {
+                                    nullable_found = true;
+                                }
+                            }
+                        }
+                        "description" => schema.description = Some(map.next_value()?),
+                        "properties" => schema.properties = Some(map.next_value()?),
+                        "required" => schema.required = Some(map.next_value()?),
+                        "items" => schema.items = Some(map.next_value()?),
+                        "enum" => schema.enum_values = Some(map.next_value()?),
+                        "additionalProperties" => {
+                            schema.additional_properties = Some(map.next_value()?)
+                        }
+                        "format" => schema.format = Some(map.next_value()?),
+                        "default" => schema.default = Some(map.next_value()?),
+                        "nullable" => {
+                            // Handle explicit nullable field (e.g. from Gemini if parsed via this path)
+                            if let Ok(val) = map.next_value::<bool>() {
+                                if val {
+                                    nullable_found = true;
+                                }
+                            }
+                        }
+                        _ => {
+                            let _ = map.next_value::<Value>();
+                        } // Ignore unknown fields
+                    }
+                }
+
+                if nullable_found {
+                    schema.nullable = Some(true);
+                }
+
+                Ok(schema)
+            }
+        }
+
+        deserializer.deserialize_map(JSONSchemaVisitor)
+    }
+}
+
+impl JSONSchema {
+    /// Create a new Object schema.
+    pub fn object() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Object),
+            properties: Some(std::collections::BTreeMap::new()),
+            required: Some(Vec::new()),
+            additional_properties: Some(false),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new String schema.
+    pub fn string() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::String),
+            ..Default::default()
+        }
+    }
 }
 
 /// Universal Tool Choice Strategy.
@@ -117,7 +403,7 @@ impl Tool {
     pub fn function(
         name: impl Into<String>,
         description: impl Into<String>,
-        parameters: Value,
+        parameters: JSONSchema,
     ) -> Self {
         Self {
             r#type: ToolType::Function,
@@ -150,12 +436,18 @@ impl Tool {
     ///
     /// 转换为 OpenAI Tool。
     pub fn to_openai(&self) -> OpenAITool {
+        let parameters = self
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok());
+
         OpenAITool {
             r#type: "function".to_string(),
             function: OpenAIFunctionDefinition {
                 name: self.function.name.clone(),
                 description: self.function.description.clone(),
-                parameters: self.function.parameters.clone(),
+                parameters,
                 strict: self.function.strict,
             },
         }
@@ -173,7 +465,7 @@ impl Tool {
             .function
             .parameters
             .as_ref()
-            .and_then(|v| json_value_to_gemini_schema(v));
+            .and_then(|v| json_schema_to_gemini_schema(v));
 
         GeminiFunctionDeclaration {
             name: self.function.name.clone(),
@@ -188,10 +480,17 @@ impl Tool {
     ///
     /// 转换为 Claude Tool。
     pub fn to_claude_tool(&self) -> ClaudeTool {
+        let input_schema = self
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok())
+            .unwrap_or(Value::Null);
+
         ClaudeTool::Custom(ClaudeCustomTool {
             name: self.function.name.clone(),
             description: self.function.description.clone(),
-            input_schema: self.function.parameters.clone().unwrap_or(Value::Null),
+            input_schema,
             cache_control: None, // Core doesn't support cache control yet
             typ: Some("custom".to_string()),
             strict: self.function.strict,
@@ -199,98 +498,51 @@ impl Tool {
     }
 }
 
-/// Recursively convert generic JSON Schema (Value) to Gemini strong-typed Schema.
+/// Convert JSONSchema to Gemini strong-typed Schema.
 ///
-/// 递归将通用 JSON Schema (Value) 转换为 Gemini 强类型 Schema。
-fn json_value_to_gemini_schema(v: &Value) -> Option<oxide_llm_proto::gemini::v1beta::Schema> {
+/// 将 JSONSchema 转换为 Gemini 强类型 Schema。
+fn json_schema_to_gemini_schema(
+    schema: &JSONSchema,
+) -> Option<oxide_llm_proto::gemini::v1beta::Schema> {
     use oxide_llm_proto::gemini::v1beta::{Schema as GeminiSchema, Type as GeminiType};
 
-    let obj = v.as_object()?;
-
-    // 1. Map 'type' field (JSON schema lowercase -> Gemini CONSTANT_CASE)
-    // Handle both string "type" and array ["type", "null"]
-    let (schema_type, is_nullable_from_type) = match obj.get("type") {
-        Some(Value::String(s)) => (map_type_str(s), false),
-        Some(Value::Array(arr)) => {
-            let has_null = arr.iter().any(|v| v.as_str() == Some("null"));
-            let primary_type = arr
-                .iter()
-                .filter_map(|v| v.as_str())
-                .find(|&s| s != "null")
-                .map(|s| map_type_str(s))
-                .unwrap_or(GeminiType::TypeUnspecified);
-            (primary_type, has_null)
-        }
-        _ => (GeminiType::TypeUnspecified, false),
+    let schema_type = match schema.schema_type {
+        Some(JSONSchemaType::String) => GeminiType::String,
+        Some(JSONSchemaType::Number) => GeminiType::Number,
+        Some(JSONSchemaType::Integer) => GeminiType::Integer,
+        Some(JSONSchemaType::Boolean) => GeminiType::Boolean,
+        Some(JSONSchemaType::Array) => GeminiType::Array,
+        Some(JSONSchemaType::Object) => GeminiType::Object,
+        Some(JSONSchemaType::Null) => GeminiType::TypeUnspecified, // Gemini schema type doesn't support explicit null as primary type
+        None => GeminiType::TypeUnspecified,
     };
 
-    // 2. Recursively handle 'properties'
-    let properties = obj
-        .get("properties")
-        .and_then(|p| p.as_object())
-        .map(|props| {
-            let mut map = std::collections::HashMap::new();
-            for (k, v) in props {
-                if let Some(s) = json_value_to_gemini_schema(v) {
-                    map.insert(k.clone(), s);
-                }
+    let properties = schema.properties.as_ref().map(|props| {
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in props {
+            if let Some(s) = json_schema_to_gemini_schema(v) {
+                map.insert(k.clone(), s);
             }
-            map
-        });
+        }
+        map
+    });
 
-    // 3. Recursively handle 'items' (for arrays)
-    let items = obj
-        .get("items")
-        .and_then(|v| json_value_to_gemini_schema(v))
+    let items = schema
+        .items
+        .as_ref()
+        .and_then(|v| json_schema_to_gemini_schema(v))
         .map(Box::new);
-
-    // 4. Handle 'required'
-    let required = obj.get("required").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|x| x.as_str().map(String::from))
-            .collect()
-    });
-
-    // 5. Handle 'enum'
-    let enum_vals = obj.get("enum").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|x| x.as_str().map(String::from))
-            .collect()
-    });
-
-    // Determine final nullable state: explicit 'nullable' field OR array type
-    let nullable = is_nullable_from_type
-        || obj
-            .get("nullable")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false);
 
     Some(GeminiSchema {
         schema_type,
-        format: obj.get("format").and_then(|s| s.as_str()).map(String::from),
-        description: obj
-            .get("description")
-            .and_then(|s| s.as_str())
-            .map(String::from),
-        nullable: if nullable { Some(true) } else { None },
-        r#enum: enum_vals,
+        format: schema.format.clone(),
+        description: schema.description.clone(),
+        nullable: schema.nullable, // Directly map nullable
+        r#enum: schema.enum_values.clone(),
         properties,
-        required,
+        required: schema.required.clone(),
         items,
     })
-}
-
-fn map_type_str(s: &str) -> oxide_llm_proto::gemini::v1beta::Type {
-    use oxide_llm_proto::gemini::v1beta::Type as GeminiType;
-    match s {
-        "string" => GeminiType::String,
-        "number" => GeminiType::Number,
-        "integer" => GeminiType::Integer,
-        "boolean" => GeminiType::Boolean,
-        "array" => GeminiType::Array,
-        "object" => GeminiType::Object,
-        _ => GeminiType::TypeUnspecified,
-    }
 }
 
 impl ToolChoice {
@@ -375,12 +627,16 @@ impl TryFrom<OpenAITool> for Tool {
         if value.r#type != "function" {
             return Err(format!("Unsupported OpenAI tool type: {}", value.r#type));
         }
+        let parameters = match value.function.parameters {
+            Some(v) => Some(serde_json::from_value(v).map_err(|e| e.to_string())?),
+            None => None,
+        };
         Ok(Tool {
             r#type: ToolType::Function,
             function: FunctionDefinition {
                 name: value.function.name,
                 description: value.function.description,
-                parameters: value.function.parameters,
+                parameters,
                 strict: value.function.strict,
             },
         })
@@ -404,7 +660,7 @@ impl From<OpenAIToolChoice> for ToolChoice {
 
 impl From<GeminiFunctionDeclaration> for Tool {
     fn from(value: GeminiFunctionDeclaration) -> Self {
-        let parameters = value.parameters.map(|s| gemini_schema_to_json_value(&s));
+        let parameters = value.parameters.map(|s| gemini_schema_to_json_schema(&s));
         Tool {
             r#type: ToolType::Function,
             function: FunctionDefinition {
@@ -455,7 +711,9 @@ impl TryFrom<ClaudeTool> for Tool {
                 function: FunctionDefinition {
                     name: custom.name,
                     description: custom.description,
-                    parameters: Some(custom.input_schema),
+                    parameters: Some(
+                        serde_json::from_value(custom.input_schema).map_err(|e| e.to_string())?,
+                    ),
                     strict: custom.strict,
                 },
             }),
@@ -484,68 +742,45 @@ impl From<ClaudeToolChoice> for ToolChoice {
 /// Recursively convert Gemini strong-typed Schema to JSON Value.
 ///
 /// 递归将 Gemini 强类型 Schema 转换为 JSON Value。
-fn gemini_schema_to_json_value(schema: &oxide_llm_proto::gemini::v1beta::Schema) -> Value {
+/// Recursively convert Gemini strong-typed Schema to JSONSchema.
+///
+/// 递归将 Gemini 强类型 Schema 转换为 JSONSchema。
+fn gemini_schema_to_json_schema(schema: &oxide_llm_proto::gemini::v1beta::Schema) -> JSONSchema {
     use oxide_llm_proto::gemini::v1beta::Type as GeminiType;
-    let mut map = serde_json::Map::new();
 
-    // Type
-    let type_str = match schema.schema_type {
-        GeminiType::String => "string",
-        GeminiType::Number => "number",
-        GeminiType::Integer => "integer",
-        GeminiType::Boolean => "boolean",
-        GeminiType::Array => "array",
-        GeminiType::Object => "object",
-        _ => "string", // Default or ignore
+    let schema_type = match schema.schema_type {
+        GeminiType::String => Some(JSONSchemaType::String),
+        GeminiType::Number => Some(JSONSchemaType::Number),
+        GeminiType::Integer => Some(JSONSchemaType::Integer),
+        GeminiType::Boolean => Some(JSONSchemaType::Boolean),
+        GeminiType::Array => Some(JSONSchemaType::Array),
+        GeminiType::Object => Some(JSONSchemaType::Object),
+        GeminiType::TypeUnspecified => None,
     };
-    map.insert("type".to_string(), Value::String(type_str.to_string()));
 
-    // Format
-    if let Some(ref f) = schema.format {
-        map.insert("format".to_string(), Value::String(f.clone()));
-    }
-    // Description
-    if let Some(ref d) = schema.description {
-        map.insert("description".to_string(), Value::String(d.clone()));
-    }
-    // Nullable
-    if let Some(n) = schema.nullable {
-        if n {
-            // In JSON schema nullable is usually a type list ["string", "null"] or just handled by logic
-            // But simple simple field 'nullable' is OpenAPI specific.
-            map.insert("nullable".to_string(), Value::Bool(true));
-        }
-    }
-
-    // Enum
-    if let Some(ref e) = schema.r#enum {
-        map.insert(
-            "enum".to_string(),
-            Value::Array(e.iter().map(|s| Value::String(s.clone())).collect()),
-        );
-    }
-
-    // Properties
-    if let Some(ref props) = schema.properties {
-        let mut props_map = serde_json::Map::new();
+    let properties = schema.properties.as_ref().map(|props| {
+        let mut map = std::collections::BTreeMap::new();
         for (k, v) in props {
-            props_map.insert(k.clone(), gemini_schema_to_json_value(v));
+            map.insert(k.clone(), gemini_schema_to_json_schema(v));
         }
-        map.insert("properties".to_string(), Value::Object(props_map));
-    }
+        map
+    });
 
-    // Items
-    if let Some(ref items) = schema.items {
-        map.insert("items".to_string(), gemini_schema_to_json_value(items));
-    }
+    let items = schema
+        .items
+        .as_ref()
+        .map(|v| Box::new(gemini_schema_to_json_schema(v)));
 
-    // Required
-    if let Some(ref req) = schema.required {
-        map.insert(
-            "required".to_string(),
-            Value::Array(req.iter().map(|s| Value::String(s.clone())).collect()),
-        );
+    JSONSchema {
+        schema_type,
+        description: schema.description.clone(),
+        properties,
+        required: schema.required.clone(),
+        items,
+        enum_values: schema.r#enum.clone(),
+        additional_properties: None,
+        format: schema.format.clone(),
+        default: None,
+        nullable: schema.nullable, // Capture nullable from Gemini
     }
-
-    Value::Object(map)
 }
