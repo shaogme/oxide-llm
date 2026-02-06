@@ -1,7 +1,8 @@
 use crate::transport::Transport;
 use error_set::error_set;
 use oxide_llm_core::mapper::MapperError;
-use oxide_llm_core::message::{Message, MessageHistory};
+use oxide_llm_core::message::Message;
+use oxide_llm_core::state::ConversationState;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
     AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
     Stop, StreamOptions, WebSearchOptions,
@@ -45,7 +46,6 @@ pub struct ChatCompletionsConfig {
     pub stream_options: Option<StreamOptions>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
-    pub tools: Option<Vec<Tool>>,
     pub tool_choice: Option<ToolChoice>,
     pub parallel_tool_calls: Option<bool>,
     pub user: Option<String>,
@@ -63,6 +63,7 @@ impl ChatCompletionsConfig {
     pub fn to_request(
         self,
         messages: Vec<ChatCompletionMessage>,
+        tools: Option<Vec<Tool>>,
         model: String,
     ) -> ChatCompletionRequest {
         ChatCompletionRequest {
@@ -88,7 +89,7 @@ impl ChatCompletionsConfig {
             stream_options: self.stream_options,
             temperature: self.temperature,
             top_p: self.top_p,
-            tools: self.tools,
+            tools,
             tool_choice: self.tool_choice,
             parallel_tool_calls: self.parallel_tool_calls,
             user: self.user,
@@ -144,11 +145,18 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI.
     ///
     /// 发送聊天请求到 OpenAI。
-    pub async fn chat(&self, history: MessageHistory) -> Result<Message, ChatCompletionsError> {
-        let MessageHistory {
+    pub async fn chat(&self, state: ConversationState) -> Result<Message, ChatCompletionsError> {
+        let ConversationState {
             system_prompt,
             messages,
-        } = history;
+            tools,
+        } = state;
+
+        let tools = if tools.is_empty() {
+            None
+        } else {
+            Some(tools.into_iter().map(|t| t.to_openai()).collect())
+        };
 
         // 1. Convert Core Messages to OpenAI Messages
         // 1. 将核心消息转换为 OpenAI 消息
@@ -173,7 +181,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         let request = self
             .config
             .clone()
-            .to_request(openai_messages, self.model.clone());
+            .to_request(openai_messages, tools, self.model.clone());
 
         // 3. Send Request
         // 3. 发送请求

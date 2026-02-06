@@ -160,10 +160,6 @@ impl Message {
 /// 消息历史管理。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct MessageHistory {
-    /// System Prompt.
-    ///
-    /// 系统提示词(可选)。
-    pub system_prompt: Option<String>,
     /// Message list.
     ///
     /// 消息列表。
@@ -171,12 +167,11 @@ pub struct MessageHistory {
 }
 
 impl MessageHistory {
-    /// Create a new MessageHistory with optional system prompt.
+    /// Create a new MessageHistory.
     ///
-    /// 创建一个新的 MessageHistory，可选择性设置系统提示词。
-    pub fn new(system_prompt: Option<String>) -> Self {
+    /// 创建一个新的 MessageHistory。
+    pub fn new() -> Self {
         Self {
-            system_prompt,
             messages: Vec::new(),
         }
     }
