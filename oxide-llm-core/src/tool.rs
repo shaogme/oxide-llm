@@ -226,101 +226,95 @@ impl Serialize for JSONSchema {
 }
 
 // Custom Deserialize for JSONSchema to handle "type": "string" OR "type": ["string", "null"]
+// Helper for parsing type field which can be "string" or ["string", "null"]
+fn parse_complex_type(val: Value) -> Result<(Option<JSONSchemaType>, bool), String> {
+    match val {
+        Value::String(s) => {
+            let t: JSONSchemaType =
+                serde_json::from_value(Value::String(s)).map_err(|e| e.to_string())?;
+            Ok((Some(t), false))
+        }
+        Value::Array(arr) => {
+            let mut has_null = false;
+            let mut primary_type = None;
+
+            for v in arr {
+                if let Some(s) = v.as_str() {
+                    if s == "null" {
+                        has_null = true;
+                    } else if primary_type.is_none() {
+                        let t: JSONSchemaType =
+                            serde_json::from_value(Value::String(s.to_string()))
+                                .map_err(|e| e.to_string())?;
+                        primary_type = Some(t);
+                    }
+                }
+            }
+            Ok((primary_type, has_null))
+        }
+        _ => Ok((None, false)),
+    }
+}
+
+struct JSONSchemaVisitor;
+
+impl<'de> serde::de::Visitor<'de> for JSONSchemaVisitor {
+    type Value = JSONSchema;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a JSON Schema object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut schema = JSONSchema::default();
+        let mut nullable_found = false;
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "type" => {
+                    let val: Value = map.next_value()?;
+                    let (t, n) = parse_complex_type(val).map_err(serde::de::Error::custom)?;
+                    schema.schema_type = t;
+                    if n {
+                        nullable_found = true;
+                    }
+                }
+                "description" => schema.description = Some(map.next_value()?),
+                "properties" => schema.properties = Some(map.next_value()?),
+                "required" => schema.required = Some(map.next_value()?),
+                "items" => schema.items = Some(map.next_value()?),
+                "enum" => schema.enum_values = Some(map.next_value()?),
+                "additionalProperties" => schema.additional_properties = Some(map.next_value()?),
+                "format" => schema.format = Some(map.next_value()?),
+                "default" => schema.default = Some(map.next_value()?),
+                "nullable" => {
+                    let val: Value = map.next_value()?;
+                    if val.as_bool() == Some(true) {
+                        nullable_found = true;
+                    }
+                }
+                _ => {
+                    let _ = map.next_value::<Value>();
+                }
+            }
+        }
+
+        if nullable_found {
+            schema.nullable = Some(true);
+        }
+
+        Ok(schema)
+    }
+}
+
 impl<'de> Deserialize<'de> for JSONSchema {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::{MapAccess, Visitor};
-        use std::fmt;
-
-        struct JSONSchemaVisitor;
-
-        impl<'de> Visitor<'de> for JSONSchemaVisitor {
-            type Value = JSONSchema;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a JSON Schema object")
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut schema = JSONSchema::default();
-                let mut nullable_found = false;
-
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "type" => {
-                            // Can be string or array of strings
-                            let val: Value = map.next_value()?;
-                            if let Some(s) = val.as_str() {
-                                // Single type
-                                schema.schema_type = Some(
-                                    serde_json::from_value(Value::String(s.to_string()))
-                                        .map_err(serde::de::Error::custom)?,
-                                );
-                            } else if let Some(arr) = val.as_array() {
-                                // Array type ["string", "null"]
-                                let mut has_null = false;
-                                let mut primary_type = None;
-
-                                for v in arr {
-                                    if let Some(s) = v.as_str() {
-                                        if s == "null" {
-                                            has_null = true;
-                                        } else {
-                                            // Assume first non-null type is the primary type
-                                            if primary_type.is_none() {
-                                                primary_type = Some(
-                                                    serde_json::from_value(Value::String(
-                                                        s.to_string(),
-                                                    ))
-                                                    .map_err(serde::de::Error::custom)?,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                                schema.schema_type = primary_type;
-                                if has_null {
-                                    nullable_found = true;
-                                }
-                            }
-                        }
-                        "description" => schema.description = Some(map.next_value()?),
-                        "properties" => schema.properties = Some(map.next_value()?),
-                        "required" => schema.required = Some(map.next_value()?),
-                        "items" => schema.items = Some(map.next_value()?),
-                        "enum" => schema.enum_values = Some(map.next_value()?),
-                        "additionalProperties" => {
-                            schema.additional_properties = Some(map.next_value()?)
-                        }
-                        "format" => schema.format = Some(map.next_value()?),
-                        "default" => schema.default = Some(map.next_value()?),
-                        "nullable" => {
-                            // Handle explicit nullable field (e.g. from Gemini if parsed via this path)
-                            if let Ok(val) = map.next_value::<bool>() {
-                                if val {
-                                    nullable_found = true;
-                                }
-                            }
-                        }
-                        _ => {
-                            let _ = map.next_value::<Value>();
-                        } // Ignore unknown fields
-                    }
-                }
-
-                if nullable_found {
-                    schema.nullable = Some(true);
-                }
-
-                Ok(schema)
-            }
-        }
-
         deserializer.deserialize_map(JSONSchemaVisitor)
     }
 }
@@ -563,36 +557,23 @@ impl ToolChoice {
     // --- Gemini Converters ---
 
     pub fn to_gemini(&self) -> Option<GeminiToolConfig> {
-        match self {
-            ToolChoice::None => Some(GeminiToolConfig {
-                function_calling_config: Some(GeminiFunctionCallingConfig {
-                    mode: Some(GeminiFunctionCallingConfigMode::None),
-                    allowed_function_names: None,
-                }),
-                retrieval_config: None,
+        let (mode, allowed_function_names) = match self {
+            ToolChoice::None => (Some(GeminiFunctionCallingConfigMode::None), None),
+            ToolChoice::Auto => (Some(GeminiFunctionCallingConfigMode::Auto), None),
+            ToolChoice::Required => (Some(GeminiFunctionCallingConfigMode::Any), None),
+            ToolChoice::Function(name) => (
+                Some(GeminiFunctionCallingConfigMode::Any),
+                Some(vec![name.clone()]),
+            ),
+        };
+
+        Some(GeminiToolConfig {
+            function_calling_config: Some(GeminiFunctionCallingConfig {
+                mode,
+                allowed_function_names,
             }),
-            ToolChoice::Auto => Some(GeminiToolConfig {
-                function_calling_config: Some(GeminiFunctionCallingConfig {
-                    mode: Some(GeminiFunctionCallingConfigMode::Auto),
-                    allowed_function_names: None,
-                }),
-                retrieval_config: None,
-            }),
-            ToolChoice::Required => Some(GeminiToolConfig {
-                function_calling_config: Some(GeminiFunctionCallingConfig {
-                    mode: Some(GeminiFunctionCallingConfigMode::Any),
-                    allowed_function_names: None,
-                }),
-                retrieval_config: None,
-            }),
-            ToolChoice::Function(name) => Some(GeminiToolConfig {
-                function_calling_config: Some(GeminiFunctionCallingConfig {
-                    mode: Some(GeminiFunctionCallingConfigMode::Any),
-                    allowed_function_names: Some(vec![name.clone()]),
-                }),
-                retrieval_config: None,
-            }),
-        }
+            retrieval_config: None,
+        })
     }
 
     // --- Claude Converters ---
@@ -675,26 +656,19 @@ impl From<GeminiFunctionDeclaration> for Tool {
 
 impl From<GeminiToolConfig> for ToolChoice {
     fn from(value: GeminiToolConfig) -> Self {
-        if let Some(config) = value.function_calling_config {
-            match config.mode {
-                Some(GeminiFunctionCallingConfigMode::None) => ToolChoice::None,
-                Some(GeminiFunctionCallingConfigMode::Auto) => ToolChoice::Auto,
-                Some(GeminiFunctionCallingConfigMode::Any) => {
-                    if let Some(names) = config.allowed_function_names {
-                        if names.len() == 1 {
-                            ToolChoice::Function(names[0].clone())
-                        } else {
-                            // If multiple allowed, we map to Required (Any) as approximation
-                            ToolChoice::Required
-                        }
-                    } else {
-                        ToolChoice::Required
-                    }
-                }
-                _ => ToolChoice::Auto,
-            }
-        } else {
-            ToolChoice::Auto
+        let Some(config) = value.function_calling_config else {
+            return ToolChoice::Auto;
+        };
+
+        match config.mode {
+            Some(GeminiFunctionCallingConfigMode::None) => ToolChoice::None,
+            Some(GeminiFunctionCallingConfigMode::Auto) => ToolChoice::Auto,
+            Some(GeminiFunctionCallingConfigMode::Any) => config
+                .allowed_function_names
+                .filter(|names| names.len() == 1)
+                .map(|names| ToolChoice::Function(names[0].clone()))
+                .unwrap_or(ToolChoice::Required),
+            _ => ToolChoice::Auto,
         }
     }
 }
