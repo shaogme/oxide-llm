@@ -160,21 +160,25 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         // 1. Convert Core Messages to OpenAI Messages
         // 1. 将核心消息转换为 OpenAI 消息
-        let mut openai_messages: Vec<ChatCompletionMessage> = messages
-            .into_iter()
-            .map(|msg| msg.try_into())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(ChatCompletionsError::Mapper)?;
+        let openai_messages: Vec<ChatCompletionMessage> = {
+            let initial_messages = match system_prompt {
+                Some(prompt) => {
+                    vec![ChatCompletionMessage::System {
+                        content: prompt,
+                        name: None,
+                    }]
+                }
+                None => Vec::new(),
+            };
 
-        if let Some(prompt) = system_prompt {
-            openai_messages.insert(
-                0,
-                ChatCompletionMessage::System {
-                    content: prompt,
-                    name: None,
-                },
-            );
-        }
+            messages
+                .into_iter()
+                .try_fold(initial_messages, |mut acc, msg| {
+                    acc.push(msg.try_into()?);
+                    Ok(acc)
+                })
+                .map_err(ChatCompletionsError::Mapper)?
+        };
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
