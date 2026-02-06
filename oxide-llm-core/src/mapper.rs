@@ -305,12 +305,12 @@ pub mod claude {
                 ContentPart::Image(image) => {
                     let source = match image.source {
                         ImageSource::Base64 { data } => ClaudeImageSource::Base64 {
-                            typ: "base64".to_string(),
+                            r#type: "base64".to_string(),
                             media_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
                             data,
                         },
                         ImageSource::Url { url } => ClaudeImageSource::Url {
-                            typ: "url".to_string(),
+                            r#type: "url".to_string(),
                             url,
                         },
                     };

@@ -492,7 +492,7 @@ impl Tool {
             description: self.function.description.clone(),
             input_schema,
             cache_control: None, // Core doesn't support cache control yet
-            typ: Some("custom".to_string()),
+            r#type: Some("custom".to_string()),
             strict: self.function.strict,
         })
     }

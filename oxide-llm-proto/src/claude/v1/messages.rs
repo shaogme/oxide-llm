@@ -58,13 +58,13 @@ pub struct ImageBlock {
 pub enum ImageSource {
     Base64 {
         #[serde(rename = "type")]
-        typ: String, // "base64"
+        r#type: String, // "base64"
         media_type: String,
         data: String,
     },
     Url {
         #[serde(rename = "type")]
-        typ: String, // "url"
+        r#type: String, // "url"
         url: String,
     },
 }
@@ -113,24 +113,24 @@ pub struct DocumentBlock {
 pub enum DocumentSource {
     Base64 {
         #[serde(rename = "type")]
-        typ: String, // "base64"
+        r#type: String, // "base64"
         media_type: String, // "application/pdf"
         data: String,
     },
     Url {
         #[serde(rename = "type")]
-        typ: String, // "url"
+        r#type: String, // "url"
         url: String,
     },
     Text {
         #[serde(rename = "type")]
-        typ: String, // "text"
+        r#type: String, // "text"
         media_type: String, // "text/plain"
         data: String,
     },
     Content {
         #[serde(rename = "type")]
-        typ: String, // "content"
+        r#type: String, // "content"
         content: Content, // string or blocks
     },
 }
@@ -149,7 +149,7 @@ pub struct RedactedThinkingBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheControl {
     #[serde(rename = "type")]
-    pub typ: String, // "ephemeral"
+    pub r#type: String, // "ephemeral"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl: Option<String>, // "5m" or "1h"
 }

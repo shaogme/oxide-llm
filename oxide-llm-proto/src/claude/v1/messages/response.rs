@@ -9,7 +9,7 @@ pub struct MessagesResponse {
 
     /// Object type.
     #[serde(rename = "type")]
-    pub typ: String, // "message"
+    pub r#type: String, // "message"
 
     /// Conversational role of the generated message.
     pub role: Role, // Always "assistant"

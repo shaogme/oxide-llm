@@ -121,7 +121,7 @@ pub struct CustomTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
-    pub typ: Option<String>, // "custom"
+    pub r#type: Option<String>, // "custom"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
 }
@@ -130,7 +130,7 @@ pub struct CustomTool {
 pub struct BashTool {
     pub name: String, // "bash"
     #[serde(rename = "type")]
-    pub typ: String, // "bash_20250124"
+    pub r#type: String, // "bash_20250124"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,7 +141,7 @@ pub struct BashTool {
 pub struct TextEditorTool {
     pub name: String, // "str_replace_editor" or "str_replace_based_edit_tool"
     #[serde(rename = "type")]
-    pub typ: String, // "text_editor_20250124", "text_editor_20250429", "text_editor_20250728"
+    pub r#type: String, // "text_editor_20250124", "text_editor_20250429", "text_editor_20250728"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,7 +155,7 @@ pub struct TextEditorTool {
 pub struct WebSearchTool {
     pub name: String, // "web_search"
     #[serde(rename = "type")]
-    pub typ: String, // "web_search_20250305"
+    pub r#type: String, // "web_search_20250305"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_domains: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,7 +173,7 @@ pub struct WebSearchTool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchUserLocation {
     #[serde(rename = "type")]
-    pub typ: String, // "approximate"
+    pub r#type: String, // "approximate"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -193,13 +193,13 @@ pub struct OutputConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputFormat {
     #[serde(rename = "type")]
-    pub typ: String, // "json_schema"
+    pub r#type: String, // "json_schema"
     pub schema: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThinkingConfig {
     #[serde(rename = "type")]
-    pub typ: String, // "enabled"
+    pub r#type: String, // "enabled"
     pub budget_tokens: u32,
 }
