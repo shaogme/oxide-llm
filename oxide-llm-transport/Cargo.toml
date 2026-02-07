@@ -1,5 +1,5 @@
 [package]
-name = "oxide-llm"
+name = "oxide-llm-transport"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,13 +12,19 @@ documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["reqwest"]
+reqwest = ["dep:reqwest"]
+
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde.workspace = true
 
-oxide-llm-core = { workspace = true }
-oxide-llm-proto = { workspace = true }
-error_set = { workspace = true }
+oxide-llm-core.workspace = true
 
-futures.workspace = true
 bytes.workspace = true
+futures.workspace = true
+
+[dependencies.reqwest]
+version = "0.12.12"
+features = ["json", "stream"]
+optional = true

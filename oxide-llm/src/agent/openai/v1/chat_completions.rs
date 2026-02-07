@@ -1,10 +1,10 @@
-use crate::transport::Transport;
 use bytes::{Bytes, BytesMut};
 use error_set::error_set;
 use futures::{Stream, StreamExt};
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::Message;
 use oxide_llm_core::state::ConversationState;
+use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
     AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 error_set! {
     ChatCompletionsError := {
         #[display("Transport error: {0}")]
-        Transport(crate::transport::TransportError),
+        Transport(TransportError),
         #[display("Mapper conversion error: {0}")]
         Mapper(MapperError),
         #[display("JSON error: {0}")]
@@ -230,11 +230,8 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         let request = self.build_request(state, false)?;
 
         // Send Request
-        let transport_req = crate::transport::TransportRequest::new(
-            crate::transport::Method::Post,
-            &self.config.required.endpoint,
-            request,
-        );
+        let transport_req =
+            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
         let response: ChatCompletionResponse = self
             .transport
             .send(transport_req)
@@ -260,11 +257,8 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
-        let transport_req = crate::transport::TransportRequest::new(
-            crate::transport::Method::Post,
-            &self.config.required.endpoint,
-            request,
-        );
+        let transport_req =
+            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
         let stream = self
             .transport
             .stream(transport_req)
@@ -277,7 +271,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 }
 
 fn parse_sse_stream(
-    stream: futures::stream::BoxStream<'static, Result<Bytes, crate::transport::TransportError>>,
+    stream: futures::stream::BoxStream<'static, Result<Bytes, TransportError>>,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, ChatCompletionsError>> {
     futures::stream::unfold(
         (stream, BytesMut::new()),

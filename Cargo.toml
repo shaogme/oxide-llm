@@ -1,6 +1,9 @@
 [workspace]
-members = ["oxide-llm",
-    "oxide-llm-core", "oxide-llm-proto",
+members = [
+    "oxide-llm",
+    "oxide-llm-core",
+    "oxide-llm-proto",
+    "oxide-llm-transport",
 ]
 resolver = "3"
 
@@ -23,8 +26,12 @@ categories = []
 oxide-llm = { path = "oxide-llm" }
 oxide-llm-core = { path = "oxide-llm-core" }
 oxide-llm-proto = { path = "oxide-llm-proto" }
+oxide-llm-transport = { path = "oxide-llm-transport" }
 
 # External Crates
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 error_set = "0.9"
+
+futures = "0.3.31"
+bytes = "1.11.1"
