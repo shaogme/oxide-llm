@@ -1,5 +1,5 @@
 use futures::{StreamExt, stream::BoxStream};
-use oxide_llm_core::transport::{LocalTransport, Method, TransportError, TransportRequest};
+use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use reqwest::{Client, RequestBuilder};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -82,7 +82,7 @@ fn map_reqwest_error(e: reqwest::Error) -> TransportError {
     }
 }
 
-impl LocalTransport for ReqwestTransport {
+impl Transport for ReqwestTransport {
     async fn send<Req, Res>(&self, req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
         Req: Serialize + Send + Sync,

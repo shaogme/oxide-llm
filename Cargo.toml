@@ -4,6 +4,7 @@ members = [
     "oxide-llm-core",
     "oxide-llm-proto",
     "oxide-llm-transport",
+    "examples/agent",
 ]
 resolver = "3"
 
