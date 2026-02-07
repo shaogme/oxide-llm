@@ -183,3 +183,105 @@ impl MessageHistory {
         self.messages.push(message);
     }
 }
+
+/// 增量消息结构，用于流式响应。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct DeltaMessage {
+    /// 角色通常只在第一个包出现，后续可能为 None。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<Role>,
+
+    /// 消息内容的增量部分。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<DeltaContentPart>>,
+
+    /// 发送者名称。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// 结束原因 (通常在流的最后出现)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<FinishReason>,
+
+    /// Token 使用情况 (可能在流的开始或结束出现)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
+}
+
+/// 增量消息内容部分。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DeltaContentPart {
+    /// 文本增量。
+    Text { index: u32, text: String },
+
+    /// 推理/思维链内容增量 (对应 Claude Thinking Block)。
+    Reasoning {
+        index: u32,
+        text: String,
+        /// 可选：思维块的签名/验签数据。
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+
+    /// 工具调用增量。
+    ToolCall(DeltaToolCall),
+
+    /// 拒绝内容增量 (OpenAI)。
+    Refusal { refusal: String },
+}
+
+/// 增量工具调用。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeltaToolCall {
+    /// 对应 Message 中 ToolCall 列表的索引。
+    pub index: u32,
+
+    /// 工具 ID (通常只在第一个包出现)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// 工具类型 (通常只在第一个包出现)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+
+    /// 函数信息增量。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<DeltaFunction>,
+}
+
+/// 增量函数信息。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeltaFunction {
+    /// 函数名 (通常只在第一个包出现)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    /// 参数片段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+}
+
+/// 结束原因。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    /// 模型自然停止生成。
+    Stop,
+    /// 达到最大 Token 限制。
+    Length,
+    /// 模型请求调用工具。
+    ToolCalls,
+    /// 内容被安全过滤器拦截。
+    ContentFilter,
+    /// 其他原因。
+    Other(String),
+}
+
+/// Token 使用量统计。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Usage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub total_tokens: u32,
+}

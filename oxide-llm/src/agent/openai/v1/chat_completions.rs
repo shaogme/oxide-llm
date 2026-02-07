@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use error_set::error_set;
 use futures::{Stream, StreamExt};
 use oxide_llm_core::mapper::MapperError;
-use oxide_llm_core::message::Message;
+use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
@@ -250,10 +250,8 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     pub async fn chat_stream(
         &self,
         state: ConversationState,
-    ) -> Result<
-        impl Stream<Item = Result<ChatCompletionChunk, ChatCompletionsError>>,
-        ChatCompletionsError,
-    > {
+    ) -> Result<impl Stream<Item = Result<DeltaMessage, ChatCompletionsError>>, ChatCompletionsError>
+    {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -272,7 +270,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
 fn parse_sse_stream(
     stream: futures::stream::BoxStream<'static, Result<Bytes, TransportError>>,
-) -> impl Stream<Item = Result<ChatCompletionChunk, ChatCompletionsError>> {
+) -> impl Stream<Item = Result<DeltaMessage, ChatCompletionsError>> {
     futures::stream::unfold(
         (stream, BytesMut::new()),
         |(mut stream, mut buffer)| async move {
@@ -302,7 +300,18 @@ fn parse_sse_stream(
                             // Parse JSON
                             match serde_json::from_str::<ChatCompletionChunk>(data) {
                                 Ok(chunk) => {
-                                    chunk_to_yield = Some(chunk);
+                                    // Convert to DeltaMessage
+                                    match chunk.try_into() {
+                                        Ok(delta) => {
+                                            chunk_to_yield = Some(delta);
+                                        }
+                                        Err(e) => {
+                                            return Some((
+                                                Err(ChatCompletionsError::Mapper(e)),
+                                                (stream, buffer),
+                                            ));
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     return Some((

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod chunk;
 pub mod request;
 pub mod response;
 
