@@ -35,40 +35,51 @@ fn convert_content_to_gemini_parts(
     for part in parts {
         match part {
             ContentPart::Text { text } => {
-                gemini_parts.push(GeminiPart::Text(text));
+                gemini_parts.push(GeminiPart {
+                    text: Some(text),
+                    ..Default::default()
+                });
             }
             ContentPart::Image(image) => {
                 // Gemini usually expects InlineData for base64
                 if let ImageSource::Base64 { data } = image.source {
-                    gemini_parts.push(GeminiPart::InlineData(Blob {
-                        mime_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
-                        data,
-                    }));
+                    gemini_parts.push(GeminiPart {
+                        inline_data: Some(Blob {
+                            mime_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
+                            data,
+                        }),
+                        ..Default::default()
+                    });
                 } else {
-                    // Handle URL images if strictly needed (FileData), but requires upload first usually.
-                    // Here mapping standard Image to generic structure might be hard if we don't know if it's uploaded.
-                    // Assuming FileData for URL might be valid if the URL is a gs:// URI or similar,
-                    // but standard HTTP URL might not work directly.
-                    // For now, let's treat it as FileData and hope the URL is valid for Gemini.
                     if let ImageSource::Url { url } = image.source {
-                        gemini_parts.push(GeminiPart::FileData(FileData {
-                            mime_type: image.media_type,
-                            file_uri: url,
-                        }));
+                        gemini_parts.push(GeminiPart {
+                            file_data: Some(FileData {
+                                mime_type: image.media_type,
+                                file_uri: url,
+                            }),
+                            ..Default::default()
+                        });
                     }
                 }
             }
             ContentPart::Audio(audio) => {
-                gemini_parts.push(GeminiPart::InlineData(Blob {
-                    mime_type: format!("audio/{}", audio.format), // e.g. audio/mp3
-                    data: audio.data,
-                }));
+                gemini_parts.push(GeminiPart {
+                    inline_data: Some(Blob {
+                        mime_type: format!("audio/{}", audio.format), // e.g. audio/mp3
+                        data: audio.data,
+                    }),
+                    ..Default::default()
+                });
             }
             ContentPart::ToolCall(tc) => {
-                gemini_parts.push(GeminiPart::FunctionCall(FunctionCall {
-                    name: tc.name,
-                    args: tc.arguments,
-                }));
+                gemini_parts.push(GeminiPart {
+                    function_call: Some(FunctionCall {
+                        id: Some(tc.id),
+                        name: tc.name,
+                        args: tc.arguments,
+                    }),
+                    ..Default::default()
+                });
             }
             ContentPart::ToolResult(tr) => {
                 let response_value = if tr.content.len() == 1 {
@@ -84,14 +95,24 @@ fn convert_content_to_gemini_parts(
                     serde_json::to_value(&tr.content)?
                 };
 
-                gemini_parts.push(GeminiPart::FunctionResponse(FunctionResponse {
-                    name: tr.name,
-                    response: response_value,
-                }));
+                gemini_parts.push(GeminiPart {
+                    function_response: Some(FunctionResponse {
+                        id: Some(tr.tool_call_id),
+                        name: tr.name,
+                        response: response_value,
+                        parts: None,
+                        will_continue: None,
+                        scheduling: None,
+                    }),
+                    ..Default::default()
+                });
             }
             ContentPart::Json(value) => {
                 let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
-                gemini_parts.push(GeminiPart::Text(text));
+                gemini_parts.push(GeminiPart {
+                    text: Some(text),
+                    ..Default::default()
+                });
             }
             _ => {
                 return Err(MapperError::UnsupportedContent {
@@ -116,19 +137,15 @@ impl TryFrom<GenerateContentResponse> for Message {
         let mut content_parts = Vec::new();
 
         for part in &candidate.content.parts {
-            match part {
-                GeminiPart::Text(text) => {
-                    content_parts.push(ContentPart::Text { text: text.clone() });
-                }
-                GeminiPart::FunctionCall(fc) => {
-                    // Interoperability: Gemini doesn't have call_id, so use name as ID.
-                    content_parts.push(ContentPart::ToolCall(ToolCall {
-                        id: fc.name.clone(),
-                        name: fc.name.clone(),
-                        arguments: fc.args.clone(),
-                    }));
-                }
-                _ => {}
+            if let Some(text) = &part.text {
+                content_parts.push(ContentPart::Text { text: text.clone() });
+            } else if let Some(fc) = &part.function_call {
+                // Interoperability: Gemini doesn't have call_id, so use name as ID.
+                content_parts.push(ContentPart::ToolCall(ToolCall {
+                    id: fc.id.clone().unwrap_or_else(|| fc.name.clone()),
+                    name: fc.name.clone(),
+                    arguments: fc.args.clone(),
+                }));
             }
         }
 
@@ -191,28 +208,32 @@ impl TryFrom<GenerateContentResponse> for DeltaMessage {
         let mut content_parts = Vec::new();
 
         for (i, part) in candidate.content.parts.iter().enumerate() {
-            match part {
-                GeminiPart::Text(text) => {
-                    content_parts.push(DeltaContentPart::Text {
+            if part.thought == Some(true) {
+                if let Some(text) = &part.text {
+                    content_parts.push(DeltaContentPart::Reasoning {
                         index: i as u32,
                         text: text.clone(),
+                        signature: part.thought_signature.clone(),
                     });
                 }
-                GeminiPart::FunctionCall(fc) => {
-                    // Gemini sends full function call in one go usually, but for Delta we map it
-                    content_parts.push(DeltaContentPart::ToolCall(DeltaToolCall {
-                        index: i as u32,
-                        id: Some(fc.name.clone()), // Use name as ID for Gemini if no explicit ID
-                        r#type: Some("function".to_string()),
-                        function: Some(DeltaFunction {
-                            name: Some(fc.name.clone()),
-                            arguments: Some(
-                                serde_json::to_string(&fc.args).map_err(MapperError::JsonError)?,
-                            ),
-                        }),
-                    }));
-                }
-                _ => {}
+            } else if let Some(text) = &part.text {
+                content_parts.push(DeltaContentPart::Text {
+                    index: i as u32,
+                    text: text.clone(),
+                });
+            } else if let Some(fc) = &part.function_call {
+                // Gemini sends full function call in one go usually, but for Delta we map it
+                content_parts.push(DeltaContentPart::ToolCall(DeltaToolCall {
+                    index: i as u32,
+                    id: Some(fc.id.clone().unwrap_or_else(|| fc.name.clone())),
+                    r#type: Some("function".to_string()),
+                    function: Some(DeltaFunction {
+                        name: Some(fc.name.clone()),
+                        arguments: Some(
+                            serde_json::to_string(&fc.args).map_err(MapperError::JsonError)?,
+                        ),
+                    }),
+                }));
             }
         }
 

@@ -292,6 +292,14 @@ impl TryFrom<ChatCompletionChunk> for DeltaMessage {
             });
         }
 
+        if let Some(reasoning) = &delta.reasoning_content {
+            content_parts.push(DeltaContentPart::Reasoning {
+                index: 0,
+                text: reasoning.clone(),
+                signature: None,
+            });
+        }
+
         if let Some(refusal) = &delta.refusal {
             content_parts.push(DeltaContentPart::Refusal {
                 refusal: refusal.clone(),
