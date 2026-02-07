@@ -229,6 +229,8 @@ pub enum Stop {
 pub struct StreamOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_usage: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_obfuscation: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

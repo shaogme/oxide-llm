@@ -1,8 +1,11 @@
 use crate::transport::Transport;
+use bytes::{Bytes, BytesMut};
 use error_set::error_set;
+use futures::{Stream, StreamExt};
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::Message;
 use oxide_llm_core::state::ConversationState;
+use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
     AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
     Stop, StreamOptions, WebSearchOptions,
@@ -17,15 +20,28 @@ error_set! {
         Transport(crate::transport::TransportError),
         #[display("Mapper conversion error: {0}")]
         Mapper(MapperError),
+        #[display("JSON error: {0}")]
+        Json(serde_json::Error),
+        #[display("UTF-8 error: {0}")]
+        Utf8(std::str::Utf8Error),
     }
 }
 
-/// Configuration for OpenAI Chat Completions Agent.
+/// Configuration for OpenAI Chat Completions Agent (Required).
 ///
-/// OpenAI Chat Completions 代理配置。
+/// OpenAI Chat Completions 代理配置 (必须)。
+#[derive(Debug, Clone)]
+pub struct ChatCompletionsRequiredConfig {
+    pub model: String,
+    pub endpoint: String,
+}
+
+/// Configuration for OpenAI Chat Completions Agent (Optional).
+///
+/// OpenAI Chat Completions 代理配置 (选填)。
 /// 包含了除 `messages` 和 `model` 之外的所有 `ChatCompletionRequest` 可选参数。
 #[derive(Debug, Clone, Default)]
-pub struct ChatCompletionsConfig {
+pub struct ChatCompletionsOptionalConfig {
     pub frequency_penalty: Option<f32>,
     pub logit_bias: Option<HashMap<String, f32>>,
     pub logprobs: Option<bool>,
@@ -42,8 +58,6 @@ pub struct ChatCompletionsConfig {
     pub service_tier: Option<String>,
     pub stop: Option<Stop>,
     pub store: Option<bool>,
-    pub stream: Option<bool>,
-    pub stream_options: Option<StreamOptions>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub tool_choice: Option<ToolChoice>,
@@ -56,48 +70,58 @@ pub struct ChatCompletionsConfig {
     pub reasoning_effort: Option<String>,
 }
 
+/// Configuration for OpenAI Chat Completions Agent.
+///
+/// OpenAI Chat Completions 代理配置。
+#[derive(Debug, Clone)]
+pub struct ChatCompletionsConfig {
+    pub required: ChatCompletionsRequiredConfig,
+    pub optional: ChatCompletionsOptionalConfig,
+}
+
 impl ChatCompletionsConfig {
-    /// Convert Config to ChatCompletionRequest with provided messages and model.
+    /// Convert Config to ChatCompletionRequest with provided messages.
     ///
-    /// 将配置转换为 ChatCompletionRequest，并填入消息和模型。
+    /// 将配置转换为 ChatCompletionRequest，并填入消息。
     pub fn to_request(
         self,
         messages: Vec<ChatCompletionMessage>,
         tools: Option<Vec<Tool>>,
-        model: String,
+        is_stream: bool,
+        stream_options: Option<StreamOptions>,
     ) -> ChatCompletionRequest {
         ChatCompletionRequest {
             messages,
-            model,
-            frequency_penalty: self.frequency_penalty,
-            logit_bias: self.logit_bias,
-            logprobs: self.logprobs,
-            top_logprobs: self.top_logprobs,
-            max_tokens: self.max_tokens,
-            max_completion_tokens: self.max_completion_tokens,
-            n: self.n,
-            modalities: self.modalities,
-            prediction: self.prediction,
-            audio: self.audio,
-            presence_penalty: self.presence_penalty,
-            response_format: self.response_format,
-            seed: self.seed,
-            service_tier: self.service_tier,
-            stop: self.stop,
-            store: self.store,
-            stream: self.stream,
-            stream_options: self.stream_options,
-            temperature: self.temperature,
-            top_p: self.top_p,
+            model: self.required.model,
+            frequency_penalty: self.optional.frequency_penalty,
+            logit_bias: self.optional.logit_bias,
+            logprobs: self.optional.logprobs,
+            top_logprobs: self.optional.top_logprobs,
+            max_tokens: self.optional.max_tokens,
+            max_completion_tokens: self.optional.max_completion_tokens,
+            n: self.optional.n,
+            modalities: self.optional.modalities,
+            prediction: self.optional.prediction,
+            audio: self.optional.audio,
+            presence_penalty: self.optional.presence_penalty,
+            response_format: self.optional.response_format,
+            seed: self.optional.seed,
+            service_tier: self.optional.service_tier,
+            stop: self.optional.stop,
+            store: self.optional.store,
+            stream: Some(is_stream),
+            stream_options,
+            temperature: self.optional.temperature,
+            top_p: self.optional.top_p,
             tools,
-            tool_choice: self.tool_choice,
-            parallel_tool_calls: self.parallel_tool_calls,
-            user: self.user,
-            function_call: self.function_call,
-            functions: self.functions,
-            web_search_options: self.web_search_options,
-            verbosity: self.verbosity,
-            reasoning_effort: self.reasoning_effort,
+            tool_choice: self.optional.tool_choice,
+            parallel_tool_calls: self.optional.parallel_tool_calls,
+            user: self.optional.user,
+            function_call: self.optional.function_call,
+            functions: self.optional.functions,
+            web_search_options: self.optional.web_search_options,
+            verbosity: self.optional.verbosity,
+            reasoning_effort: self.optional.reasoning_effort,
         }
     }
 }
@@ -112,10 +136,6 @@ pub struct ChatCompletionsAgent<T: Clone> {
     ///
     /// 用于网络通信的传输层。
     transport: T,
-    /// The model name to use (e.g., "gpt-4o").
-    ///
-    /// 使用的模型名称 (例如 "gpt-4o")。
-    model: String,
     /// The configuration for the chat completions request.
     ///
     /// 聊天补全请求的配置。
@@ -126,11 +146,13 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// Create a new ChatCompletionsAgent.
     ///
     /// 创建一个新的 ChatCompletionsAgent。
-    pub fn new(transport: T, model: String) -> Self {
+    pub fn new(transport: T, required: ChatCompletionsRequiredConfig) -> Self {
         Self {
             transport,
-            model,
-            config: ChatCompletionsConfig::default(),
+            config: ChatCompletionsConfig {
+                required,
+                optional: ChatCompletionsOptionalConfig::default(),
+            },
         }
     }
 
@@ -142,10 +164,14 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         self
     }
 
-    /// Send a chat request to OpenAI.
+    /// Build a ChatCompletionRequest from the conversation state.
     ///
-    /// 发送聊天请求到 OpenAI。
-    pub async fn chat(&self, state: ConversationState) -> Result<Message, ChatCompletionsError> {
+    /// 根据对话状态构建 ChatCompletionRequest。
+    fn build_request(
+        &self,
+        state: ConversationState,
+        stream: bool,
+    ) -> Result<ChatCompletionRequest, ChatCompletionsError> {
         let ConversationState {
             system_prompt,
             messages,
@@ -182,23 +208,144 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
-        let request = self
+        let mut request = self
             .config
             .clone()
-            .to_request(openai_messages, tools, self.model.clone());
+            .to_request(openai_messages, tools, stream, None);
 
-        // 3. Send Request
-        // 3. 发送请求
+        if stream && request.stream_options.is_none() {
+            request.stream_options = Some(StreamOptions {
+                include_usage: Some(true),
+                include_obfuscation: None,
+            });
+        }
+
+        Ok(request)
+    }
+
+    /// Send a chat request to OpenAI.
+    ///
+    /// 发送聊天请求到 OpenAI。
+    pub async fn chat(&self, state: ConversationState) -> Result<Message, ChatCompletionsError> {
+        let request = self.build_request(state, false)?;
+
+        // Send Request
+        let transport_req = crate::transport::TransportRequest::new(
+            crate::transport::Method::Post,
+            &self.config.required.endpoint,
+            request,
+        );
         let response: ChatCompletionResponse = self
             .transport
-            .send("/v1/chat/completions", request)
+            .send(transport_req)
             .await
             .map_err(ChatCompletionsError::Transport)?;
 
-        // 4. Convert Response back to Core Message
-        // 4. 将响应转换回核心消息
+        // Convert Response back to Core Message
         let core_message: Message = response.try_into().map_err(ChatCompletionsError::Mapper)?;
 
         Ok(core_message)
     }
+
+    /// Send a chat request to OpenAI and receive a stream of chunks.
+    ///
+    /// 发送聊天请求到 OpenAI 并接收流式响应。
+    pub async fn chat_stream(
+        &self,
+        state: ConversationState,
+    ) -> Result<
+        impl Stream<Item = Result<ChatCompletionChunk, ChatCompletionsError>>,
+        ChatCompletionsError,
+    > {
+        let request = self.build_request(state, true)?;
+
+        // Send Stream Request
+        let transport_req = crate::transport::TransportRequest::new(
+            crate::transport::Method::Post,
+            &self.config.required.endpoint,
+            request,
+        );
+        let stream = self
+            .transport
+            .stream(transport_req)
+            .await
+            .map_err(ChatCompletionsError::Transport)?;
+
+        // Parse SSE Stream
+        Ok(parse_sse_stream(stream))
+    }
+}
+
+fn parse_sse_stream(
+    stream: futures::stream::BoxStream<'static, Result<Bytes, crate::transport::TransportError>>,
+) -> impl Stream<Item = Result<ChatCompletionChunk, ChatCompletionsError>> {
+    futures::stream::unfold(
+        (stream, BytesMut::new()),
+        |(mut stream, mut buffer)| async move {
+            loop {
+                // Check if buffer contains double newline
+                if let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
+                    // Found an event block
+                    let block = buffer.split_to(pos + 2); // Remove block from buffer
+
+                    let s = match std::str::from_utf8(&block) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            return Some((Err(ChatCompletionsError::Utf8(e)), (stream, buffer)));
+                        }
+                    };
+
+                    let mut chunk_to_yield = None;
+                    let mut done = false;
+
+                    for line in s.lines() {
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            let data = data.trim();
+                            if data == "[DONE]" {
+                                done = true;
+                                break;
+                            }
+                            // Parse JSON
+                            match serde_json::from_str::<ChatCompletionChunk>(data) {
+                                Ok(chunk) => {
+                                    chunk_to_yield = Some(chunk);
+                                }
+                                Err(e) => {
+                                    return Some((
+                                        Err(ChatCompletionsError::Json(e)),
+                                        (stream, buffer),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    if done {
+                        return None;
+                    }
+
+                    if let Some(chunk) = chunk_to_yield {
+                        return Some((Ok(chunk), (stream, buffer)));
+                    } else {
+                        // Keep-alive or empty block, continue loop
+                        continue;
+                    }
+                }
+
+                // Read more
+                match stream.next().await {
+                    Some(Ok(chunk)) => {
+                        buffer.extend_from_slice(&chunk);
+                    }
+                    Some(Err(e)) => {
+                        return Some((Err(ChatCompletionsError::Transport(e)), (stream, buffer)));
+                    }
+                    None => {
+                        // EOF
+                        return None;
+                    }
+                }
+            }
+        },
+    )
 }
