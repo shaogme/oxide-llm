@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use error_set::error_set;
 use futures::{Stream, StreamExt};
 use oxide_llm_core::mapper::MapperError;
-use oxide_llm_core::message::{DeltaMessage, Message};
+use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
@@ -26,6 +26,8 @@ error_set! {
         Utf8(std::str::Utf8Error),
     }
 }
+
+type Result<T> = std::result::Result<T, ChatCompletionsError>;
 
 /// Configuration for OpenAI Chat Completions Agent (Required).
 ///
@@ -171,7 +173,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         &self,
         state: ConversationState,
         stream: bool,
-    ) -> Result<ChatCompletionRequest, ChatCompletionsError> {
+    ) -> Result<ChatCompletionRequest> {
         let ConversationState {
             system_prompt,
             messages,
@@ -226,7 +228,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI.
     ///
     /// 发送聊天请求到 OpenAI。
-    pub async fn chat(&self, state: ConversationState) -> Result<Message, ChatCompletionsError> {
+    pub async fn chat(&self, state: ConversationState) -> Result<Message> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -250,8 +252,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     pub async fn chat_stream(
         &self,
         state: ConversationState,
-    ) -> Result<impl Stream<Item = Result<DeltaMessage, ChatCompletionsError>>, ChatCompletionsError>
-    {
+    ) -> Result<ChatStreamWrapper<ChatCompletionsError>> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -264,13 +265,14 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             .map_err(ChatCompletionsError::Transport)?;
 
         // Parse SSE Stream
-        Ok(parse_sse_stream(stream))
+        let parsed_stream = parse_sse_stream(stream);
+        Ok(ChatStream::new(Box::pin(parsed_stream)))
     }
 }
 
 fn parse_sse_stream(
-    stream: futures::stream::BoxStream<'static, Result<Bytes, TransportError>>,
-) -> impl Stream<Item = Result<DeltaMessage, ChatCompletionsError>> {
+    stream: futures::stream::BoxStream<'static, std::result::Result<Bytes, TransportError>>,
+) -> impl Stream<Item = Result<DeltaMessage>> {
     futures::stream::unfold(
         (stream, BytesMut::new()),
         |(mut stream, mut buffer)| async move {

@@ -1,4 +1,8 @@
+use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// Abstract message structure compatible with various Protocols.
 ///
@@ -85,6 +89,15 @@ pub enum ContentPart {
     ///
     /// JSON 内容。
     Json(serde_json::Value),
+
+    /// Reasoning content.
+    ///
+    /// 推理/思维链内容。
+    Reasoning {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// Unified Image structure.
@@ -289,4 +302,329 @@ pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,
+}
+
+// =================================================================================================
+// Message Assembler & Stream Wrapper
+// =================================================================================================
+
+/// Event emitted by ChatStream.
+///
+/// ChatStream 产生的事件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatStreamEvent {
+    /// Text stream chunk.
+    ///
+    /// 文本流片段。
+    Text { text: String },
+
+    /// Reasoning stream chunk.
+    ///
+    /// 思考/推理流片段。
+    Reasoning { text: String },
+
+    /// Tool call stream chunk.
+    ///
+    /// 工具调用流片段。
+    ToolCall(DeltaToolCall),
+
+    /// Response finished.
+    ///
+    /// 响应结束。
+    Finished {
+        message: Message,
+        usage: Option<Usage>,
+        finish_reason: Option<FinishReason>,
+    },
+}
+
+/// Helper struct to assemble a complete Message from DeltaMessages.
+///
+/// 用于将多个 DeltaMessage 组装成完整 Message 的辅助结构。
+#[derive(Debug, Clone, Default)]
+pub struct MessageAssembler {
+    role: Option<Role>,
+    name: Option<String>,
+    // Use BTreeMap to keep content parts ordered by index
+    content_parts: std::collections::BTreeMap<u32, AssembledPart>,
+    usage: Option<Usage>,
+    finish_reason: Option<FinishReason>,
+}
+
+#[derive(Debug, Clone)]
+enum AssembledPart {
+    Text(String),
+    Reasoning {
+        text: String,
+        signature: Option<String>,
+    },
+    // Tool calls are complex as they have internal structure (id, type, name, args)
+    ToolCall {
+        _index: u32,
+        id: Option<String>,
+        r#type: Option<String>,
+        name: Option<String>,
+        arguments: String,
+    },
+    // Other types like Audio/Image are usually not streamed in deltas this way yet, but reserved
+}
+
+impl MessageAssembler {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a delta message.
+    ///
+    /// 添加一个增量消息。
+    pub fn add(&mut self, delta: DeltaMessage) {
+        if let Some(role) = delta.role {
+            self.role = Some(role);
+        }
+        if let Some(name) = delta.name {
+            self.name = Some(name);
+        }
+        if let Some(reason) = delta.finish_reason {
+            self.finish_reason = Some(reason);
+        }
+        if let Some(usage) = delta.usage {
+            // Usually usage comes at the end, overwrite is fine or accumulate?
+            // OpenAI sends separate usage chunk.
+            self.usage = Some(usage);
+        }
+
+        if let Some(content) = delta.content {
+            for part in content {
+                match part {
+                    DeltaContentPart::Text { index, text } => {
+                        let entry = self
+                            .content_parts
+                            .entry(index)
+                            .or_insert(AssembledPart::Text(String::new()));
+                        if let AssembledPart::Text(current_text) = entry {
+                            current_text.push_str(&text);
+                        }
+                    }
+                    DeltaContentPart::Reasoning {
+                        index,
+                        text,
+                        signature,
+                    } => {
+                        let entry =
+                            self.content_parts
+                                .entry(index)
+                                .or_insert(AssembledPart::Reasoning {
+                                    text: String::new(),
+                                    signature: None,
+                                });
+                        if let AssembledPart::Reasoning {
+                            text: current_text,
+                            signature: current_sig,
+                        } = entry
+                        {
+                            current_text.push_str(&text);
+                            if let Some(sig) = signature {
+                                *current_sig = Some(sig);
+                            }
+                        }
+                    }
+                    DeltaContentPart::ToolCall(tool_call) => {
+                        let entry = self.content_parts.entry(tool_call.index).or_insert(
+                            AssembledPart::ToolCall {
+                                _index: tool_call.index,
+                                id: None,
+                                r#type: None,
+                                name: None,
+                                arguments: String::new(),
+                            },
+                        );
+
+                        if let AssembledPart::ToolCall {
+                            id,
+                            r#type,
+                            name,
+                            arguments,
+                            ..
+                        } = entry
+                        {
+                            if let Some(tid) = tool_call.id {
+                                *id = Some(tid);
+                            }
+                            if let Some(tty) = tool_call.r#type {
+                                *r#type = Some(tty);
+                            }
+                            if let Some(func) = tool_call.function {
+                                if let Some(fname) = func.name {
+                                    *name = Some(fname);
+                                }
+                                if let Some(fargs) = func.arguments {
+                                    arguments.push_str(&fargs);
+                                }
+                            }
+                        }
+                    }
+                    DeltaContentPart::Refusal { .. } => {
+                        // Handle refusal if needed
+                    }
+                }
+            }
+        }
+    }
+
+    /// Build the complete Message.
+    ///
+    /// 构建完整的 Message。
+    pub fn build(self) -> Message {
+        let content = self
+            .content_parts
+            .into_values()
+            .filter_map(|part| match part {
+                AssembledPart::Text(text) => Some(ContentPart::Text { text }),
+                AssembledPart::Reasoning { text, signature } => {
+                    Some(ContentPart::Reasoning { text, signature })
+                }
+                AssembledPart::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    ..
+                } => {
+                    // Try to parse arguments as JSON
+                    let args_value: serde_json::Value = serde_json::from_str(&arguments)
+                        .unwrap_or(serde_json::Value::String(arguments));
+
+                    Some(ContentPart::ToolCall(crate::tool::ToolCall {
+                        id: id.unwrap_or_default(),
+                        name: name.unwrap_or_default(),
+                        arguments: args_value,
+                    }))
+                }
+            })
+            .collect();
+
+        Message {
+            role: self.role.unwrap_or(Role::Assistant),
+            content,
+            name: self.name,
+        }
+    }
+
+    pub fn usage(&self) -> Option<Usage> {
+        self.usage.clone()
+    }
+
+    pub fn finish_reason(&self) -> Option<FinishReason> {
+        self.finish_reason.clone()
+    }
+}
+
+pub type ChatStreamWrapper<E> =
+    ChatStream<futures::stream::BoxStream<'static, Result<DeltaMessage, E>>, E>;
+
+/// A stream wrapper that converts DeltaMessages into high-level ChatStreamEvents
+/// and automatically assembles the final Message.
+///
+/// 一个流包装器，将 DeltaMessages 转换为高级 ChatStreamEvents，并自动组装最终的 Message。
+pub struct ChatStream<S, E> {
+    stream: S,
+    assembler: MessageAssembler,
+    pending_events: VecDeque<ChatStreamEvent>,
+    stream_finished: bool,
+    finished_event_emitted: bool,
+    _marker: std::marker::PhantomData<E>,
+}
+
+impl<S, E> ChatStream<S, E>
+where
+    S: Stream<Item = Result<DeltaMessage, E>> + Unpin,
+{
+    pub fn new(stream: S) -> Self {
+        Self {
+            stream,
+            assembler: MessageAssembler::new(),
+            pending_events: VecDeque::new(),
+            stream_finished: false,
+            finished_event_emitted: false,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<S, E> Stream for ChatStream<S, E>
+where
+    S: Stream<Item = Result<DeltaMessage, E>> + Unpin,
+    E: std::fmt::Debug + Unpin,
+{
+    type Item = Result<ChatStreamEvent, E>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        loop {
+            // 1. Drain pending events first
+            if let Some(event) = this.pending_events.pop_front() {
+                return Poll::Ready(Some(Ok(event)));
+            }
+
+            // 2. If finished event emitted, we are done
+            if this.finished_event_emitted {
+                return Poll::Ready(None);
+            }
+
+            // 3. If stream finished but we haven't emitted Finished event, do it now
+            if this.stream_finished {
+                this.finished_event_emitted = true;
+                let message = this.assembler.clone().build();
+                let usage = this.assembler.usage();
+                let finish_reason = this.assembler.finish_reason();
+
+                return Poll::Ready(Some(Ok(ChatStreamEvent::Finished {
+                    message,
+                    usage,
+                    finish_reason,
+                })));
+            }
+
+            // 4. Poll underlying stream
+            match Pin::new(&mut this.stream).poll_next(cx) {
+                Poll::Ready(Some(Ok(delta))) => {
+                    // Update assembler
+                    this.assembler.add(delta.clone());
+
+                    // Queue events from delta content
+                    if let Some(content) = delta.content {
+                        for part in content {
+                            match part {
+                                DeltaContentPart::Text { text, .. } => {
+                                    if !text.is_empty() {
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::Text { text });
+                                    }
+                                }
+                                DeltaContentPart::Reasoning { text, .. } => {
+                                    if !text.is_empty() {
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::Reasoning { text });
+                                    }
+                                }
+                                DeltaContentPart::ToolCall(tool) => {
+                                    this.pending_events
+                                        .push_back(ChatStreamEvent::ToolCall(tool));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    // Continue loop to emit event or poll next
+                }
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                Poll::Ready(None) => {
+                    this.stream_finished = true;
+                    // Continue loop to hit step 3
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
 }
