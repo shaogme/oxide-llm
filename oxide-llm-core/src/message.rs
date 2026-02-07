@@ -80,6 +80,11 @@ pub enum ContentPart {
     ///
     /// 模型拒绝执行的内容 (OpenAI 特有)。
     Refusal { refusal: String },
+
+    /// JSON content.
+    ///
+    /// JSON 内容。
+    Json(serde_json::Value),
 }
 
 /// Unified Image structure.

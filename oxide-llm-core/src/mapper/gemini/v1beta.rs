@@ -71,19 +71,10 @@ fn convert_content_to_gemini_parts(
                 }));
             }
             ContentPart::ToolResult(tr) => {
-                // Gemini FunctionResponse contains a JSON object.
-                // We need to convert our content to a JSON Value.
-                // If content is just text, wrap it.
-                // If content is structured, use it.
-                // NOTE: Gemini v1beta FunctionResponse expects `response: Value`.
-
                 let response_value = if tr.content.len() == 1 {
                     match &tr.content[0] {
                         ContentPart::Text { text } => serde_json::json!({ "content": text }),
-                        // If it's already a JSON-like structure (e.g. from a tool output that was parsed),
-                        // we might need a way to pass raw JSON.
-                        // But `ContentPart` doesn't have a RawJson variant.
-                        // Assuming generic Text for now.
+                        ContentPart::Json(value) => value.clone(),
                         _ => {
                             // Try to serialize other parts
                             serde_json::to_value(&tr.content)?
@@ -97,6 +88,10 @@ fn convert_content_to_gemini_parts(
                     name: tr.name,
                     response: response_value,
                 }));
+            }
+            ContentPart::Json(value) => {
+                let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
+                gemini_parts.push(GeminiPart::Text(text));
             }
             _ => {
                 return Err(MapperError::UnsupportedContent {

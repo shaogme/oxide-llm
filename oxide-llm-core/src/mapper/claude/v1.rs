@@ -85,6 +85,11 @@ fn convert_content_to_claude_blocks(
                 let content = if tr.content.len() == 1 {
                     match &tr.content[0] {
                         ContentPart::Text { text } => ToolResultContent::Text(text.clone()),
+                        ContentPart::Json(value) => {
+                            let text =
+                                serde_json::to_string(value).map_err(MapperError::JsonError)?;
+                            ToolResultContent::Text(text)
+                        }
                         _ => {
                             ToolResultContent::Blocks(convert_content_to_claude_blocks(tr.content)?)
                         }
@@ -98,6 +103,14 @@ fn convert_content_to_claude_blocks(
                     content,
                     is_error: if tr.is_error { Some(true) } else { None },
                     cache_control: None,
+                }));
+            }
+            ContentPart::Json(value) => {
+                let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
+                blocks.push(ContentBlock::Text(TextBlock {
+                    text,
+                    cache_control: None,
+                    citations: None,
                 }));
             }
             _ => {

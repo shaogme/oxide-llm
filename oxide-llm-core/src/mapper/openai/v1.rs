@@ -43,6 +43,11 @@ impl TryFrom<Message> for ChatCompletionMessage {
                                 input_audio: convert_audio_openai(audio)?,
                             });
                         }
+                        ContentPart::Json(value) => {
+                            let text =
+                                serde_json::to_string(&value).map_err(MapperError::JsonError)?;
+                            parts.push(OpenAIContentPart::Text { text });
+                        }
                         _ => {
                             return Err(MapperError::UnsupportedContent {
                                 role: "User".to_string(),
@@ -64,6 +69,21 @@ impl TryFrom<Message> for ChatCompletionMessage {
 
                 for part in msg.content {
                     match part {
+                        ContentPart::Json(value) => match content {
+                            Some(ref mut c) => {
+                                c.push_str("\n\n");
+                                c.push_str(
+                                    &serde_json::to_string(&value)
+                                        .map_err(MapperError::JsonError)?,
+                                );
+                            }
+                            None => {
+                                content = Some(
+                                    serde_json::to_string(&value)
+                                        .map_err(MapperError::JsonError)?,
+                                )
+                            }
+                        },
                         ContentPart::Text { text } => match content {
                             Some(ref mut c) => {
                                 c.push_str("\n\n");
@@ -116,6 +136,9 @@ impl TryFrom<Message> for ChatCompletionMessage {
                         let content_str = if res.content.len() == 1 {
                             match &res.content[0] {
                                 ContentPart::Text { text } => text.clone(),
+                                ContentPart::Json(value) => {
+                                    serde_json::to_string(value).map_err(MapperError::JsonError)?
+                                }
                                 _ => serde_json::to_string(&res.content)?,
                             }
                         } else {
