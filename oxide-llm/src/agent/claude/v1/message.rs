@@ -61,6 +61,7 @@ impl MessagesConfig {
         messages: Vec<ClaudeMessage>,
         system: Option<SystemPrompt>,
         tools: Option<Vec<Tool>>,
+        tool_choice: Option<ToolChoice>,
         stream: bool,
     ) -> MessagesRequest {
         MessagesRequest {
@@ -72,7 +73,7 @@ impl MessagesConfig {
             stop_sequences: self.optional.stop_sequences,
             stream: Some(stream),
             temperature: self.optional.temperature,
-            tool_choice: self.optional.tool_choice,
+            tool_choice,
             tools,
             top_k: self.optional.top_k,
             top_p: self.optional.top_p,
@@ -129,6 +130,7 @@ impl<T: Transport> MessagesAgent<T> {
             system_prompt,
             messages,
             tools,
+            tool_choice,
         } = state;
 
         let system = system_prompt.map(SystemPrompt::Text);
@@ -149,10 +151,12 @@ impl<T: Transport> MessagesAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
+        let tc = tool_choice.map(|tc| tc.to_claude());
+
         let request = self
             .config
             .clone()
-            .to_request(claude_messages, system, tools, stream);
+            .to_request(claude_messages, system, tools, tc, stream);
 
         Ok(request)
     }

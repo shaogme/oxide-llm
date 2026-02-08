@@ -48,7 +48,6 @@ pub struct ChatCompletionsOptionalConfig {
     pub store: Option<bool>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
-    pub tool_choice: Option<ToolChoice>,
     pub parallel_tool_calls: Option<bool>,
     pub user: Option<String>,
     pub function_call: Option<serde_json::Value>,
@@ -75,6 +74,7 @@ impl ChatCompletionsConfig {
         self,
         messages: Vec<ChatCompletionMessage>,
         tools: Option<Vec<Tool>>,
+        tool_choice: Option<ToolChoice>,
         is_stream: bool,
         stream_options: Option<StreamOptions>,
     ) -> ChatCompletionRequest {
@@ -102,7 +102,7 @@ impl ChatCompletionsConfig {
             temperature: self.optional.temperature,
             top_p: self.optional.top_p,
             tools,
-            tool_choice: self.optional.tool_choice,
+            tool_choice,
             parallel_tool_calls: self.optional.parallel_tool_calls,
             user: self.optional.user,
             function_call: self.optional.function_call,
@@ -164,6 +164,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             system_prompt,
             messages,
             tools,
+            tool_choice,
         } = state;
 
         let tools = if tools.is_empty() {
@@ -196,10 +197,12 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
+        let tc = tool_choice.map(|tc| tc.to_openai());
+
         let mut request = self
             .config
             .clone()
-            .to_request(openai_messages, tools, stream, None);
+            .to_request(openai_messages, tools, tc, stream, None);
 
         if stream && request.stream_options.is_none() {
             request.stream_options = Some(StreamOptions {

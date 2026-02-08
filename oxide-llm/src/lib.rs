@@ -7,6 +7,7 @@ use oxide_llm_core::{
 
 pub mod agent {
     pub mod claude;
+    pub mod gemini;
     pub mod openai;
 }
 

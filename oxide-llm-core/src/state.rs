@@ -1,5 +1,5 @@
 use crate::message::Message;
-use crate::tool::Tool;
+use crate::tool::{Tool, ToolChoice};
 use serde::{Deserialize, Serialize};
 
 /// Conversation State.
@@ -21,6 +21,12 @@ pub struct ConversationState {
     ///
     /// 可用工具列表。
     pub tools: Vec<Tool>,
+
+    /// Tool choice preference.
+    ///
+    /// 工具选择偏好。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
 }
 
 impl ConversationState {
@@ -32,6 +38,7 @@ impl ConversationState {
             system_prompt,
             messages: Vec::new(),
             tools: Vec::new(),
+            tool_choice: None,
         }
     }
 
@@ -47,5 +54,12 @@ impl ConversationState {
     /// 添加一个工具。
     pub fn add_tool(&mut self, tool: Tool) {
         self.tools.push(tool);
+    }
+
+    /// Set tool choice.
+    ///
+    /// 设置工具选择。
+    pub fn set_tool_choice(&mut self, tool_choice: ToolChoice) {
+        self.tool_choice = Some(tool_choice);
     }
 }
