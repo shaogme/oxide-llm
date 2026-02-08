@@ -72,16 +72,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    print!("Agent: ");
-    std::io::stdout().flush().unwrap();
+    let mut is_reasoning = false;
+    let mut is_text = false;
+    let mut first_output = true;
 
     while let Some(event) = stream.next().await {
         match event {
-            Ok(ChatStreamEvent::Text { text }) => {
+            Ok(ChatStreamEvent::Reasoning { text }) => {
+                if !is_reasoning {
+                    if !first_output {
+                        println!();
+                    }
+                    println!("[Thinking]:");
+                    is_reasoning = true;
+                    is_text = false;
+                    first_output = false;
+                }
                 print!("{}", text);
                 std::io::stdout().flush().unwrap();
             }
-            Ok(ChatStreamEvent::Reasoning { text }) => {
+            Ok(ChatStreamEvent::Text { text }) => {
+                if !is_text {
+                    if is_reasoning {
+                        println!();
+                    } else if !first_output {
+                        println!();
+                    }
+                    print!("Agent: ");
+                    is_text = true;
+                    is_reasoning = false;
+                    first_output = false;
+                }
                 print!("{}", text);
                 std::io::stdout().flush().unwrap();
             }
