@@ -76,45 +76,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut is_text = false;
     let mut first_output = true;
 
-    while let Some(event) = stream.next().await {
-        match event {
-            Ok(ChatStreamEvent::Reasoning { text }) => {
-                if !is_reasoning {
-                    if !first_output {
-                        println!();
+    let mut collected_events = Vec::new();
+
+    while let Some(event_result) = stream.next().await {
+        match event_result {
+            Ok(event) => {
+                collected_events.push(event.clone());
+                match event {
+                    ChatStreamEvent::Start { role, name } => {
+                        println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
                     }
-                    println!("[Thinking]:");
-                    is_reasoning = true;
-                    is_text = false;
-                    first_output = false;
-                }
-                print!("{}", text);
-                std::io::stdout().flush().unwrap();
-            }
-            Ok(ChatStreamEvent::Text { text }) => {
-                if !is_text {
-                    if is_reasoning {
-                        println!();
-                    } else if !first_output {
-                        println!();
+                    ChatStreamEvent::Reasoning { text } => {
+                        if !is_reasoning {
+                            if !first_output {
+                                println!();
+                            }
+                            println!("[Thinking]:");
+                            is_reasoning = true;
+                            is_text = false;
+                            first_output = false;
+                        }
+                        print!("{}", text);
+                        std::io::stdout().flush().unwrap();
                     }
-                    print!("Agent: ");
-                    is_text = true;
-                    is_reasoning = false;
-                    first_output = false;
+                    ChatStreamEvent::Text { text } => {
+                        if !is_text {
+                            if is_reasoning {
+                                println!();
+                            } else if !first_output {
+                                println!();
+                            }
+                            print!("Agent: ");
+                            is_text = true;
+                            is_reasoning = false;
+                            first_output = false;
+                        }
+                        print!("{}", text);
+                        std::io::stdout().flush().unwrap();
+                    }
+                    ChatStreamEvent::Finished {
+                        usage,
+                        finish_reason,
+                    } => {
+                        println!();
+                        println!(
+                            "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
+                            usage, finish_reason
+                        );
+                    }
+                    _ => {}
                 }
-                print!("{}", text);
-                std::io::stdout().flush().unwrap();
             }
-            Ok(ChatStreamEvent::Finished { .. }) => {
-                println!();
-            }
-            Ok(_) => {}
             Err(e) => {
                 eprintln!("\nError in stream: {}", e);
             }
         }
     }
+
+    let reconstructed_message: Message = collected_events.into_iter().collect();
+    println!("\nReconstructed Message: {:#?}", reconstructed_message);
 
     Ok(())
 }

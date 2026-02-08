@@ -314,6 +314,11 @@ pub struct Usage {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatStreamEvent {
+    /// Conversation start.
+    ///
+    /// 对话开始。
+    Start { role: Role, name: Option<String> },
+
     /// Text stream chunk.
     ///
     /// 文本流片段。
@@ -344,10 +349,55 @@ pub enum ChatStreamEvent {
     ///
     /// 响应结束。
     Finished {
-        message: Message,
         usage: Option<Usage>,
         finish_reason: Option<FinishReason>,
     },
+}
+
+impl FromIterator<ChatStreamEvent> for Message {
+    fn from_iter<T: IntoIterator<Item = ChatStreamEvent>>(iter: T) -> Self {
+        let mut role = Role::Assistant;
+        let mut name = None;
+        let mut content = Vec::new();
+
+        for event in iter {
+            match event {
+                ChatStreamEvent::Start { role: r, name: n } => {
+                    role = r;
+                    name = n;
+                }
+                ChatStreamEvent::Text { text } => match content.last_mut() {
+                    Some(ContentPart::Text { text: current }) => {
+                        current.push_str(&text);
+                    }
+                    _ => {
+                        content.push(ContentPart::Text { text });
+                    }
+                },
+                ChatStreamEvent::Reasoning { text } => match content.last_mut() {
+                    Some(ContentPart::Reasoning { text: current, .. }) => {
+                        current.push_str(&text);
+                    }
+                    _ => {
+                        content.push(ContentPart::Reasoning {
+                            text,
+                            signature: None,
+                        });
+                    }
+                },
+                ChatStreamEvent::ToolCallFinished(tool_call) => {
+                    content.push(ContentPart::ToolCall(tool_call));
+                }
+                _ => {}
+            }
+        }
+
+        Message {
+            role,
+            content,
+            name,
+        }
+    }
 }
 
 /// Helper struct to assemble a complete Message from DeltaMessages.
@@ -575,6 +625,7 @@ pub struct ChatStream<S, E> {
     assembler: MessageAssembler,
     pending_events: VecDeque<ChatStreamEvent>,
     stream_finished: bool,
+    start_event_emitted: bool,
     finished_event_emitted: bool,
     emitted_tool_starts: std::collections::HashSet<u32>,
     current_tool_index: Option<u32>,
@@ -592,6 +643,7 @@ where
             assembler: MessageAssembler::new(),
             pending_events: VecDeque::new(),
             stream_finished: false,
+            start_event_emitted: false,
             finished_event_emitted: false,
             emitted_tool_starts: std::collections::HashSet::new(),
             current_tool_index: None,
@@ -659,12 +711,10 @@ where
                     }
                 }
 
-                let message = this.assembler.clone().build();
                 let usage = this.assembler.usage();
                 let finish_reason = this.assembler.finish_reason();
 
                 return Poll::Ready(Some(Ok(ChatStreamEvent::Finished {
-                    message,
                     usage,
                     finish_reason,
                 })));
@@ -672,14 +722,28 @@ where
 
             // 4. Poll underlying stream
             match Pin::new(&mut this.stream).poll_next(cx) {
-                Poll::Ready(Some(Ok(delta))) => {
-                    // Update assembler
-                    this.assembler.add(delta.clone());
+                Poll::Ready(Some(Ok(mut delta))) => {
+                    // 4.1 Extract content and update Assembler Metadata first
+                    // We take the content out, leaving None in delta, so delta becomes pure metadata container
+                    let content = delta.content.take();
+                    this.assembler.add(delta);
 
-                    // Queue events from delta content
-                    if let Some(content) = delta.content {
-                        for part in content {
-                            // Determine active tool index for this part
+                    // 4.2 Emit Start Event if not yet emitted
+                    if !this.start_event_emitted {
+                        this.start_event_emitted = true;
+                        this.pending_events.push_back(ChatStreamEvent::Start {
+                            role: this.assembler.role.unwrap_or(Role::Assistant),
+                            name: this.assembler.name.clone(),
+                        });
+                    }
+
+                    // 4.3 Process Content
+                    // We filter out Text/Reasoning to avoid double buffering in Assembler
+                    let mut tool_content_buffer = Vec::new();
+
+                    if let Some(parts) = content {
+                        for part in parts {
+                            // Determine active tool index for this part to manage transitions
                             let part_tool_idx = if let DeltaContentPart::ToolCall(t) = &part {
                                 Some(t.index)
                             } else {
@@ -694,12 +758,14 @@ where
                                         this.pending_events
                                             .push_back(ChatStreamEvent::Text { text });
                                     }
+                                    // Drop text part, do not store in assembler
                                 }
                                 DeltaContentPart::Reasoning { text, .. } => {
                                     if !text.is_empty() {
                                         this.pending_events
                                             .push_back(ChatStreamEvent::Reasoning { text });
                                     }
+                                    // Drop reasoning part, do not store in assembler
                                 }
                                 DeltaContentPart::ToolCall(tool) => {
                                     if !this.emitted_tool_starts.contains(&tool.index) {
@@ -716,12 +782,31 @@ where
                                             },
                                         );
                                     }
+                                    // Keep ToolCall for assembler (needed for ToolCallFinished)
+                                    tool_content_buffer.push(DeltaContentPart::ToolCall(tool));
                                 }
-                                _ => {}
+                                other => {
+                                    // Keep other parts (e.g. Refusal) just in case
+                                    tool_content_buffer.push(other);
+                                }
                             }
                         }
+                    } else {
+                        // No content, ensure tool state transitions to None (finish previous tool if any)
+                        this.transition_tool_state(None);
                     }
-                    // Continue loop to emit event or poll next
+
+                    // 4.4 Feed Tool content to Assembler
+                    if !tool_content_buffer.is_empty() {
+                        let content_delta = DeltaMessage {
+                            role: None,
+                            name: None,
+                            content: Some(tool_content_buffer),
+                            finish_reason: None,
+                            usage: None,
+                        };
+                        this.assembler.add(content_delta);
+                    }
                 }
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
                 Poll::Ready(None) => {
