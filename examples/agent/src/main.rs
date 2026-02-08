@@ -1,5 +1,6 @@
 use futures::StreamExt;
-use oxide_llm::ChatAgent;
+use oxide_llm::DynChatAgent;
+use oxide_llm::agent::claude::v1::message::{MessagesAgent, MessagesRequiredConfig};
 use oxide_llm::agent::openai::v1::chat_completions::{
     ChatCompletionsAgent, ChatCompletionsRequiredConfig,
 };
@@ -18,11 +19,29 @@ struct Config {
 }
 
 #[derive(Deserialize)]
-struct AgentConfig {
+#[serde(tag = "type")]
+enum AgentConfig {
+    #[serde(rename = "openai")]
+    OpenAI(OpenAIConfig),
+    #[serde(rename = "claude")]
+    Claude(ClaudeConfig),
+}
+
+#[derive(Deserialize)]
+struct OpenAIConfig {
     base_url: String,
     endpoint: String,
     api_key: String,
     model: String,
+}
+
+#[derive(Deserialize)]
+struct ClaudeConfig {
+    base_url: String,
+    endpoint: String,
+    api_key: String,
+    model: String,
+    max_tokens: u32,
 }
 
 #[tokio::main]
@@ -38,20 +57,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_str = fs::read_to_string(config_path)?;
     let config: Config = toml::from_str(&config_str)?;
 
-    println!("Loaded config for model: {}", config.agent.model);
+    // 2. Build Agent
+    let agent: Box<dyn DynChatAgent> = match config.agent {
+        AgentConfig::OpenAI(c) => {
+            println!("Loaded config for OpenAI model: {}", c.model);
+            let transport = ReqwestTransport::new();
+            let transport = AuthorizationLayer::new(transport, c.api_key);
+            let transport = BaseUrlLayer::new(transport, c.base_url);
 
-    // 2. Build Transport Layer
-    // ReqwestTransport -> AuthorizationLayer -> BaseUrlLayer
-    let transport = ReqwestTransport::new();
-    let transport = AuthorizationLayer::new(transport, config.agent.api_key);
-    let transport = BaseUrlLayer::new(transport, config.agent.base_url);
+            let agent_config = ChatCompletionsRequiredConfig {
+                model: c.model,
+                endpoint: c.endpoint,
+            };
+            Box::new(ChatCompletionsAgent::new(transport, agent_config))
+        }
+        AgentConfig::Claude(c) => {
+            println!("Loaded config for Claude model: {}", c.model);
+            let transport = ReqwestTransport::new();
+            // Note: Claude typically uses x-api-key header, but we're reusing AuthorizationLayer for now.
+            // Adjust if AuthorizationLayer is strictly Bearer token.
+            let transport = AuthorizationLayer::new(transport, c.api_key);
+            let transport = BaseUrlLayer::new(transport, c.base_url);
 
-    // 3. Initialize Agent
-    let agent_config = ChatCompletionsRequiredConfig {
-        model: config.agent.model,
-        endpoint: config.agent.endpoint,
+            let agent_config = MessagesRequiredConfig {
+                model: c.model,
+                endpoint: c.endpoint,
+                max_tokens: c.max_tokens,
+            };
+            Box::new(MessagesAgent::new(transport, agent_config))
+        }
     };
-    let agent = ChatCompletionsAgent::new(transport, agent_config);
 
     // 4. Prepare Conversation State
     let mut state = ConversationState::new(None);
