@@ -365,7 +365,7 @@ pub enum ToolChoice {
     /// Force execution of a specific function.
     ///
     /// 强制调用特定函数。
-    Function(String),
+    Function { name: String },
 }
 
 /// Tool Call Request.
@@ -547,7 +547,7 @@ impl ToolChoice {
             ToolChoice::None => OpenAIToolChoice::String("none".to_string()),
             ToolChoice::Auto => OpenAIToolChoice::String("auto".to_string()),
             ToolChoice::Required => OpenAIToolChoice::String("required".to_string()),
-            ToolChoice::Function(name) => OpenAIToolChoice::Named(OpenAIToolChoiceNamed {
+            ToolChoice::Function { name } => OpenAIToolChoice::Named(OpenAIToolChoiceNamed {
                 r#type: "function".to_string(),
                 function: OpenAIToolChoiceFunction { name: name.clone() },
             }),
@@ -561,7 +561,7 @@ impl ToolChoice {
             ToolChoice::None => (Some(GeminiFunctionCallingConfigMode::None), None),
             ToolChoice::Auto => (Some(GeminiFunctionCallingConfigMode::Auto), None),
             ToolChoice::Required => (Some(GeminiFunctionCallingConfigMode::Any), None),
-            ToolChoice::Function(name) => (
+            ToolChoice::Function { name } => (
                 Some(GeminiFunctionCallingConfigMode::Any),
                 Some(vec![name.clone()]),
             ),
@@ -587,7 +587,7 @@ impl ToolChoice {
             ToolChoice::Required => ClaudeToolChoice::Any {
                 disable_parallel_tool_use: None,
             },
-            ToolChoice::Function(name) => ClaudeToolChoice::Tool {
+            ToolChoice::Function { name } => ClaudeToolChoice::Tool {
                 name: name.clone(),
                 disable_parallel_tool_use: None,
             },
@@ -632,7 +632,9 @@ impl From<OpenAIToolChoice> for ToolChoice {
                 "required" => ToolChoice::Required,
                 _ => ToolChoice::Auto, // Default to Auto for "auto" or unknowns
             },
-            OpenAIToolChoice::Named(named) => ToolChoice::Function(named.function.name),
+            OpenAIToolChoice::Named(named) => ToolChoice::Function {
+                name: named.function.name,
+            },
         }
     }
 }
@@ -666,7 +668,9 @@ impl From<GeminiToolConfig> for ToolChoice {
             Some(GeminiFunctionCallingConfigMode::Any) => config
                 .allowed_function_names
                 .filter(|names| names.len() == 1)
-                .map(|names| ToolChoice::Function(names[0].clone()))
+                .map(|names| ToolChoice::Function {
+                    name: names[0].clone(),
+                })
                 .unwrap_or(ToolChoice::Required),
             _ => ToolChoice::Auto,
         }
@@ -704,7 +708,7 @@ impl From<ClaudeToolChoice> for ToolChoice {
             ClaudeToolChoice::None => ToolChoice::None,
             ClaudeToolChoice::Auto { .. } => ToolChoice::Auto,
             ClaudeToolChoice::Any { .. } => ToolChoice::Required,
-            ClaudeToolChoice::Tool { name, .. } => ToolChoice::Function(name),
+            ClaudeToolChoice::Tool { name, .. } => ToolChoice::Function { name },
         }
     }
 }

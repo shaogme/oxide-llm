@@ -55,86 +55,178 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Prepare Conversation State
     let mut state = ConversationState::new(None);
 
-    // 5. Interaction Loop (Single turn for now)
-    let user_input = "Hello! Who are you?";
+    // Define "get_weather" Tool
+    let mut params = oxide_llm::core::tool::JSONSchema::object();
+    let mut props = std::collections::BTreeMap::new();
+    props.insert(
+        "location".to_string(),
+        oxide_llm::core::tool::JSONSchema::string(),
+    );
+    params.properties = Some(props);
+    params.required = Some(vec!["location".to_string()]);
+
+    let weather_tool = oxide_llm::core::tool::Tool::function(
+        "get_weather",
+        "Get the current weather in a given location",
+        params,
+    );
+
+    state.add_tool(weather_tool);
+
+    // 5. Interaction Loop
+    let user_input = "What is the weather in Tokyo?";
     println!("User: {}", user_input);
 
     state.add_message(Message::user(user_input));
 
-    // 6. Execute Chat
-    // 6. Execute Chat (Streaming)
-    println!("Sending request...");
-    let mut stream = match agent.chat_stream(state).await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error creating stream: {}", e);
-            return Ok(());
+    let mut turn_count = 0;
+    loop {
+        if turn_count >= 5 {
+            println!("Max turns reached. Exiting loop.");
+            break;
         }
-    };
+        turn_count += 1;
 
-    let mut is_reasoning = false;
-    let mut is_text = false;
-    let mut first_output = true;
+        // 6. Execute Chat (Streaming)
+        println!("\n--- Agent Turn {} ---", turn_count);
+        println!("Sending request...");
 
-    let mut collected_events = Vec::new();
+        // We must clone state because chat_stream takes ownership (or we could change chat_stream signature, but we are modifying only main.rs)
+        let mut stream = match agent.chat_stream(state.clone()).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error creating stream: {}", e);
+                return Ok(());
+            }
+        };
 
-    while let Some(event_result) = stream.next().await {
-        match event_result {
-            Ok(event) => {
-                collected_events.push(event.clone());
-                match event {
-                    ChatStreamEvent::Start { role, name } => {
-                        println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
-                    }
-                    ChatStreamEvent::Reasoning { text } => {
-                        if !is_reasoning {
-                            if !first_output {
-                                println!();
-                            }
-                            println!("[Thinking]:");
-                            is_reasoning = true;
-                            is_text = false;
-                            first_output = false;
+        let mut is_reasoning = false;
+        let mut is_text = false;
+        let mut first_output = true;
+
+        let mut collected_events = Vec::new();
+
+        while let Some(event_result) = stream.next().await {
+            match event_result {
+                Ok(event) => {
+                    collected_events.push(event.clone());
+                    match event {
+                        ChatStreamEvent::Start { role, name } => {
+                            println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
                         }
-                        print!("{}", text);
-                        std::io::stdout().flush().unwrap();
-                    }
-                    ChatStreamEvent::Text { text } => {
-                        if !is_text {
-                            if is_reasoning {
-                                println!();
-                            } else if !first_output {
-                                println!();
+                        ChatStreamEvent::Reasoning { text } => {
+                            if !is_reasoning {
+                                if !first_output {
+                                    println!();
+                                }
+                                println!("[Thinking]:");
+                                is_reasoning = true;
+                                is_text = false;
+                                first_output = false;
                             }
-                            print!("Agent: ");
-                            is_text = true;
-                            is_reasoning = false;
-                            first_output = false;
+                            print!("{}", text);
+                            std::io::stdout().flush().unwrap();
                         }
-                        print!("{}", text);
-                        std::io::stdout().flush().unwrap();
+                        ChatStreamEvent::Text { text } => {
+                            if !is_text {
+                                if is_reasoning {
+                                    println!();
+                                } else if !first_output {
+                                    println!();
+                                }
+                                print!("Agent: ");
+                                is_text = true;
+                                is_reasoning = false;
+                                first_output = false;
+                            }
+                            print!("{}", text);
+                            std::io::stdout().flush().unwrap();
+                        }
+                        ChatStreamEvent::Finished {
+                            usage,
+                            finish_reason,
+                        } => {
+                            println!();
+                            println!(
+                                "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
+                                usage, finish_reason
+                            );
+                        }
+                        ChatStreamEvent::ToolCallStart { index, name, .. } => {
+                            println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
+                        }
+                        _ => {}
                     }
-                    ChatStreamEvent::Finished {
-                        usage,
-                        finish_reason,
-                    } => {
-                        println!();
-                        println!(
-                            "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
-                            usage, finish_reason
-                        );
-                    }
-                    _ => {}
+                }
+                Err(e) => {
+                    eprintln!("\nError in stream: {}", e);
                 }
             }
-            Err(e) => {
-                eprintln!("\nError in stream: {}", e);
-            }
+        }
+
+        let reconstructed_message: Message = collected_events.into_iter().collect();
+        // Add the Assistant message to history
+        state.add_message(reconstructed_message.clone());
+
+        // Check for tool calls
+        let tool_calls: Vec<_> = reconstructed_message
+            .content
+            .iter()
+            .filter_map(|part| {
+                if let oxide_llm::core::message::ContentPart::ToolCall(tc) = part {
+                    Some(tc)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if tool_calls.is_empty() {
+            println!("\nNo tool calls. Conversation finished.");
+            break;
+        }
+
+        // Handle tool calls
+        for tool_call in tool_calls {
+            println!(
+                "\n[Executing Tool] Name: {}, Args: {}",
+                tool_call.name, tool_call.arguments
+            );
+
+            let result_content = if tool_call.name == "get_weather" {
+                // Parse arguments
+                let location = tool_call
+                    .arguments
+                    .get("location")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                // Mock response
+                format!("The weather in {} is sunny, 25 degrees Celsius.", location)
+            } else {
+                format!("Error: Unknown tool '{}'", tool_call.name)
+            };
+
+            println!("[Tool Result] {}", result_content);
+
+            let tool_result = oxide_llm::core::tool::ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.name.clone(),
+                content: vec![oxide_llm::core::message::ContentPart::Text {
+                    text: result_content,
+                }],
+                is_error: false,
+            };
+
+            state.add_message(Message {
+                role: oxide_llm::core::message::Role::Tool,
+                content: vec![oxide_llm::core::message::ContentPart::ToolResult(
+                    tool_result,
+                )],
+                name: None,
+            });
         }
     }
-
-    let reconstructed_message: Message = collected_events.into_iter().collect();
-    println!("\nReconstructed Message: {:#?}", reconstructed_message);
 
     Ok(())
 }
