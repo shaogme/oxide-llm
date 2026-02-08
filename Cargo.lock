@@ -720,6 +720,7 @@ dependencies = [
  "oxide-llm-proto",
  "serde",
  "serde_json",
+ "trait-morph",
 ]
 
 [[package]]
@@ -732,7 +733,7 @@ dependencies = [
  "oxide-llm-proto",
  "serde",
  "serde_json",
- "trait-variant",
+ "trait-morph",
 ]
 
 [[package]]
@@ -1381,10 +1382,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "trait-variant"
-version = "0.1.2"
+name = "trait-morph"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70977707304198400eb4835a78f6a9f928bf41bba420deb8fdb175cd965d77a7"
+checksum = "387c6d4541f836584f143050d47098806acceb59efc64e7831b0a1771a689b5c"
 dependencies = [
  "proc-macro2",
  "quote",

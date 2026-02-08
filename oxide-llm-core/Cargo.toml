@@ -9,7 +9,7 @@ serde_json.workspace = true
 
 oxide-llm-proto.workspace = true
 error_set.workspace = true
-trait-variant = "0.1.2"
 
 bytes.workspace = true
 futures.workspace = true
+trait-morph.workspace = true

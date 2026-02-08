@@ -1,5 +1,4 @@
 use bytes::{Bytes, BytesMut};
-use error_set::error_set;
 use futures::{Stream, StreamExt};
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
@@ -12,20 +11,8 @@ use oxide_llm_proto::claude::v1::messages::request::{
 };
 use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
 
-error_set! {
-    MessagesError := {
-        #[display("Transport error: {0}")]
-        Transport(TransportError),
-        #[display("Mapper conversion error: {0}")]
-        Mapper(MapperError),
-        #[display("JSON error: {0}")]
-        Json(serde_json::Error),
-        #[display("UTF-8 error: {0}")]
-        Utf8(std::str::Utf8Error),
-    }
-}
-
-type Result<T> = std::result::Result<T, MessagesError>;
+use crate::ChatAgent;
+use crate::error::{AgentError, Result};
 
 /// Configuration for Claude Messages Agent (Required).
 ///
@@ -158,7 +145,7 @@ impl<T: Transport> MessagesAgent<T> {
             .into_iter()
             .map(|msg| msg.try_into())
             .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(MessagesError::Mapper)?;
+            .map_err(AgentError::Mapper)?;
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
@@ -169,11 +156,13 @@ impl<T: Transport> MessagesAgent<T> {
 
         Ok(request)
     }
+}
 
+impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// Send a chat request to Claude.
     ///
     /// 发送聊天请求到 Claude。
-    pub async fn chat(&self, state: ConversationState) -> Result<Message> {
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -183,10 +172,10 @@ impl<T: Transport> MessagesAgent<T> {
             .transport
             .send(transport_req)
             .await
-            .map_err(MessagesError::Transport)?;
+            .map_err(AgentError::Transport)?;
 
         // Convert Response back to Core Message
-        let core_message: Message = response.try_into().map_err(MessagesError::Mapper)?;
+        let core_message: Message = response.try_into().map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }
@@ -194,10 +183,10 @@ impl<T: Transport> MessagesAgent<T> {
     /// Send a chat request to Claude and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Claude 并接收流式响应。
-    pub async fn chat_stream(
-        &self,
+    async fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStreamWrapper<MessagesError>> {
+    ) -> Result<ChatStreamWrapper<'a, AgentError>> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -207,7 +196,7 @@ impl<T: Transport> MessagesAgent<T> {
             .transport
             .stream(transport_req)
             .await
-            .map_err(MessagesError::Transport)?;
+            .map_err(AgentError::Transport)?;
 
         // Parse SSE Stream
         let parsed_stream = parse_sse_stream(stream);
@@ -230,7 +219,7 @@ fn parse_sse_stream(
                     let s = match std::str::from_utf8(&block) {
                         Ok(s) => s,
                         Err(e) => {
-                            return Some((Err(MessagesError::Utf8(e)), (stream, buffer)));
+                            return Some((Err(AgentError::Utf8(e)), (stream, buffer)));
                         }
                     };
 
@@ -263,7 +252,7 @@ fn parse_sse_stream(
                                                 // Continue loop, do nothing
                                             } else {
                                                 return Some((
-                                                    Err(MessagesError::Mapper(e)),
+                                                    Err(AgentError::Mapper(e)),
                                                     (stream, buffer),
                                                 ));
                                             }
@@ -271,7 +260,7 @@ fn parse_sse_stream(
                                     }
                                 }
                                 Err(e) => {
-                                    return Some((Err(MessagesError::Json(e)), (stream, buffer)));
+                                    return Some((Err(AgentError::Json(e)), (stream, buffer)));
                                 }
                             }
                         }
@@ -298,7 +287,7 @@ fn parse_sse_stream(
                         buffer.extend_from_slice(&chunk);
                     }
                     Some(Err(e)) => {
-                        return Some((Err(MessagesError::Transport(e)), (stream, buffer)));
+                        return Some((Err(AgentError::Transport(e)), (stream, buffer)));
                     }
                     None => {
                         // EOF

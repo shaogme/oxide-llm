@@ -613,8 +613,8 @@ impl MessageAssembler {
     }
 }
 
-pub type ChatStreamWrapper<E> =
-    ChatStream<futures::stream::BoxStream<'static, Result<DeltaMessage, E>>, E>;
+pub type ChatStreamWrapper<'a, E> =
+    ChatStream<futures::stream::BoxStream<'a, Result<DeltaMessage, E>>, E>;
 
 /// A stream wrapper that converts DeltaMessages into high-level ChatStreamEvents
 /// and automatically assembles the final Message.

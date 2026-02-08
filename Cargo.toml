@@ -36,3 +36,4 @@ error_set = "0.9"
 
 futures = "0.3.31"
 bytes = "1.11.1"
+trait-morph = "0.1.1"

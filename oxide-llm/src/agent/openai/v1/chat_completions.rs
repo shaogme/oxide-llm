@@ -1,7 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use error_set::error_set;
 use futures::{Stream, StreamExt};
-use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
@@ -14,20 +12,8 @@ use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionRespo
 use oxide_llm_proto::openai::v1::{FunctionDefinition, Tool, ToolChoice};
 use std::collections::HashMap;
 
-error_set! {
-    ChatCompletionsError := {
-        #[display("Transport error: {0}")]
-        Transport(TransportError),
-        #[display("Mapper conversion error: {0}")]
-        Mapper(MapperError),
-        #[display("JSON error: {0}")]
-        Json(serde_json::Error),
-        #[display("UTF-8 error: {0}")]
-        Utf8(std::str::Utf8Error),
-    }
-}
-
-type Result<T> = std::result::Result<T, ChatCompletionsError>;
+use crate::ChatAgent;
+use crate::error::{AgentError, Result};
 
 /// Configuration for OpenAI Chat Completions Agent (Required).
 ///
@@ -205,7 +191,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
                     acc.push(msg.try_into()?);
                     Ok(acc)
                 })
-                .map_err(ChatCompletionsError::Mapper)?
+                .map_err(AgentError::Mapper)?
         };
 
         // 2. Construct Request using Config
@@ -224,11 +210,13 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         Ok(request)
     }
+}
 
+impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI.
     ///
     /// 发送聊天请求到 OpenAI。
-    pub async fn chat(&self, state: ConversationState) -> Result<Message> {
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -238,10 +226,10 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             .transport
             .send(transport_req)
             .await
-            .map_err(ChatCompletionsError::Transport)?;
+            .map_err(AgentError::Transport)?;
 
         // Convert Response back to Core Message
-        let core_message: Message = response.try_into().map_err(ChatCompletionsError::Mapper)?;
+        let core_message: Message = response.try_into().map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }
@@ -249,10 +237,10 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI and receive a stream of chunks.
     ///
     /// 发送聊天请求到 OpenAI 并接收流式响应。
-    pub async fn chat_stream(
-        &self,
+    async fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStreamWrapper<ChatCompletionsError>> {
+    ) -> Result<ChatStreamWrapper<'a, AgentError>> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -262,7 +250,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             .transport
             .stream(transport_req)
             .await
-            .map_err(ChatCompletionsError::Transport)?;
+            .map_err(AgentError::Transport)?;
 
         // Parse SSE Stream
         let parsed_stream = parse_sse_stream(stream);
@@ -285,7 +273,7 @@ fn parse_sse_stream(
                     let s = match std::str::from_utf8(&block) {
                         Ok(s) => s,
                         Err(e) => {
-                            return Some((Err(ChatCompletionsError::Utf8(e)), (stream, buffer)));
+                            return Some((Err(AgentError::Utf8(e)), (stream, buffer)));
                         }
                     };
 
@@ -309,17 +297,14 @@ fn parse_sse_stream(
                                         }
                                         Err(e) => {
                                             return Some((
-                                                Err(ChatCompletionsError::Mapper(e)),
+                                                Err(AgentError::Mapper(e)),
                                                 (stream, buffer),
                                             ));
                                         }
                                     }
                                 }
                                 Err(e) => {
-                                    return Some((
-                                        Err(ChatCompletionsError::Json(e)),
-                                        (stream, buffer),
-                                    ));
+                                    return Some((Err(AgentError::Json(e)), (stream, buffer)));
                                 }
                             }
                         }
@@ -343,7 +328,7 @@ fn parse_sse_stream(
                         buffer.extend_from_slice(&chunk);
                     }
                     Some(Err(e)) => {
-                        return Some((Err(ChatCompletionsError::Transport(e)), (stream, buffer)));
+                        return Some((Err(AgentError::Transport(e)), (stream, buffer)));
                     }
                     None => {
                         // EOF

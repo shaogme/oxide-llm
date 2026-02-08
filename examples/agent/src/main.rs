@@ -1,4 +1,5 @@
 use futures::StreamExt;
+use oxide_llm::ChatAgent;
 use oxide_llm::agent::openai::v1::chat_completions::{
     ChatCompletionsAgent, ChatCompletionsRequiredConfig,
 };
