@@ -18,7 +18,7 @@ impl TryFrom<Message> for GeminiContent {
         let (role, parts) = match msg.role {
             Role::User => ("user", convert_content_to_gemini_parts(msg.content)?),
             Role::Assistant => ("model", convert_content_to_gemini_parts(msg.content)?),
-            Role::Tool => ("function", convert_content_to_gemini_parts(msg.content)?),
+            Role::Tool => ("user", convert_content_to_gemini_parts(msg.content)?),
         };
 
         Ok(GeminiContent {

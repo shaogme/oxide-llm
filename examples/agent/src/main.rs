@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use oxide_llm::DynChatAgent;
 use oxide_llm::agent::claude::v1::message::{MessagesAgent, MessagesRequiredConfig};
+use oxide_llm::agent::gemini::v1beta::{GeminiAgent, GeminiRequiredConfig};
 use oxide_llm::agent::openai::v1::chat_completions::{
     ChatCompletionsAgent, ChatCompletionsRequiredConfig,
 };
@@ -25,6 +26,8 @@ enum AgentConfig {
     OpenAI(OpenAIConfig),
     #[serde(rename = "claude")]
     Claude(ClaudeConfig),
+    #[serde(rename = "gemini")]
+    Gemini(GeminiConfig),
 }
 
 #[derive(Deserialize)]
@@ -42,6 +45,14 @@ struct ClaudeConfig {
     api_key: String,
     model: String,
     max_tokens: u32,
+}
+
+#[derive(Deserialize)]
+struct GeminiConfig {
+    base_url: String,
+    endpoint: String,
+    api_key: String,
+    model: String,
 }
 
 #[tokio::main]
@@ -86,6 +97,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             Box::new(MessagesAgent::new(transport, agent_config))
         }
+        AgentConfig::Gemini(c) => {
+            println!("Loaded config for Gemini model: {}", c.model);
+            let transport = ReqwestTransport::new();
+            let transport = AuthorizationLayer::new(transport, c.api_key);
+            let transport = BaseUrlLayer::new(transport, c.base_url);
+
+            let agent_config = GeminiRequiredConfig {
+                model: c.model,
+                endpoint: c.endpoint,
+            };
+            Box::new(GeminiAgent::new(transport, agent_config))
+        }
     };
 
     // 4. Prepare Conversation State
@@ -127,7 +150,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n--- Agent Turn {} ---", turn_count);
         println!("Sending request...");
 
-        // We must clone state because chat_stream takes ownership (or we could change chat_stream signature, but we are modifying only main.rs)
         let mut stream = match agent.chat_stream(state.clone()).await {
             Ok(s) => s,
             Err(e) => {
@@ -200,6 +222,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        // Handle case where stream might be empty or failed immediately
+        if collected_events.is_empty() {
+            println!("Stream finished but no events collected.");
+            // Break or Continue? If it's an error it might have been printed above.
+            // If completely empty, just break to avoid loop
+            break;
+        }
+
         let reconstructed_message: Message = collected_events.into_iter().collect();
         // Add the Assistant message to history
         state.add_message(reconstructed_message.clone());
@@ -253,6 +283,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }],
                 is_error: false,
             };
+
+            // Gemini specific: Tool results must be followed by the original tool call?
+            // Usually the conversation state handles the history.
+            // We just add tool result here.
 
             state.add_message(Message {
                 role: oxide_llm::core::message::Role::Tool,

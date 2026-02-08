@@ -129,10 +129,6 @@ pub struct GenerationConfig {
     /// 可选。这将设置每个解码步骤要返回的顶部 logprobs 的数量。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<i32>,
-    /// Optional. Enables enhanced civic answers.
-    ///
-    /// 可选。启用增强的公民回答。
-    pub enable_enhanced_civic_answers: Option<bool>,
     /// Optional. The speech generation config.
     ///
     /// 可选。语音生成配置。

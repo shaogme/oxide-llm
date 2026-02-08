@@ -1,4 +1,4 @@
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -78,7 +78,6 @@ impl GeminiConfig {
             frequency_penalty: self.optional.frequency_penalty,
             response_logprobs: self.optional.response_logprobs,
             logprobs: self.optional.logprobs,
-            enable_enhanced_civic_answers: None,
             speech_config: None,
             thinking_config: None,
             image_config: None,
@@ -226,10 +225,16 @@ impl<T: Transport> ChatAgent for GeminiAgent<T> {
         let request = self.build_request(state)?;
 
         // Send Stream Request.
-        // We use the endpoint as is, assuming it's the correct stream endpoint or the user accepts standard behavior.
-        // Standard Gemini behavior without alt=sse is a stream of JSON objects (in an array).
-        let transport_req =
-            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+        // We use the endpoint as is, assuming it's the correct stream endpoint.
+        // We append "?alt=sse" to enable Server-Sent Events streaming.
+        let mut endpoint = self.config.required.endpoint.clone();
+        if endpoint.contains('?') {
+            endpoint.push_str("&alt=sse");
+        } else {
+            endpoint.push_str("?alt=sse");
+        }
+
+        let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
 
         let stream = self
             .transport
@@ -237,206 +242,91 @@ impl<T: Transport> ChatAgent for GeminiAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
-        // Parse JSON Stream
-        let parsed_stream = parse_json_stream(stream);
+        // Parse SSE Stream
+        let parsed_stream = parse_sse_stream(stream);
         Ok(ChatStream::new(Box::pin(parsed_stream)))
     }
 }
 
-// Logic to parse a stream of JSON objects formatted as a JSON array: [ {...}, {...} ]
-fn parse_json_stream(
+fn parse_sse_stream(
     stream: futures::stream::BoxStream<'static, std::result::Result<Bytes, TransportError>>,
 ) -> impl Stream<Item = Result<DeltaMessage>> {
-    let state = JsonStreamState::Start;
-
     futures::stream::unfold(
-        (stream, BytesMut::new(), state),
-        |(mut stream, mut buffer, mut state)| async move {
+        (stream, BytesMut::new()),
+        |(mut stream, mut buffer)| async move {
             loop {
-                match state {
-                    JsonStreamState::Start => {
-                        // Expect '['
-                        if let Some(pos) = buffer.iter().position(|&b| !b.is_ascii_whitespace()) {
-                            buffer.advance(pos);
-                            if buffer.is_empty() {
-                                // Need more data
-                            } else if buffer[0] == b'[' {
-                                buffer.advance(1);
-                                state = JsonStreamState::Object;
-                                continue;
-                            } else {
-                                return Some((
-                                    Err(AgentError::Json(serde_json::Error::io(
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::InvalidData,
-                                            "Expected '[' at start of JSON array",
-                                        ),
-                                    ))),
-                                    (stream, buffer, state),
-                                ));
-                            }
+                // Check if buffer contains double newline
+                if let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
+                    // Found an event block
+                    let block = buffer.split_to(pos + 2); // Remove block from buffer
+
+                    let s = match std::str::from_utf8(&block) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            return Some((Err(AgentError::Utf8(e)), (stream, buffer)));
                         }
-                    }
-                    JsonStreamState::Object => {
-                        // Expect '{...}' or ']' (end of array)
-                        // First skip whitespace
-                        if let Some(pos) = buffer.iter().position(|&b| !b.is_ascii_whitespace()) {
-                            buffer.advance(pos);
-                        } else {
-                            if !buffer.is_empty() {
-                                let len = buffer.len();
-                                buffer.advance(len);
+                    };
+
+                    let mut chunk_to_yield = None;
+                    // Gemini doesn't strictly send [DONE], but checking doesn't hurt.
+                    let mut done = false;
+
+                    for line in s.lines() {
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            let data = data.trim();
+                            if data == "[DONE]" {
+                                done = true;
+                                break;
                             }
-                        }
-
-                        if buffer.is_empty() {
-                            // Need more data, fall through to read
-                        } else if buffer[0] == b']' {
-                            buffer.advance(1);
-                            state = JsonStreamState::End;
-                            continue;
-                        } else if buffer[0] == b'{' {
-                            // Parse object
-                            // We need to find the matching closing brace.
-                            // Simple brace counting is risky if strings contain braces, but for a known API structure it's usually fine.
-                            // A safer way is to use a streaming parser helper, but here we will use brace counting with string awareness.
-                            let mut brace_balance = 0;
-                            let mut in_string = false;
-                            let mut escape = false;
-                            let mut end_index = None;
-
-                            for (i, &b) in buffer.iter().enumerate() {
-                                if escape {
-                                    escape = false;
-                                    continue;
-                                }
-                                if b == b'\\' {
-                                    escape = true;
-                                    continue;
-                                }
-                                if b == b'"' {
-                                    in_string = !in_string;
-                                    continue;
-                                }
-                                if !in_string {
-                                    if b == b'{' {
-                                        brace_balance += 1;
-                                    } else if b == b'}' {
-                                        brace_balance -= 1;
-                                        if brace_balance == 0 {
-                                            end_index = Some(i + 1);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(len) = end_index {
-                                let json_slice = buffer.split_to(len);
-                                state = JsonStreamState::Delimiter; // Expect comma or end next
-
-                                match serde_json::from_slice::<GenerateContentResponse>(&json_slice)
-                                {
-                                    Ok(response) => match response.try_into() {
+                            // Parse JSON
+                            match serde_json::from_str::<GenerateContentResponse>(data) {
+                                Ok(chunk) => {
+                                    // Convert to DeltaMessage
+                                    match chunk.try_into() {
                                         Ok(delta) => {
-                                            return Some((Ok(delta), (stream, buffer, state)));
+                                            chunk_to_yield = Some(delta);
                                         }
                                         Err(e) => {
                                             return Some((
                                                 Err(AgentError::Mapper(e)),
-                                                (stream, buffer, state),
+                                                (stream, buffer),
                                             ));
                                         }
-                                    },
-                                    Err(e) => {
-                                        return Some((
-                                            Err(AgentError::Json(e)),
-                                            (stream, buffer, state),
-                                        ));
                                     }
                                 }
-                            }
-                        } else {
-                            return Some((
-                                Err(AgentError::Json(serde_json::Error::io(
-                                    std::io::Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Expected '{' or ']'",
-                                    ),
-                                ))),
-                                (stream, buffer, state),
-                            ));
-                        }
-                    }
-                    JsonStreamState::Delimiter => {
-                        // Expect ',' or ']'
-                        if let Some(pos) = buffer.iter().position(|&b| !b.is_ascii_whitespace()) {
-                            buffer.advance(pos);
-                            if buffer.is_empty() {
-                                // Need more data
-                            } else if buffer[0] == b',' {
-                                buffer.advance(1);
-                                state = JsonStreamState::Object;
-                                continue;
-                            } else if buffer[0] == b']' {
-                                buffer.advance(1);
-                                state = JsonStreamState::End;
-                                continue;
-                            } else {
-                                return Some((
-                                    Err(AgentError::Json(serde_json::Error::io(
-                                        std::io::Error::new(
-                                            std::io::ErrorKind::InvalidData,
-                                            "Expected ',' or ']'",
-                                        ),
-                                    ))),
-                                    (stream, buffer, state),
-                                ));
+                                Err(e) => {
+                                    return Some((Err(AgentError::Json(e)), (stream, buffer)));
+                                }
                             }
                         }
                     }
-                    JsonStreamState::End => {
-                        // Stream finished from JSON perspective.
+
+                    if done {
                         return None;
+                    }
+
+                    if let Some(chunk) = chunk_to_yield {
+                        return Some((Ok(chunk), (stream, buffer)));
+                    } else {
+                        // Keep-alive or empty block, continue loop
+                        continue;
                     }
                 }
 
-                // Read more data
+                // Read more
                 match stream.next().await {
                     Some(Ok(chunk)) => {
                         buffer.extend_from_slice(&chunk);
                     }
                     Some(Err(e)) => {
-                        return Some((Err(AgentError::Transport(e)), (stream, buffer, state)));
+                        return Some((Err(AgentError::Transport(e)), (stream, buffer)));
                     }
                     None => {
                         // EOF
-                        if matches!(state, JsonStreamState::End) {
-                            return None;
-                        } else if buffer.iter().all(|b| b.is_ascii_whitespace()) {
-                            // Trailing whitespace is fine
-                            return None;
-                        } else {
-                            return Some((
-                                Err(AgentError::Json(serde_json::Error::io(
-                                    std::io::Error::new(
-                                        std::io::ErrorKind::UnexpectedEof,
-                                        "Unexpected EOF",
-                                    ),
-                                ))),
-                                (stream, buffer, state),
-                            ));
-                        }
+                        return None;
                     }
                 }
             }
         },
     )
-}
-
-enum JsonStreamState {
-    Start,
-    Object,
-    Delimiter,
-    End,
 }
