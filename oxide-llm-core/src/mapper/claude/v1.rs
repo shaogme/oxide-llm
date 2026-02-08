@@ -322,7 +322,9 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
             }
             MessageStreamEvent::ContentBlockStop { .. } => {
                 // Usually no data needed for stop
-                Ok(DeltaMessage::default())
+                Err(MapperError::IgnoredEvent {
+                    event_type: "content_block_stop".to_string(),
+                })
             }
             MessageStreamEvent::MessageDelta { delta, usage } => {
                 let finish_reason = delta.stop_reason.map(|r| match r {
@@ -347,8 +349,12 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                     usage: Some(usage),
                 })
             }
-            MessageStreamEvent::MessageStop => Ok(DeltaMessage::default()),
-            MessageStreamEvent::Ping => Ok(DeltaMessage::default()),
+            MessageStreamEvent::MessageStop => Err(MapperError::IgnoredEvent {
+                event_type: "message_stop".to_string(),
+            }),
+            MessageStreamEvent::Ping => Err(MapperError::IgnoredEvent {
+                event_type: "ping".to_string(),
+            }),
             MessageStreamEvent::Error { error } => Err(MapperError::UnsupportedContent {
                 role: "System".to_string(),
                 protocol: format!("Claude Error: {}", error.message),

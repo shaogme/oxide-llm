@@ -21,6 +21,10 @@ error_set! {
         MissingToolResult,
         #[display("No choices/candidates found in response")]
         EmptyResponse,
+        #[display("Ignored stream event: {event_type}")]
+        IgnoredEvent {
+            event_type: String,
+        },
     }
 }
 
