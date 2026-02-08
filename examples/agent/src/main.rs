@@ -1,12 +1,14 @@
+use futures::StreamExt;
 use oxide_llm::agent::openai::v1::chat_completions::{
     ChatCompletionsAgent, ChatCompletionsRequiredConfig,
 };
-use oxide_llm::core::message::{ContentPart, Message};
+use oxide_llm::core::message::{ChatStreamEvent, Message};
 use oxide_llm::core::state::ConversationState;
 use oxide_llm::core::transport::{AuthorizationLayer, BaseUrlLayer};
 use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::Deserialize;
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -60,17 +62,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.add_message(Message::user(user_input));
 
     // 6. Execute Chat
+    // 6. Execute Chat (Streaming)
     println!("Sending request...");
-    match agent.chat(state).await {
-        Ok(response_message) => {
-            if let Some(ContentPart::Text { text }) = response_message.content.first() {
-                println!("Agent: {}", text);
-            } else {
-                println!("Agent sent non-text response: {:?}", response_message);
-            }
-        }
+    let mut stream = match agent.chat_stream(state).await {
+        Ok(s) => s,
         Err(e) => {
-            eprintln!("Error during chat: {}", e);
+            eprintln!("Error creating stream: {}", e);
+            return Ok(());
+        }
+    };
+
+    print!("Agent: ");
+    std::io::stdout().flush().unwrap();
+
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(ChatStreamEvent::Text { text }) => {
+                print!("{}", text);
+                std::io::stdout().flush().unwrap();
+            }
+            Ok(ChatStreamEvent::Reasoning { text }) => {
+                print!("{}", text);
+                std::io::stdout().flush().unwrap();
+            }
+            Ok(ChatStreamEvent::Finished { .. }) => {
+                println!();
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("\nError in stream: {}", e);
+            }
         }
     }
 

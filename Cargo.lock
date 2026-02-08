@@ -7,6 +7,7 @@ name = "agent"
 version = "0.1.0"
 dependencies = [
  "error_set",
+ "futures",
  "oxide-llm",
  "oxide-llm-proto",
  "oxide-llm-transport",

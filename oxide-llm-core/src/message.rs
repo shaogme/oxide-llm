@@ -561,31 +561,6 @@ impl MessageAssembler {
             })
             .collect()
     }
-
-    /// Helper to get all completed tool calls.
-    pub fn get_tool_calls(&self) -> Vec<crate::tool::ToolCall> {
-        self.content_parts
-            .values()
-            .filter_map(|part| match part {
-                AssembledPart::ToolCall {
-                    id,
-                    name,
-                    arguments,
-                    ..
-                } => {
-                    let args_value: serde_json::Value = serde_json::from_str(arguments)
-                        .unwrap_or(serde_json::Value::String(arguments.clone()));
-
-                    Some(crate::tool::ToolCall {
-                        id: id.clone().unwrap_or_default(),
-                        name: name.clone().unwrap_or_default(),
-                        arguments: args_value,
-                    })
-                }
-                _ => None,
-            })
-            .collect()
-    }
 }
 
 pub type ChatStreamWrapper<E> =
