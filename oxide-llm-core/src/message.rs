@@ -324,10 +324,21 @@ pub enum ChatStreamEvent {
     /// 思考/推理流片段。
     Reasoning { text: String },
 
-    /// Tool call stream chunk.
+    /// Tool call start chunk.
     ///
-    /// 工具调用流片段。
-    ToolCall(DeltaToolCall),
+    /// 工具调用开始。
+    ToolCallStart {
+        index: u32,
+        id: Option<String>,
+        #[serde(rename = "tool_type")]
+        r#type: Option<String>,
+        name: Option<String>,
+    },
+
+    /// Tool call complete.
+    ///
+    /// 工具调用完成。
+    ToolCallFinished(crate::tool::ToolCall),
 
     /// Response finished.
     ///
@@ -517,6 +528,64 @@ impl MessageAssembler {
     pub fn finish_reason(&self) -> Option<FinishReason> {
         self.finish_reason.clone()
     }
+
+    /// Get a specific tool call by index.
+    pub fn get_tool_call(&self, index: u32) -> Option<crate::tool::ToolCall> {
+        if let Some(AssembledPart::ToolCall {
+            id,
+            name,
+            arguments,
+            ..
+        }) = self.content_parts.get(&index)
+        {
+            let args_value: serde_json::Value = serde_json::from_str(arguments)
+                .unwrap_or(serde_json::Value::String(arguments.clone()));
+
+            Some(crate::tool::ToolCall {
+                id: id.clone().unwrap_or_default(),
+                name: name.clone().unwrap_or_default(),
+                arguments: args_value,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get all tool call indices.
+    pub fn get_tool_call_indices(&self) -> Vec<u32> {
+        self.content_parts
+            .iter()
+            .filter_map(|(idx, part)| match part {
+                AssembledPart::ToolCall { .. } => Some(*idx),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Helper to get all completed tool calls.
+    pub fn get_tool_calls(&self) -> Vec<crate::tool::ToolCall> {
+        self.content_parts
+            .values()
+            .filter_map(|part| match part {
+                AssembledPart::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    ..
+                } => {
+                    let args_value: serde_json::Value = serde_json::from_str(arguments)
+                        .unwrap_or(serde_json::Value::String(arguments.clone()));
+
+                    Some(crate::tool::ToolCall {
+                        id: id.clone().unwrap_or_default(),
+                        name: name.clone().unwrap_or_default(),
+                        arguments: args_value,
+                    })
+                }
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 pub type ChatStreamWrapper<E> =
@@ -532,6 +601,9 @@ pub struct ChatStream<S, E> {
     pending_events: VecDeque<ChatStreamEvent>,
     stream_finished: bool,
     finished_event_emitted: bool,
+    emitted_tool_starts: std::collections::HashSet<u32>,
+    current_tool_index: Option<u32>,
+    emitted_tool_finishes: std::collections::HashSet<u32>,
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -546,8 +618,29 @@ where
             pending_events: VecDeque::new(),
             stream_finished: false,
             finished_event_emitted: false,
+            emitted_tool_starts: std::collections::HashSet::new(),
+            current_tool_index: None,
+            emitted_tool_finishes: std::collections::HashSet::new(),
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Handles transition between tool states.
+    /// If current_tool_index changes, emits ToolCallFinished for the previous tool.
+    fn transition_tool_state(&mut self, new_index: Option<u32>) {
+        if let Some(current_idx) = self.current_tool_index {
+            if Some(current_idx) != new_index {
+                // Previous tool finished
+                if !self.emitted_tool_finishes.contains(&current_idx) {
+                    if let Some(tool_call) = self.assembler.get_tool_call(current_idx) {
+                        self.pending_events
+                            .push_back(ChatStreamEvent::ToolCallFinished(tool_call));
+                        self.emitted_tool_finishes.insert(current_idx);
+                    }
+                }
+            }
+        }
+        self.current_tool_index = new_index;
     }
 }
 
@@ -575,6 +668,22 @@ where
             // 3. If stream finished but we haven't emitted Finished event, do it now
             if this.stream_finished {
                 this.finished_event_emitted = true;
+
+                // Ensure the last active tool is finished
+                this.transition_tool_state(None);
+
+                // Emit all completed tool calls that haven't been emitted yet (Just in case)
+                let tool_indices = this.assembler.get_tool_call_indices();
+                for index in tool_indices {
+                    if !this.emitted_tool_finishes.contains(&index) {
+                        if let Some(tool_call) = this.assembler.get_tool_call(index) {
+                            this.pending_events
+                                .push_back(ChatStreamEvent::ToolCallFinished(tool_call));
+                            this.emitted_tool_finishes.insert(index);
+                        }
+                    }
+                }
+
                 let message = this.assembler.clone().build();
                 let usage = this.assembler.usage();
                 let finish_reason = this.assembler.finish_reason();
@@ -595,6 +704,15 @@ where
                     // Queue events from delta content
                     if let Some(content) = delta.content {
                         for part in content {
+                            // Determine active tool index for this part
+                            let part_tool_idx = if let DeltaContentPart::ToolCall(t) = &part {
+                                Some(t.index)
+                            } else {
+                                None
+                            };
+
+                            this.transition_tool_state(part_tool_idx);
+
                             match part {
                                 DeltaContentPart::Text { text, .. } => {
                                     if !text.is_empty() {
@@ -609,8 +727,20 @@ where
                                     }
                                 }
                                 DeltaContentPart::ToolCall(tool) => {
-                                    this.pending_events
-                                        .push_back(ChatStreamEvent::ToolCall(tool));
+                                    if !this.emitted_tool_starts.contains(&tool.index) {
+                                        this.emitted_tool_starts.insert(tool.index);
+                                        this.pending_events.push_back(
+                                            ChatStreamEvent::ToolCallStart {
+                                                index: tool.index,
+                                                id: tool.id.clone(),
+                                                r#type: tool.r#type.clone(),
+                                                name: tool
+                                                    .function
+                                                    .as_ref()
+                                                    .and_then(|f| f.name.clone()),
+                                            },
+                                        );
+                                    }
                                 }
                                 _ => {}
                             }
