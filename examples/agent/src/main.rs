@@ -155,176 +155,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     state.add_message(Message::user(user_input));
 
-    let mut turn_count = 0;
-    loop {
-        if turn_count >= 5 {
-            println!("Max turns reached. Exiting loop.");
-            break;
-        }
-        turn_count += 1;
+    // 5. Interaction Loop using Runner
+    let user_input = "What is the weather in Tokyo and what is the stock price of AAPL?";
+    println!("User: {}", user_input);
 
-        // 6. Execute Chat (Streaming)
-        println!("\n--- Agent Turn {} ---", turn_count);
-        println!("Sending request...");
+    state.add_message(Message::user(user_input));
 
-        let mut stream = match agent.chat_stream(state.clone()).await {
-            Ok(s) => s,
+    let mut runner = oxide_llm::runner::RunnerStream::new(&*agent, &registry, &mut state, 5);
+
+    while let Some(event_result) = runner.next().await {
+        match event_result {
+            Ok(event) => match event {
+                ChatStreamEvent::Start { role, name } => {
+                    println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
+                }
+                ChatStreamEvent::Reasoning { text } => {
+                    print!("[Thinking] {}", text);
+                    std::io::stdout().flush().unwrap();
+                }
+                ChatStreamEvent::Text { text } => {
+                    print!("{}", text);
+                    std::io::stdout().flush().unwrap();
+                }
+                ChatStreamEvent::Finished {
+                    usage,
+                    finish_reason,
+                } => {
+                    println!();
+                    println!(
+                        "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
+                        usage, finish_reason
+                    );
+                }
+                ChatStreamEvent::ToolCallStart { index, name, .. } => {
+                    println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
+                }
+                _ => {}
+            },
             Err(e) => {
-                eprintln!("Error creating stream: {}", e);
-                return Ok(());
+                eprintln!("\nError in stream: {}", e);
             }
-        };
-
-        let mut is_reasoning = false;
-        let mut is_text = false;
-        let mut first_output = true;
-
-        let mut collected_events = Vec::new();
-
-        while let Some(event_result) = stream.next().await {
-            match event_result {
-                Ok(event) => {
-                    collected_events.push(event.clone());
-                    match event {
-                        ChatStreamEvent::Start { role, name } => {
-                            println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
-                        }
-                        ChatStreamEvent::Reasoning { text } => {
-                            if !is_reasoning {
-                                if !first_output {
-                                    println!();
-                                }
-                                println!("[Thinking]:");
-                                is_reasoning = true;
-                                is_text = false;
-                                first_output = false;
-                            }
-                            print!("{}", text);
-                            std::io::stdout().flush().unwrap();
-                        }
-                        ChatStreamEvent::Text { text } => {
-                            if !is_text {
-                                if is_reasoning {
-                                    println!();
-                                } else if !first_output {
-                                    println!();
-                                }
-                                print!("Agent: ");
-                                is_text = true;
-                                is_reasoning = false;
-                                first_output = false;
-                            }
-                            print!("{}", text);
-                            std::io::stdout().flush().unwrap();
-                        }
-                        ChatStreamEvent::Finished {
-                            usage,
-                            finish_reason,
-                        } => {
-                            println!();
-                            println!(
-                                "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
-                                usage, finish_reason
-                            );
-                        }
-                        ChatStreamEvent::ToolCallStart { index, name, .. } => {
-                            println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => {
-                    eprintln!("\nError in stream: {}", e);
-                }
-            }
-        }
-
-        // Handle case where stream might be empty or failed immediately
-        if collected_events.is_empty() {
-            println!("Stream finished but no events collected.");
-            // Break or Continue? If it's an error it might have been printed above.
-            // If completely empty, just break to avoid loop
-            break;
-        }
-
-        let reconstructed_message: Message = collected_events.into_iter().collect();
-        // Add the Assistant message to history
-        state.add_message(reconstructed_message.clone());
-
-        // Check for tool calls
-        let tool_calls: Vec<_> = reconstructed_message
-            .content
-            .iter()
-            .filter_map(|part| {
-                if let oxide_llm::core::message::ContentPart::ToolCall(tc) = part {
-                    Some(tc)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if tool_calls.is_empty() {
-            println!("\nNo tool calls. Conversation finished.");
-            break;
-        }
-
-        // Handle tool calls
-        for tool_call in tool_calls {
-            println!(
-                "\n[Executing Tool] Name: {}, Args: {}",
-                tool_call.name, tool_call.arguments
-            );
-
-            let tool_result_bucket = if let Some(res) = registry
-                .execute(&tool_call.name, tool_call.arguments.clone())
-                .await
-            {
-                match res {
-                    Ok(content) => oxide_llm::core::tool::ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
-                        content,
-                        is_error: false,
-                    },
-                    Err(err) => oxide_llm::core::tool::ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
-                        content: vec![oxide_llm::core::message::ContentPart::Text {
-                            text: format!("Error executing tool: {}", err),
-                        }],
-                        is_error: true,
-                    },
-                }
-            } else {
-                oxide_llm::core::tool::ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    name: tool_call.name.clone(),
-                    content: vec![oxide_llm::core::message::ContentPart::Text {
-                        text: format!("Error: Unknown tool '{}'", tool_call.name),
-                    }],
-                    is_error: true,
-                }
-            };
-
-            // Print the result for demo purposes (extract text)
-            if let Some(oxide_llm::core::message::ContentPart::Text { text }) =
-                tool_result_bucket.content.first()
-            {
-                println!("[Tool Result] {}", text);
-            }
-
-            // Gemini specific: Tool results must be followed by the original tool call?
-            // Usually the conversation state handles the history.
-            // We just add tool result here.
-
-            state.add_message(Message {
-                role: oxide_llm::core::message::Role::Tool,
-                content: vec![oxide_llm::core::message::ContentPart::ToolResult(
-                    tool_result_bucket,
-                )],
-                name: None,
-            });
         }
     }
 

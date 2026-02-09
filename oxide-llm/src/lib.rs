@@ -12,6 +12,7 @@ pub mod agent {
 }
 
 pub mod error;
+pub mod runner;
 pub mod stream;
 pub mod tool;
 
