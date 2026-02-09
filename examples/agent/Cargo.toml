@@ -16,7 +16,6 @@ publish = false
 [dependencies]
 oxide-llm.workspace = true
 oxide-llm-transport.workspace = true
-oxide-llm-proto.workspace = true
 
 toml = "0.8"
 tokio = { version = "1", features = ["full"] }

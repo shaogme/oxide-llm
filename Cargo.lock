@@ -9,7 +9,6 @@ dependencies = [
  "error_set",
  "futures",
  "oxide-llm",
- "oxide-llm-proto",
  "oxide-llm-transport",
  "serde",
  "tokio",
@@ -716,7 +715,6 @@ dependencies = [
  "error_set",
  "futures",
  "oxide-llm-core",
- "oxide-llm-macros",
  "oxide-llm-proto",
  "serde",
  "serde_json",
@@ -734,15 +732,6 @@ dependencies = [
  "serde",
  "serde_json",
  "trait-morph",
-]
-
-[[package]]
-name = "oxide-llm-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

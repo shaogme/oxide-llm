@@ -4,7 +4,6 @@ members = [
     "oxide-llm-core",
     "oxide-llm-proto",
     "oxide-llm-transport",
-    "oxide-llm-macros",
     "examples/agent",
 ]
 resolver = "3"
@@ -26,7 +25,6 @@ categories = []
 
 # Internal Crates
 oxide-llm = { path = "oxide-llm" }
-oxide-llm-macros = { path = "oxide-llm-macros" }
 oxide-llm-core = { path = "oxide-llm-core" }
 oxide-llm-proto = { path = "oxide-llm-proto" }
 oxide-llm-transport = { path = "oxide-llm-transport" }

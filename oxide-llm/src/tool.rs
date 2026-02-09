@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oxide_llm_core::tool::{Tool, ToolRunnable};
+use oxide_llm_core::tool::ToolRunnable;
 use serde_json::Value;
 
 /// A registry for managing and executing tools.
@@ -31,7 +31,7 @@ impl ToolRegistry {
     }
 
     /// Get all tool definitions.
-    pub fn definitions(&self) -> Vec<Tool> {
+    pub fn definitions(&self) -> Vec<oxide_llm_core::tool::ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
     }
 

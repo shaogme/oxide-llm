@@ -20,10 +20,6 @@ pub mod core {
     pub use oxide_llm_core::*;
 }
 
-pub mod macros {
-    pub use oxide_llm_macros::tool;
-}
-
 pub mod reexports {
     pub use serde_json;
 }

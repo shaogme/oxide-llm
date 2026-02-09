@@ -1,6 +1,8 @@
 use serde_json::Value;
 
-use super::model::{FunctionDefinition, JSONSchema, JSONSchemaType, Tool, ToolChoice, ToolType};
+use super::model::{
+    FunctionDefinition, JSONSchema, JSONSchemaType, ToolChoice, ToolDefinition, ToolType,
+};
 use oxide_llm_proto::{
     claude::v1::messages::request::{
         CustomTool as ClaudeCustomTool, Tool as ClaudeTool, ToolChoice as ClaudeToolChoice,
@@ -21,9 +23,9 @@ use oxide_llm_proto::{
 //  Tool Adapter Traits
 // =========================================================================
 
-/// Extension trait for `Tool` to support protocol conversion.
+/// Extension trait for `ToolDefinition` to support protocol conversion.
 ///
-/// `Tool` 的扩展特性，支持协议转换。
+/// `ToolDefinition` 的扩展特性，支持协议转换。
 pub trait ToolAdapter {
     /// Convert to OpenAI Tool.
     ///
@@ -54,7 +56,7 @@ pub trait ToolChoiceAdapter {
 //  Tool Adapter Implementations
 // =========================================================================
 
-impl ToolAdapter for Tool {
+impl ToolAdapter for ToolDefinition {
     fn to_openai(&self) -> OpenAITool {
         let parameters = self
             .function
@@ -162,7 +164,7 @@ impl ToolChoiceAdapter for ToolChoice {
 
 // --- OpenAI -> Core ---
 
-impl TryFrom<OpenAITool> for Tool {
+impl TryFrom<OpenAITool> for ToolDefinition {
     type Error = String;
 
     fn try_from(value: OpenAITool) -> Result<Self, Self::Error> {
@@ -173,7 +175,7 @@ impl TryFrom<OpenAITool> for Tool {
             Some(v) => Some(serde_json::from_value(v).map_err(|e| e.to_string())?),
             None => None,
         };
-        Ok(Tool {
+        Ok(ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
                 name: value.function.name,
@@ -202,10 +204,10 @@ impl From<OpenAIToolChoice> for ToolChoice {
 
 // --- Gemini -> Core ---
 
-impl From<GeminiFunctionDeclaration> for Tool {
+impl From<GeminiFunctionDeclaration> for ToolDefinition {
     fn from(value: GeminiFunctionDeclaration) -> Self {
         let parameters = value.parameters.map(|s| gemini_schema_to_json_schema(&s));
-        Tool {
+        ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
                 name: value.name,
@@ -240,12 +242,12 @@ impl From<GeminiToolConfig> for ToolChoice {
 
 // --- Claude -> Core ---
 
-impl TryFrom<ClaudeTool> for Tool {
+impl TryFrom<ClaudeTool> for ToolDefinition {
     type Error = String;
 
     fn try_from(value: ClaudeTool) -> Result<Self, Self::Error> {
         match value {
-            ClaudeTool::Custom(custom) => Ok(Tool {
+            ClaudeTool::Custom(custom) => Ok(ToolDefinition {
                 r#type: ToolType::Function,
                 function: FunctionDefinition {
                     name: custom.name,

@@ -23,4 +23,3 @@ error_set.workspace = true
 futures.workspace = true
 bytes.workspace = true
 trait-morph.workspace = true
-oxide-llm-macros.workspace = true

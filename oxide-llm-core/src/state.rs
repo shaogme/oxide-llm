@@ -1,5 +1,5 @@
 use crate::message::Message;
-use crate::tool::{Tool, ToolChoice};
+use crate::tool::{ToolChoice, ToolDefinition};
 use serde::{Deserialize, Serialize};
 
 /// Conversation State.
@@ -20,7 +20,7 @@ pub struct ConversationState {
     /// Available tools.
     ///
     /// 可用工具列表。
-    pub tools: Vec<Tool>,
+    pub tools: Vec<ToolDefinition>,
 
     /// Tool choice preference.
     ///
@@ -52,14 +52,14 @@ impl ConversationState {
     /// Add a tool.
     ///
     /// 添加一个工具。
-    pub fn add_tool(&mut self, tool: Tool) {
+    pub fn add_tool(&mut self, tool: ToolDefinition) {
         self.tools.push(tool);
     }
 
     /// Add multiple tools.
     ///
     /// 添加多个工具。
-    pub fn add_tools(&mut self, tools: Vec<Tool>) {
+    pub fn add_tools(&mut self, tools: Vec<ToolDefinition>) {
         self.tools.extend(tools);
     }
 

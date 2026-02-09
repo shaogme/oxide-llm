@@ -10,7 +10,7 @@ use crate::message::ContentPart;
 /// 通用工具定义。
 /// 旨在覆盖 OpenAI `Tool`，Gemini `FunctionDeclaration` (在 Tool 内部)，以及 Claude `Tool`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Tool {
+pub struct ToolDefinition {
     pub r#type: ToolType,
     pub function: FunctionDefinition,
 }
@@ -435,8 +435,8 @@ impl ToolBuilder {
     }
 
     /// Build the `Tool`.
-    pub fn build(self) -> Tool {
-        Tool {
+    pub fn build(self) -> ToolDefinition {
+        ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
                 name: self.name,
@@ -498,7 +498,7 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
-impl Tool {
+impl ToolDefinition {
     /// Create a builder for defining a Tool.
     pub fn builder(name: impl Into<String>) -> ToolBuilder {
         ToolBuilder::new(name)
@@ -530,4 +530,124 @@ impl Tool {
         self.function.strict = Some(strict);
         self
     }
+}
+
+/// A trait for generating JSON Schema from Rust types.
+///
+/// 用于从 Rust 类型生成 JSON Schema。
+pub trait Schema {
+    fn json_schema() -> JSONSchema;
+
+    /// Is this field optional?
+    ///
+    /// 该字段是否可选？
+    fn is_optional() -> bool {
+        false
+    }
+}
+
+impl Schema for String {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
+impl Schema for bool {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::boolean()
+    }
+}
+
+macro_rules! impl_schema_number {
+    ($($t:ty),*) => {
+        $(
+            impl Schema for $t {
+                fn json_schema() -> JSONSchema {
+                    JSONSchema::number()
+                }
+            }
+        )*
+    };
+}
+
+impl_schema_number!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
+
+impl<T: Schema> Schema for Vec<T> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for Option<T> {
+    fn json_schema() -> JSONSchema {
+        let mut schema = T::json_schema();
+        schema.nullable = Some(true);
+        schema
+    }
+
+    fn is_optional() -> bool {
+        true
+    }
+}
+
+impl<T: Schema> Schema for Box<T> {
+    fn json_schema() -> JSONSchema {
+        T::json_schema()
+    }
+
+    fn is_optional() -> bool {
+        T::is_optional()
+    }
+}
+
+/// Macro to easily implement Schema for structs.
+///
+/// 用于便捷实现 Schema 的宏。
+///
+/// Usage:
+/// ```rust
+/// use oxide_llm_core::impl_schema;
+///
+/// struct MyStruct {
+///     name: String,
+///     age: i32,
+/// }
+///
+/// impl_schema!(
+///     MyStruct,
+///     "My Struct Description",
+///     {
+///         name: String => "Name of the person",
+///         age: i32 => "Age of the person"
+///     }
+/// );
+/// ```
+#[macro_export]
+macro_rules! impl_schema {
+    ($struct_name:ident, $description:expr, {
+        $( $field:ident : $type:ty => $desc:expr ),* $(,)?
+    }) => {
+        impl $crate::tool::model::Schema for $struct_name {
+            fn json_schema() -> $crate::tool::model::JSONSchema {
+                #[allow(unused_mut)]
+                let mut schema = $crate::tool::model::JSONSchema::object()
+                    .description($description);
+
+                $(
+                {
+                    let field_schema = <$type as $crate::tool::model::Schema>::json_schema()
+                        .description($desc);
+
+                    if !<$type as $crate::tool::model::Schema>::is_optional() {
+                        schema = schema.required_property(stringify!($field), field_schema);
+                    } else {
+                        schema = schema.property(stringify!($field), field_schema);
+                    }
+                }
+                )*
+
+                schema
+            }
+        }
+    };
 }

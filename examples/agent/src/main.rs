@@ -9,9 +9,10 @@ use oxide_llm::agent::openai::v1::chat_completions::{
 };
 use oxide_llm::core::message::{ChatStreamEvent, Message};
 use oxide_llm::core::state::ConversationState;
+use oxide_llm::core::tool::{JSONSchema, Schema, Tool};
 use oxide_llm::core::transport::{AuthorizationLayer, BaseUrlLayer};
 use oxide_llm_transport::reqwest::ReqwestTransport;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -57,6 +58,131 @@ struct GeminiConfig {
     model: String,
 }
 
+// --- Tool Definitions ---
+
+// 1. Weather Tool
+
+#[derive(Deserialize)]
+pub struct WeatherArgs {
+    pub location: String,
+    pub unit: Option<String>,
+}
+
+// Manual Schema implementation since oxide-llm-core macros might not be easily accessible without direct dependency
+impl Schema for WeatherArgs {
+    fn json_schema() -> JSONSchema {
+        let mut schema =
+            JSONSchema::object().description("Get the current weather in a given location");
+
+        schema = schema.required_property(
+            "location",
+            <String as Schema>::json_schema().description("The city name, e.g. San Francisco"),
+        );
+
+        schema = schema.property(
+            "unit",
+            <Option<String> as Schema>::json_schema()
+                .description("The unit of temperature (celsius/fahrenheit)"),
+        );
+
+        schema
+    }
+}
+
+#[derive(Serialize)]
+pub struct WeatherOutput {
+    pub location: String,
+    pub temperature: i32,
+    pub unit: String,
+    pub condition: String,
+}
+
+#[derive(Clone)]
+pub struct WeatherTool {
+    // Example state
+    pub api_key: String,
+}
+
+impl Tool for WeatherTool {
+    const NAME: &'static str = "get_weather";
+    const DESCRIPTION: &'static str = "Get the current weather in a given location";
+
+    type Args = WeatherArgs;
+    type Output = WeatherOutput;
+
+    async fn run(&self, args: Self::Args) -> Result<Self::Output, String> {
+        // Simulate using state (api_key)
+        if self.api_key.is_empty() {
+            return Err("Missing API Key for Weather Service".to_string());
+        }
+
+        let unit = args.unit.unwrap_or_else(|| "celsius".to_string());
+
+        // Mock response
+        Ok(WeatherOutput {
+            location: args.location,
+            temperature: 25,
+            unit,
+            condition: "sunny".to_string(),
+        })
+    }
+}
+
+// 2. Stock Price Tool
+
+#[derive(Deserialize)]
+pub struct StockArgs {
+    pub symbol: String,
+}
+
+impl Schema for StockArgs {
+    fn json_schema() -> JSONSchema {
+        let mut schema = JSONSchema::object().description("Get the stock price for a given symbol");
+
+        schema = schema.required_property(
+            "symbol",
+            <String as Schema>::json_schema().description("The stock symbol, e.g. AAPL"),
+        );
+
+        schema
+    }
+}
+
+#[derive(Serialize)]
+pub struct StockOutput {
+    pub symbol: String,
+    pub price: f64,
+    pub currency: String,
+}
+
+#[derive(Clone)]
+pub struct StockTool;
+
+impl Tool for StockTool {
+    const NAME: &'static str = "get_stock_price";
+    const DESCRIPTION: &'static str = "Get the stock price for a given symbol";
+
+    type Args = StockArgs;
+    type Output = StockOutput;
+
+    async fn run(&self, args: Self::Args) -> Result<Self::Output, String> {
+        let symbol = args.symbol.to_uppercase();
+
+        // Simulate network delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        if symbol == "AAPL" {
+            Ok(StockOutput {
+                symbol,
+                price: 150.00,
+                currency: "USD".to_string(),
+            })
+        } else {
+            Err(format!("Stock symbol {} not found", symbol))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Load configuration
@@ -87,8 +213,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AgentConfig::Claude(c) => {
             println!("Loaded config for Claude model: {}", c.model);
             let transport = ReqwestTransport::new();
-            // Note: Claude typically uses x-api-key header, but we're reusing AuthorizationLayer for now.
-            // Adjust if AuthorizationLayer is strictly Bearer token.
             let transport = AuthorizationLayer::new(transport, c.api_key);
             let transport = BaseUrlLayer::new(transport, c.base_url);
 
@@ -116,46 +240,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Prepare Conversation State
     let mut state = ConversationState::new(None);
 
-    /// Get the current weather in a given location
-    #[oxide_llm::macros::tool]
-    pub fn get_weather(
-        /// The city name, e.g. San Francisco
-        location: String,
-        /// The unit of temperature
-        #[tool(default = "celsius")]
-        unit: String,
-    ) -> String {
-        format!("The weather in {} is sunny, 25 degrees {}.", location, unit)
-    }
-
-    /// Get the stock price for a given symbol
-    #[oxide_llm::macros::tool]
-    pub async fn get_stock_price(
-        /// The stock symbol, e.g. AAPL
-        symbol: String,
-    ) -> Result<String, String> {
-        // Simulate network delay
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if symbol == "AAPL" {
-            Ok(format!("The stock price of {} is $150.00", symbol))
-        } else {
-            Err(format!("Stock symbol {} not found", symbol))
-        }
-    }
-
+    // 5. Register Tools (Stateful)
     let mut registry = oxide_llm::tool::ToolRegistry::new();
-    registry.register(GetWeatherTool);
-    registry.register(GetStockPriceTool);
+
+    // Instantiate tools with state
+    let weather_tool = WeatherTool {
+        api_key: "dummy_weather_api_key".to_string(),
+    };
+    let stock_tool = StockTool;
+
+    registry.register(weather_tool);
+    registry.register(stock_tool);
 
     state.add_tools(registry.definitions());
 
-    // 5. Interaction Loop
-    let user_input = "What is the weather in Tokyo and what is the stock price of AAPL?";
-    println!("User: {}", user_input);
-
-    state.add_message(Message::user(user_input));
-
-    // 5. Interaction Loop using Runner
+    // 6. Interaction Loop
     let user_input = "What is the weather in Tokyo and what is the stock price of AAPL?";
     println!("User: {}", user_input);
 
