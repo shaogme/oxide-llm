@@ -13,13 +13,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
 
-oxide-llm-core = { workspace = true }
-oxide-llm-proto = { workspace = true }
-error_set = { workspace = true }
+oxide-llm-core.workspace = true
+oxide-llm-proto.workspace = true
+error_set.workspace = true
 
 futures.workspace = true
 bytes.workspace = true
 trait-morph.workspace = true
+oxide-llm-macros.workspace = true

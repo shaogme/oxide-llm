@@ -116,47 +116,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Prepare Conversation State
     let mut state = ConversationState::new(None);
 
-    struct WeatherTool;
-
-    impl oxide_llm::core::tool::ToolRunnable for WeatherTool {
-        fn definition(&self) -> oxide_llm::core::tool::Tool {
-            oxide_llm::core::tool::Tool::builder("get_weather")
-                .description("Get the current weather in a given location")
-                .parameters(
-                    oxide_llm::core::tool::JSONSchema::object()
-                        .required_property(
-                            "location",
-                            oxide_llm::core::tool::JSONSchema::string()
-                                .description("The city name, e.g. San Francisco"),
-                        )
-                        .property(
-                            "unit",
-                            oxide_llm::core::tool::JSONSchema::string()
-                                .enum_values(vec!["celsius", "fahrenheit"])
-                                .description("The unit of temperature"),
-                        ),
-                )
-                .build()
-        }
-
-        fn run(&self, args: serde_json::Value) -> oxide_llm::core::tool::traits::ToolFuture {
-            Box::pin(async move {
-                let location = args
-                    .get("location")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-
-                let result = format!("The weather in {} is sunny, 25 degrees Celsius.", location);
-
-                Ok(vec![oxide_llm::core::message::ContentPart::Text {
-                    text: result,
-                }])
-            })
-        }
+    /// Get the current weather in a given location
+    #[oxide_llm::macros::tool]
+    pub fn get_weather(
+        /// The city name, e.g. San Francisco
+        location: String,
+        /// The unit of temperature
+        #[tool(default = "celsius")]
+        unit: String,
+    ) -> String {
+        format!("The weather in {} is sunny, 25 degrees {}.", location, unit)
     }
 
     let mut registry = oxide_llm::tool::ToolRegistry::new();
-    registry.register(WeatherTool);
+    registry.register(GetWeatherTool);
 
     state.add_tools(registry.definitions());
 

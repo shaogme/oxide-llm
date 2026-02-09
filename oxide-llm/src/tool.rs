@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oxide_llm_core::tool::model::Tool;
-use oxide_llm_core::tool::traits::ToolRunnable;
+use oxide_llm_core::tool::{Tool, ToolRunnable};
 use serde_json::Value;
 
 /// A registry for managing and executing tools.
