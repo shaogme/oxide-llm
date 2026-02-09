@@ -128,13 +128,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("The weather in {} is sunny, 25 degrees {}.", location, unit)
     }
 
+    /// Get the stock price for a given symbol
+    #[oxide_llm::macros::tool]
+    pub async fn get_stock_price(
+        /// The stock symbol, e.g. AAPL
+        symbol: String,
+    ) -> Result<String, String> {
+        // Simulate network delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        if symbol == "AAPL" {
+            Ok(format!("The stock price of {} is $150.00", symbol))
+        } else {
+            Err(format!("Stock symbol {} not found", symbol))
+        }
+    }
+
     let mut registry = oxide_llm::tool::ToolRegistry::new();
     registry.register(GetWeatherTool);
+    registry.register(GetStockPriceTool);
 
     state.add_tools(registry.definitions());
 
     // 5. Interaction Loop
-    let user_input = "What is the weather in Tokyo?";
+    let user_input = "What is the weather in Tokyo and what is the stock price of AAPL?";
     println!("User: {}", user_input);
 
     state.add_message(Message::user(user_input));

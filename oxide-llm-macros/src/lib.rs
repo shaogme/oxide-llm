@@ -128,6 +128,41 @@ pub fn tool(_attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { None }
     };
 
+    let is_async = input_fn.sig.asyncness.is_some();
+
+    let is_result = if let syn::ReturnType::Type(_, ty) = &input_fn.sig.output {
+        if let Type::Path(type_path) = &**ty {
+            if let Some(segment) = type_path.path.segments.last() {
+                segment.ident == "Result"
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let result_handling = if is_result {
+        quote! {
+             match result {
+                Ok(v) => Ok(vec![oxide_llm::core::message::ContentPart::Text { text: v.to_string() }]),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+    } else {
+        quote! {
+            Ok(vec![oxide_llm::core::message::ContentPart::Text { text: result.to_string() }])
+        }
+    };
+
+    let call_expr = if is_async {
+        quote! { #fn_name(#(#param_names),*).await }
+    } else {
+        quote! { #fn_name(#(#param_names),*) }
+    };
+
     let expanded = quote! {
         // Emit the function with cleaned signature
         #fn_vis #clean_sig #fn_block
@@ -164,9 +199,11 @@ pub fn tool(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                     #(#param_parsing)*
 
-                    let result = #fn_name(#(#param_names),*);
+                    let result = #call_expr;
 
-                    Ok(vec![oxide_llm::core::message::ContentPart::Text { text: result.to_string() }])
+                    #result_handling
+
+
                 })
             }
         }
