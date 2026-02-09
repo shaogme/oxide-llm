@@ -1,4 +1,4 @@
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -613,9 +613,6 @@ impl MessageAssembler {
     }
 }
 
-pub type ChatStreamWrapper<'a, E> =
-    ChatStream<futures::stream::BoxStream<'a, Result<DeltaMessage, E>>, E>;
-
 /// A stream wrapper that converts DeltaMessages into high-level ChatStreamEvents
 /// and automatically assembles the final Message.
 ///
@@ -631,6 +628,28 @@ pub struct ChatStream<S, E> {
     current_tool_index: Option<u32>,
     emitted_tool_finishes: std::collections::HashSet<u32>,
     _marker: std::marker::PhantomData<E>,
+}
+
+impl<S, E> ChatStream<S, E>
+where
+    S: Stream<Item = Result<DeltaMessage, E>> + Send + 'static,
+{
+    pub fn into_boxed(
+        self,
+    ) -> ChatStream<futures::stream::BoxStream<'static, Result<DeltaMessage, E>>, E> {
+        ChatStream {
+            stream: self.stream.boxed(),
+            assembler: self.assembler,
+            pending_events: self.pending_events,
+            stream_finished: self.stream_finished,
+            start_event_emitted: self.start_event_emitted,
+            finished_event_emitted: self.finished_event_emitted,
+            emitted_tool_starts: self.emitted_tool_starts,
+            current_tool_index: self.current_tool_index,
+            emitted_tool_finishes: self.emitted_tool_finishes,
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<S, E> ChatStream<S, E>

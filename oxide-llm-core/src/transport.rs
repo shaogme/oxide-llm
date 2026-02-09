@@ -68,7 +68,11 @@ impl<B> TransportRequest<B> {
 /// 实现者负责处理 Base URL、API Key 注入、请求头管理以及具体的网络 I/O。
 #[trait_morph::morph(Send)]
 pub trait Transport: Send + Sync + Clone {
-    /// Sends a request and retrieves a response.
+    type Stream: futures::stream::Stream<Item = Result<bytes::Bytes, TransportError>>
+        + Send
+        + 'static;
+
+    /// Sends a request and retrieval a response.
     ///
     /// # Parameters
     /// - `req`: The transport request containing method, endpoint, headers and body.
@@ -96,7 +100,7 @@ pub trait Transport: Send + Sync + Clone {
     /// - `req`: The transport request containing method, endpoint, headers and body.
     ///
     /// # Returns
-    /// - Returns a `BoxStream` producing `Bytes` on success.
+    /// - Returns a `Stream` producing `Bytes` on success.
     /// - Returns `TransportError` on failure.
     ///
     /// 发送请求并返回字节流。
@@ -105,15 +109,9 @@ pub trait Transport: Send + Sync + Clone {
     /// - `req`: 包含方法、端点、头信息和请求体的传输层请求。
     ///
     /// # 返回
-    /// - 成功时返回产生 `Bytes` 的 `BoxStream`。
+    /// - 成功时返回产生 `Bytes` 的 `Stream`。
     /// - 失败时返回 `TransportError`。
-    async fn stream<Req>(
-        &self,
-        req: TransportRequest<Req>,
-    ) -> Result<
-        futures::stream::BoxStream<'static, Result<bytes::Bytes, TransportError>>,
-        TransportError,
-    >
+    async fn stream<Req>(&self, req: TransportRequest<Req>) -> Result<Self::Stream, TransportError>
     where
         Req: Serialize + Send + Sync;
 }
@@ -135,6 +133,8 @@ impl<T> AuthorizationLayer<T> {
 }
 
 impl<T: Transport> Transport for AuthorizationLayer<T> {
+    type Stream = T::Stream;
+
     async fn send<Req, Res>(&self, mut req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
         Req: Serialize + Send + Sync,
@@ -150,10 +150,7 @@ impl<T: Transport> Transport for AuthorizationLayer<T> {
     async fn stream<Req>(
         &self,
         mut req: TransportRequest<Req>,
-    ) -> Result<
-        futures::stream::BoxStream<'static, Result<bytes::Bytes, TransportError>>,
-        TransportError,
-    >
+    ) -> Result<Self::Stream, TransportError>
     where
         Req: Serialize + Send + Sync,
     {
@@ -183,6 +180,8 @@ impl<T> BaseUrlLayer<T> {
 }
 
 impl<T: Transport> Transport for BaseUrlLayer<T> {
+    type Stream = T::Stream;
+
     async fn send<Req, Res>(&self, mut req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
         Req: Serialize + Send + Sync,
@@ -198,10 +197,7 @@ impl<T: Transport> Transport for BaseUrlLayer<T> {
     async fn stream<Req>(
         &self,
         mut req: TransportRequest<Req>,
-    ) -> Result<
-        futures::stream::BoxStream<'static, Result<bytes::Bytes, TransportError>>,
-        TransportError,
-    >
+    ) -> Result<Self::Stream, TransportError>
     where
         Req: Serialize + Send + Sync,
     {

@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::mapper::MapperError;
-use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
+use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent;
@@ -163,6 +163,8 @@ impl<T: Transport> MessagesAgent<T> {
 }
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
+    type Stream = BoxStream<'static, Result<DeltaMessage>>;
+
     /// Send a chat request to Claude.
     ///
     /// 发送聊天请求到 Claude。
@@ -187,10 +189,10 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// Send a chat request to Claude and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Claude 并接收流式响应。
-    async fn chat_stream<'a>(
-        &'a self,
+    async fn chat_stream(
+        &self,
         state: ConversationState,
-    ) -> Result<ChatStreamWrapper<'a, AgentError>> {
+    ) -> Result<ChatStream<Self::Stream, AgentError>> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -203,7 +205,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Parse SSE Stream
-        let parsed_stream = parse_sse_stream(stream);
+        let parsed_stream = parse_sse_stream(stream.boxed());
         Ok(ChatStream::new(Box::pin(parsed_stream)))
     }
 }

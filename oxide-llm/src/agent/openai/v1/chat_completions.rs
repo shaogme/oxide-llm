@@ -1,6 +1,6 @@
 use bytes::{Bytes, BytesMut};
-use futures::{Stream, StreamExt};
-use oxide_llm_core::message::{ChatStream, ChatStreamWrapper, DeltaMessage, Message};
+use futures::{Stream, StreamExt, stream::BoxStream};
+use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
@@ -216,6 +216,8 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 }
 
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
+    type Stream = BoxStream<'static, Result<DeltaMessage>>;
+
     /// Send a chat request to OpenAI.
     ///
     /// 发送聊天请求到 OpenAI。
@@ -240,10 +242,10 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI and receive a stream of chunks.
     ///
     /// 发送聊天请求到 OpenAI 并接收流式响应。
-    async fn chat_stream<'a>(
-        &'a self,
+    async fn chat_stream(
+        &self,
         state: ConversationState,
-    ) -> Result<ChatStreamWrapper<'a, AgentError>> {
+    ) -> Result<ChatStream<Self::Stream, AgentError>> {
         let request = self.build_request(state, true)?;
 
         // Send Stream Request
@@ -256,7 +258,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Parse SSE Stream
-        let parsed_stream = parse_sse_stream(stream);
+        let parsed_stream = parse_sse_stream(stream.boxed());
         Ok(ChatStream::new(Box::pin(parsed_stream)))
     }
 }

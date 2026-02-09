@@ -83,6 +83,8 @@ fn map_reqwest_error(e: reqwest::Error) -> TransportError {
 }
 
 impl Transport for ReqwestTransport {
+    type Stream = BoxStream<'static, Result<bytes::Bytes, TransportError>>;
+
     async fn send<Req, Res>(&self, req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
         Req: Serialize + Send + Sync,
@@ -106,10 +108,7 @@ impl Transport for ReqwestTransport {
         resp.json::<Res>().await.map_err(map_reqwest_error)
     }
 
-    async fn stream<Req>(
-        &self,
-        req: TransportRequest<Req>,
-    ) -> Result<BoxStream<'static, Result<bytes::Bytes, TransportError>>, TransportError>
+    async fn stream<Req>(&self, req: TransportRequest<Req>) -> Result<Self::Stream, TransportError>
     where
         Req: Serialize + Send + Sync,
     {
