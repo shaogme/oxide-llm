@@ -503,14 +503,16 @@ impl MessageAssembler {
                     }
                     DeltaContentPart::ToolCall(tool_call) => {
                         // Get or generate tool ID
-                        let tool_id = tool_call.id.clone().unwrap_or_else(|| {
-                            // Fallback: generate ID from name if available
-                            tool_call
-                                .function
-                                .as_ref()
-                                .and_then(|f| f.name.clone())
+                        let tool_id = if let Some(id) = tool_call.id.clone() {
+                            id
+                        } else {
+                            self.tool_call_order
+                                .iter()
+                                .rev()
+                                .find(|(idx, _)| *idx == tool_call.index)
+                                .map(|(_, id)| id.clone())
                                 .unwrap_or_else(|| format!("tool_{}", tool_call.index))
-                        });
+                        };
 
                         // Get or create the tool call entry
                         let entry = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
@@ -652,7 +654,6 @@ pub struct ChatStream<S, E> {
     start_event_emitted: bool,
     finished_event_emitted: bool,
     emitted_tool_starts: std::collections::HashSet<u32>,
-    current_tool_index: Option<u32>,
     emitted_tool_finishes: std::collections::HashSet<u32>,
     _marker: std::marker::PhantomData<E>,
 }
@@ -672,7 +673,6 @@ where
             start_event_emitted: self.start_event_emitted,
             finished_event_emitted: self.finished_event_emitted,
             emitted_tool_starts: self.emitted_tool_starts,
-            current_tool_index: self.current_tool_index,
             emitted_tool_finishes: self.emitted_tool_finishes,
             _marker: std::marker::PhantomData,
         }
@@ -692,28 +692,9 @@ where
             start_event_emitted: false,
             finished_event_emitted: false,
             emitted_tool_starts: std::collections::HashSet::new(),
-            current_tool_index: None,
             emitted_tool_finishes: std::collections::HashSet::new(),
             _marker: std::marker::PhantomData,
         }
-    }
-
-    /// Handles transition between tool states.
-    /// If current_tool_index changes, emits ToolCallFinished for the previous tool.
-    fn transition_tool_state(&mut self, new_index: Option<u32>) {
-        if let Some(current_idx) = self.current_tool_index {
-            if Some(current_idx) != new_index {
-                // Previous tool finished
-                if !self.emitted_tool_finishes.contains(&current_idx) {
-                    if let Some(tool_call) = self.assembler.get_tool_call(current_idx) {
-                        self.pending_events
-                            .push_back(ChatStreamEvent::ToolCallFinished(tool_call));
-                        self.emitted_tool_finishes.insert(current_idx);
-                    }
-                }
-            }
-        }
-        self.current_tool_index = new_index;
     }
 }
 
@@ -742,10 +723,7 @@ where
             if this.stream_finished {
                 this.finished_event_emitted = true;
 
-                // Ensure the last active tool is finished
-                this.transition_tool_state(None);
-
-                // Emit all completed tool calls that haven't been emitted yet (Just in case)
+                // Emit all completed tool calls that haven't been emitted yet
                 let tool_indices = this.assembler.get_tool_call_indices();
                 for index in tool_indices {
                     if !this.emitted_tool_finishes.contains(&index) {
@@ -784,34 +762,34 @@ where
                     }
 
                     // 4.3 Process Content
-                    // We filter out Text/Reasoning to avoid double buffering in Assembler
-                    let mut tool_content_buffer = Vec::new();
+                    let mut assembler_content = Vec::new();
 
                     if let Some(parts) = content {
                         for part in parts {
-                            // Determine active tool index for this part to manage transitions
-                            let part_tool_idx = if let DeltaContentPart::ToolCall(t) = &part {
-                                Some(t.index)
-                            } else {
-                                None
-                            };
-
-                            this.transition_tool_state(part_tool_idx);
-
                             match part {
-                                DeltaContentPart::Text { text, .. } => {
+                                DeltaContentPart::Text { index, text } => {
                                     if !text.is_empty() {
-                                        this.pending_events
-                                            .push_back(ChatStreamEvent::Text { text });
+                                        this.pending_events.push_back(ChatStreamEvent::Text {
+                                            text: text.clone(),
+                                        });
                                     }
-                                    // Drop text part, do not store in assembler
+                                    assembler_content.push(DeltaContentPart::Text { index, text });
                                 }
-                                DeltaContentPart::Reasoning { text, .. } => {
+                                DeltaContentPart::Reasoning {
+                                    index,
+                                    text,
+                                    signature,
+                                } => {
                                     if !text.is_empty() {
-                                        this.pending_events
-                                            .push_back(ChatStreamEvent::Reasoning { text });
+                                        this.pending_events.push_back(ChatStreamEvent::Reasoning {
+                                            text: text.clone(),
+                                        });
                                     }
-                                    // Drop reasoning part, do not store in assembler
+                                    assembler_content.push(DeltaContentPart::Reasoning {
+                                        index,
+                                        text,
+                                        signature,
+                                    });
                                 }
                                 DeltaContentPart::ToolCall(tool) => {
                                     if !this.emitted_tool_starts.contains(&tool.index) {
@@ -828,26 +806,21 @@ where
                                             },
                                         );
                                     }
-                                    // Keep ToolCall for assembler (needed for ToolCallFinished)
-                                    tool_content_buffer.push(DeltaContentPart::ToolCall(tool));
+                                    assembler_content.push(DeltaContentPart::ToolCall(tool));
                                 }
                                 other => {
-                                    // Keep other parts (e.g. Refusal) just in case
-                                    tool_content_buffer.push(other);
+                                    assembler_content.push(other);
                                 }
                             }
                         }
-                    } else {
-                        // No content, ensure tool state transitions to None (finish previous tool if any)
-                        this.transition_tool_state(None);
                     }
 
-                    // 4.4 Feed Tool content to Assembler
-                    if !tool_content_buffer.is_empty() {
+                    // 4.4 Feed all content to Assembler (Text, Reasoning, ToolCalls)
+                    if !assembler_content.is_empty() {
                         let content_delta = DeltaMessage {
                             role: None,
                             name: None,
-                            content: Some(tool_content_buffer),
+                            content: Some(assembler_content),
                             finish_reason: None,
                             usage: None,
                         };
