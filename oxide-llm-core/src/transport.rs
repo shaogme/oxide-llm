@@ -209,3 +209,24 @@ impl<T: Transport> Transport for BaseUrlLayer<T> {
         self.inner.stream(req).await
     }
 }
+
+/// Extension trait for `Transport` to provide a fluent interface for layering.
+///
+/// 为 `Transport` 提供流式接口的扩展 Trait。
+pub trait TransportExt: Transport + Sized {
+    /// Adds an authorization layer to the transport.
+    ///
+    /// 为传输层添加认证层。
+    fn with_authorization(self, api_key: impl Into<String>) -> AuthorizationLayer<Self> {
+        AuthorizationLayer::new(self, api_key)
+    }
+
+    /// Adds a base URL layer to the transport.
+    ///
+    /// 为传输层添加 Base URL 层。
+    fn with_base_url(self, base_url: impl Into<String>) -> BaseUrlLayer<Self> {
+        BaseUrlLayer::new(self, base_url)
+    }
+}
+
+impl<T: Transport> TransportExt for T {}

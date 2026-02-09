@@ -10,7 +10,7 @@ use oxide_llm::agent::openai::v1::chat_completions::{
 use oxide_llm::core::message::{ChatStreamEvent, Message};
 use oxide_llm::core::state::ConversationState;
 use oxide_llm::core::tool::Tool;
-use oxide_llm::core::transport::{AuthorizationLayer, BaseUrlLayer};
+use oxide_llm::core::transport::TransportExt;
 use oxide_llm::macros::Schema;
 use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::{Deserialize, Serialize};
@@ -176,9 +176,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent: Box<dyn DynChatAgent> = match config.agent {
         AgentConfig::OpenAI(c) => {
             println!("Loaded config for OpenAI model: {}", c.model);
-            let transport = ReqwestTransport::new();
-            let transport = AuthorizationLayer::new(transport, c.api_key);
-            let transport = BaseUrlLayer::new(transport, c.base_url);
+            let transport = ReqwestTransport::new()
+                .with_authorization(c.api_key)
+                .with_base_url(c.base_url);
 
             let agent_config = ChatCompletionsRequiredConfig {
                 model: c.model,
@@ -188,9 +188,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         AgentConfig::Claude(c) => {
             println!("Loaded config for Claude model: {}", c.model);
-            let transport = ReqwestTransport::new();
-            let transport = AuthorizationLayer::new(transport, c.api_key);
-            let transport = BaseUrlLayer::new(transport, c.base_url);
+            let transport = ReqwestTransport::new()
+                .with_authorization(c.api_key)
+                .with_base_url(c.base_url);
 
             let agent_config = MessagesRequiredConfig {
                 model: c.model,
@@ -201,9 +201,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         AgentConfig::Gemini(c) => {
             println!("Loaded config for Gemini model: {}", c.model);
-            let transport = ReqwestTransport::new();
-            let transport = AuthorizationLayer::new(transport, c.api_key);
-            let transport = BaseUrlLayer::new(transport, c.base_url);
+            let transport = ReqwestTransport::new()
+                .with_authorization(c.api_key)
+                .with_base_url(c.base_url);
 
             let agent_config = GenerateContentRequiredConfig {
                 model: c.model,
