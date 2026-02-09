@@ -3,6 +3,7 @@ use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
+use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent;
 use oxide_llm_proto::claude::v1::messages::request::{

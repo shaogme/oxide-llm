@@ -2,6 +2,7 @@ use bytes::BytesMut;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
+use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::gemini::v1beta::generate_content::request::{
     GenerateContentRequest, GenerationConfig, SafetySetting,
