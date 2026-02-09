@@ -117,20 +117,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut state = ConversationState::new(None);
 
     // Define "get_weather" Tool
-    let mut params = oxide_llm::core::tool::JSONSchema::object();
-    let mut props = std::collections::BTreeMap::new();
-    props.insert(
-        "location".to_string(),
-        oxide_llm::core::tool::JSONSchema::string(),
-    );
-    params.properties = Some(props);
-    params.required = Some(vec!["location".to_string()]);
-
-    let weather_tool = oxide_llm::core::tool::Tool::function(
-        "get_weather",
-        "Get the current weather in a given location",
-        params,
-    );
+    let weather_tool = oxide_llm::core::tool::Tool::builder("get_weather")
+        .description("Get the current weather in a given location")
+        .parameters(
+            oxide_llm::core::tool::JSONSchema::object()
+                .required_property(
+                    "location",
+                    oxide_llm::core::tool::JSONSchema::string()
+                        .description("The city name, e.g. San Francisco"),
+                )
+                .property(
+                    "unit",
+                    oxide_llm::core::tool::JSONSchema::string()
+                        .enum_values(vec!["celsius", "fahrenheit"])
+                        .description("The unit of temperature"),
+                ),
+        )
+        .build();
 
     state.add_tool(weather_tool);
 

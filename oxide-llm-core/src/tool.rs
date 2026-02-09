@@ -338,6 +338,129 @@ impl JSONSchema {
             ..Default::default()
         }
     }
+
+    /// Create a new Number schema.
+    pub fn number() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Number),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new Integer schema.
+    pub fn integer() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Integer),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new Boolean schema.
+    pub fn boolean() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Boolean),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new Array schema.
+    pub fn array(items: JSONSchema) -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Array),
+            items: Some(Box::new(items)),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new Null schema.
+    pub fn null() -> Self {
+        Self {
+            schema_type: Some(JSONSchemaType::Null),
+            ..Default::default()
+        }
+    }
+
+    /// Set the description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Set enum values (for string types mostly).
+    pub fn enum_values(mut self, values: Vec<impl Into<String>>) -> Self {
+        self.enum_values = Some(values.into_iter().map(|s| s.into()).collect());
+        self
+    }
+
+    /// Add a property to the object.
+    pub fn property(mut self, name: impl Into<String>, schema: JSONSchema) -> Self {
+        if let Some(props) = &mut self.properties {
+            props.insert(name.into(), schema);
+        }
+        self
+    }
+
+    /// Add a required property to the object.
+    pub fn required_property(mut self, name: impl Into<String>, schema: JSONSchema) -> Self {
+        let name = name.into();
+        if let Some(props) = &mut self.properties {
+            props.insert(name.clone(), schema);
+        }
+        if let Some(req) = &mut self.required {
+            req.push(name);
+        }
+        self
+    }
+}
+
+/// Builder for creating a `Tool`.
+pub struct ToolBuilder {
+    name: String,
+    description: Option<String>,
+    parameters: Option<JSONSchema>,
+    strict: Option<bool>,
+}
+
+impl ToolBuilder {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+            parameters: None,
+            strict: None,
+        }
+    }
+
+    /// Set tool description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Set tool parameters (input schema).
+    pub fn parameters(mut self, schema: JSONSchema) -> Self {
+        self.parameters = Some(schema);
+        self
+    }
+
+    /// Set strict mode.
+    pub fn strict(mut self, strict: bool) -> Self {
+        self.strict = Some(strict);
+        self
+    }
+
+    /// Build the `Tool`.
+    pub fn build(self) -> Tool {
+        Tool {
+            r#type: ToolType::Function,
+            function: FunctionDefinition {
+                name: self.name,
+                description: self.description,
+                parameters: self.parameters,
+                strict: self.strict,
+            },
+        }
+    }
 }
 
 /// Universal Tool Choice Strategy.
@@ -391,6 +514,11 @@ pub struct ToolResult {
 }
 
 impl Tool {
+    /// Create a builder for defining a Tool.
+    pub fn builder(name: impl Into<String>) -> ToolBuilder {
+        ToolBuilder::new(name)
+    }
+
     /// Create a new Function tool.
     ///
     /// 创建一个新的 Function 工具。
