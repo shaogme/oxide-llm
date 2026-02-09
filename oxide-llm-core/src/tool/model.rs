@@ -534,7 +534,31 @@ impl ToolDefinition {
 
 /// A trait for generating JSON Schema from Rust types.
 ///
+/// For most use cases, you should use the `#[derive(Schema)]` macro from `oxide-llm-macros`:
+///
+/// ```rust
+/// use oxide_llm::macros::Schema;
+/// use serde::Deserialize;
+///
+/// /// Get the current weather in a given location
+/// #[derive(Deserialize, Schema)]
+/// pub struct WeatherArgs {
+///     /// The city name, e.g. San Francisco
+///     pub location: String,
+///     /// The unit of temperature (celsius/fahrenheit)
+///     pub unit: Option<String>,
+/// }
+/// ```
+///
+/// The derive macro will automatically:
+/// - Generate the JSON Schema from struct fields
+/// - Use doc comments (`///`) as descriptions
+/// - Support optional fields via `Option<T>`
+/// - Respect the `#[schema(description = "...")]` attribute
+///
 /// 用于从 Rust 类型生成 JSON Schema。
+///
+/// 大多数情况下，您应该使用 `oxide-llm-macros` 中的 `#[derive(Schema)]` 宏。
 pub trait Schema {
     fn json_schema() -> JSONSchema;
 
@@ -598,56 +622,4 @@ impl<T: Schema> Schema for Box<T> {
     fn is_optional() -> bool {
         T::is_optional()
     }
-}
-
-/// Macro to easily implement Schema for structs.
-///
-/// 用于便捷实现 Schema 的宏。
-///
-/// Usage:
-/// ```rust
-/// use oxide_llm_core::impl_schema;
-///
-/// struct MyStruct {
-///     name: String,
-///     age: i32,
-/// }
-///
-/// impl_schema!(
-///     MyStruct,
-///     "My Struct Description",
-///     {
-///         name: String => "Name of the person",
-///         age: i32 => "Age of the person"
-///     }
-/// );
-/// ```
-#[macro_export]
-macro_rules! impl_schema {
-    ($struct_name:ident, $description:expr, {
-        $( $field:ident : $type:ty => $desc:expr ),* $(,)?
-    }) => {
-        impl $crate::tool::model::Schema for $struct_name {
-            fn json_schema() -> $crate::tool::model::JSONSchema {
-                #[allow(unused_mut)]
-                let mut schema = $crate::tool::model::JSONSchema::object()
-                    .description($description);
-
-                $(
-                {
-                    let field_schema = <$type as $crate::tool::model::Schema>::json_schema()
-                        .description($desc);
-
-                    if !<$type as $crate::tool::model::Schema>::is_optional() {
-                        schema = schema.required_property(stringify!($field), field_schema);
-                    } else {
-                        schema = schema.property(stringify!($field), field_schema);
-                    }
-                }
-                )*
-
-                schema
-            }
-        }
-    };
 }

@@ -9,8 +9,9 @@ use oxide_llm::agent::openai::v1::chat_completions::{
 };
 use oxide_llm::core::message::{ChatStreamEvent, Message};
 use oxide_llm::core::state::ConversationState;
-use oxide_llm::core::tool::{JSONSchema, Schema, Tool};
+use oxide_llm::core::tool::Tool;
 use oxide_llm::core::transport::{AuthorizationLayer, BaseUrlLayer};
+use oxide_llm::macros::Schema;
 use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -62,31 +63,15 @@ struct GeminiConfig {
 
 // 1. Weather Tool
 
-#[derive(Deserialize)]
+/// Arguments for the weather tool.
+///
+/// Get the current weather in a given location
+#[derive(Deserialize, Schema)]
 pub struct WeatherArgs {
+    /// The city name, e.g. San Francisco
     pub location: String,
+    /// The unit of temperature (celsius/fahrenheit)
     pub unit: Option<String>,
-}
-
-// Manual Schema implementation since oxide-llm-core macros might not be easily accessible without direct dependency
-impl Schema for WeatherArgs {
-    fn json_schema() -> JSONSchema {
-        let mut schema =
-            JSONSchema::object().description("Get the current weather in a given location");
-
-        schema = schema.required_property(
-            "location",
-            <String as Schema>::json_schema().description("The city name, e.g. San Francisco"),
-        );
-
-        schema = schema.property(
-            "unit",
-            <Option<String> as Schema>::json_schema()
-                .description("The unit of temperature (celsius/fahrenheit)"),
-        );
-
-        schema
-    }
 }
 
 #[derive(Serialize)]
@@ -130,22 +115,13 @@ impl Tool for WeatherTool {
 
 // 2. Stock Price Tool
 
-#[derive(Deserialize)]
+/// Arguments for the stock price tool.
+///
+/// Get the stock price for a given symbol
+#[derive(Deserialize, Schema)]
 pub struct StockArgs {
+    /// The stock symbol, e.g. AAPL
     pub symbol: String,
-}
-
-impl Schema for StockArgs {
-    fn json_schema() -> JSONSchema {
-        let mut schema = JSONSchema::object().description("Get the stock price for a given symbol");
-
-        schema = schema.required_property(
-            "symbol",
-            <String as Schema>::json_schema().description("The stock symbol, e.g. AAPL"),
-        );
-
-        schema
-    }
 }
 
 #[derive(Serialize)]

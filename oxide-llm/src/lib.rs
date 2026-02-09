@@ -16,6 +16,10 @@ pub mod runner;
 pub mod stream;
 pub mod tool;
 
+pub mod macros {
+    pub use oxide_llm_macros::*;
+}
+
 pub mod core {
     pub use oxide_llm_core::*;
 }
