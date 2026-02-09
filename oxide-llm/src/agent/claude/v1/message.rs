@@ -1,8 +1,3 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use bytes::BytesMut;
-use futures::{Stream, ready};
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -166,71 +161,6 @@ impl<T: Transport> MessagesAgent<T> {
     }
 }
 
-/// Stream for Claude Messages.
-///
-/// Claude Messages 流。
-pub struct MessageStream<S> {
-    stream: S,
-    buffer: BytesMut,
-    stopped: bool,
-}
-
-impl<S> MessageStream<S> {
-    pub fn new(stream: S) -> Self {
-        Self {
-            stream,
-            buffer: BytesMut::new(),
-            stopped: false,
-        }
-    }
-}
-
-impl<S> Stream for MessageStream<S>
-where
-    S: Stream<Item = std::result::Result<bytes::Bytes, oxide_llm_core::transport::TransportError>>
-        + Unpin,
-{
-    type Item = Result<DeltaMessage>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        loop {
-            // 1. Process buffer
-            if let Some(pos) = self.buffer.windows(2).position(|w| w == b"\n\n") {
-                let block = self.buffer.split_to(pos + 2);
-                let (item, stop) = process_block(&block);
-
-                if stop {
-                    self.stopped = true;
-                    if let Some(item) = item {
-                        return Poll::Ready(Some(item));
-                    }
-                    return Poll::Ready(None);
-                }
-
-                if let Some(item) = item {
-                    return Poll::Ready(Some(item));
-                }
-
-                // If item is None (ignored/keep-alive) and not stopped, continue loop
-                continue;
-            }
-
-            // 2. Poll stream
-            match ready!(Pin::new(&mut self.stream).poll_next(cx)) {
-                Some(Ok(chunk)) => {
-                    self.buffer.extend_from_slice(&chunk);
-                }
-                Some(Err(e)) => {
-                    return Poll::Ready(Some(Err(AgentError::Transport(e))));
-                }
-                None => {
-                    return Poll::Ready(None);
-                }
-            }
-        }
-    }
-}
-
 fn process_block(block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
     let s = match std::str::from_utf8(block) {
         Ok(s) => s,
@@ -273,7 +203,8 @@ fn process_block(block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
 }
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
-    type Stream = MessageStream<T::Stream>;
+    type Stream =
+        crate::stream::MessageStream<T::Stream, fn(&[u8]) -> (Option<Result<DeltaMessage>>, bool)>;
 
     /// Send a chat request to Claude.
     ///
@@ -315,6 +246,9 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Return concrete stream
-        Ok(ChatStream::new(MessageStream::new(stream)))
+        Ok(ChatStream::new(crate::stream::MessageStream::new(
+            stream,
+            process_block,
+        )))
     }
 }
