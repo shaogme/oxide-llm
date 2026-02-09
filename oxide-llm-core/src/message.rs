@@ -407,12 +407,21 @@ impl FromIterator<ChatStreamEvent> for Message {
 pub struct MessageAssembler {
     role: Option<Role>,
     name: Option<String>,
-    // Use BTreeMap to keep content parts ordered by index
+
+    // Text and Reasoning parts: indexed (for display order)
     content_parts: std::collections::BTreeMap<u32, AssembledPart>,
+
+    // Tool calls: keyed by ID (prevents collision)
+    tool_calls: std::collections::HashMap<String, AssembledToolCall>,
+    tool_call_order: Vec<(u32, String)>, // (index, id) for ordering
+
     usage: Option<Usage>,
     finish_reason: Option<FinishReason>,
 }
 
+/// Assembled content part (Text and Reasoning only)
+///
+/// Tool calls are stored separately in MessageAssembler.tool_calls
 #[derive(Debug, Clone)]
 enum AssembledPart {
     Text(String),
@@ -420,15 +429,17 @@ enum AssembledPart {
         text: String,
         signature: Option<String>,
     },
-    // Tool calls are complex as they have internal structure (id, type, name, args)
-    ToolCall {
-        _index: u32,
-        id: Option<String>,
-        r#type: Option<String>,
-        name: Option<String>,
-        arguments: String,
-    },
-    // Other types like Audio/Image are usually not streamed in deltas this way yet, but reserved
+}
+
+/// Assembled tool call
+///
+/// 已组装的工具调用
+#[derive(Debug, Clone)]
+struct AssembledToolCall {
+    id: String,
+    r#type: Option<String>,
+    name: Option<String>,
+    arguments: String,
 }
 
 impl MessageAssembler {
@@ -491,37 +502,39 @@ impl MessageAssembler {
                         }
                     }
                     DeltaContentPart::ToolCall(tool_call) => {
-                        let entry = self.content_parts.entry(tool_call.index).or_insert(
-                            AssembledPart::ToolCall {
-                                _index: tool_call.index,
-                                id: None,
+                        // Get or generate tool ID
+                        let tool_id = tool_call.id.clone().unwrap_or_else(|| {
+                            // Fallback: generate ID from name if available
+                            tool_call
+                                .function
+                                .as_ref()
+                                .and_then(|f| f.name.clone())
+                                .unwrap_or_else(|| format!("tool_{}", tool_call.index))
+                        });
+
+                        // Get or create the tool call entry
+                        let entry = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
+                            // Record order on first occurrence
+                            self.tool_call_order
+                                .push((tool_call.index, tool_id.clone()));
+                            AssembledToolCall {
+                                id: tool_id.clone(),
                                 r#type: None,
                                 name: None,
                                 arguments: String::new(),
-                            },
-                        );
+                            }
+                        });
 
-                        if let AssembledPart::ToolCall {
-                            id,
-                            r#type,
-                            name,
-                            arguments,
-                            ..
-                        } = entry
-                        {
-                            if let Some(tid) = tool_call.id {
-                                *id = Some(tid);
+                        // Update fields
+                        if let Some(tty) = tool_call.r#type {
+                            entry.r#type = Some(tty);
+                        }
+                        if let Some(func) = tool_call.function {
+                            if let Some(fname) = func.name {
+                                entry.name = Some(fname);
                             }
-                            if let Some(tty) = tool_call.r#type {
-                                *r#type = Some(tty);
-                            }
-                            if let Some(func) = tool_call.function {
-                                if let Some(fname) = func.name {
-                                    *name = Some(fname);
-                                }
-                                if let Some(fargs) = func.arguments {
-                                    arguments.push_str(&fargs);
-                                }
+                            if let Some(fargs) = func.arguments {
+                                entry.arguments.push_str(&fargs);
                             }
                         }
                     }
@@ -537,32 +550,41 @@ impl MessageAssembler {
     ///
     /// 构建完整的 Message。
     pub fn build(self) -> Message {
-        let content = self
-            .content_parts
-            .into_values()
-            .filter_map(|part| match part {
-                AssembledPart::Text(text) => Some(ContentPart::Text { text }),
-                AssembledPart::Reasoning { text, signature } => {
-                    Some(ContentPart::Reasoning { text, signature })
-                }
-                AssembledPart::ToolCall {
-                    id,
-                    name,
-                    arguments,
-                    ..
-                } => {
-                    // Try to parse arguments as JSON
-                    let args_value: serde_json::Value = serde_json::from_str(&arguments)
-                        .unwrap_or(serde_json::Value::String(arguments));
+        // Combine indexed parts and tool calls, maintaining order
+        let mut all_parts: Vec<(u32, ContentPart)> = Vec::new();
 
-                    Some(ContentPart::ToolCall(crate::tool::ToolCall {
-                        id: id.unwrap_or_default(),
-                        name: name.unwrap_or_default(),
-                        arguments: args_value,
-                    }))
+        // Add indexed parts (text, reasoning)
+        for (index, part) in self.content_parts {
+            let content_part = match part {
+                AssembledPart::Text(text) => ContentPart::Text { text },
+                AssembledPart::Reasoning { text, signature } => {
+                    ContentPart::Reasoning { text, signature }
                 }
-            })
-            .collect();
+            };
+            all_parts.push((index, content_part));
+        }
+
+        // Add tool calls in their recorded order
+        for (index, tool_id) in self.tool_call_order {
+            if let Some(tool_call) = self.tool_calls.get(&tool_id) {
+                // Try to parse arguments as JSON
+                let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
+                    .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
+
+                all_parts.push((
+                    index,
+                    ContentPart::ToolCall(crate::tool::ToolCall {
+                        id: tool_call.id.clone(),
+                        name: tool_call.name.clone().unwrap_or_default(),
+                        arguments: args_value,
+                    }),
+                ));
+            }
+        }
+
+        // Sort by index and extract content
+        all_parts.sort_by_key(|(index, _)| *index);
+        let content = all_parts.into_iter().map(|(_, part)| part).collect();
 
         Message {
             role: self.role.unwrap_or(Role::Assistant),
@@ -580,36 +602,41 @@ impl MessageAssembler {
     }
 
     /// Get a specific tool call by index.
+    ///
+    /// 根据索引获取特定的工具调用。
     pub fn get_tool_call(&self, index: u32) -> Option<crate::tool::ToolCall> {
-        if let Some(AssembledPart::ToolCall {
-            id,
-            name,
-            arguments,
-            ..
-        }) = self.content_parts.get(&index)
-        {
-            let args_value: serde_json::Value = serde_json::from_str(arguments)
-                .unwrap_or(serde_json::Value::String(arguments.clone()));
+        // Find the tool ID for this index
+        let tool_id = self
+            .tool_call_order
+            .iter()
+            .find(|(idx, _)| *idx == index)
+            .map(|(_, id)| id)?;
 
-            Some(crate::tool::ToolCall {
-                id: id.clone().unwrap_or_default(),
-                name: name.clone().unwrap_or_default(),
-                arguments: args_value,
-            })
-        } else {
-            None
-        }
+        // Get the tool call by ID
+        self.get_tool_call_by_id(tool_id)
+    }
+
+    /// Get a specific tool call by ID.
+    ///
+    /// 根据 ID 获取特定的工具调用。
+    pub fn get_tool_call_by_id(&self, tool_id: &str) -> Option<crate::tool::ToolCall> {
+        let tool_call = self.tool_calls.get(tool_id)?;
+
+        let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
+            .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
+
+        Some(crate::tool::ToolCall {
+            id: tool_call.id.clone(),
+            name: tool_call.name.clone().unwrap_or_default(),
+            arguments: args_value,
+        })
     }
 
     /// Get all tool call indices.
+    ///
+    /// 获取所有工具调用的索引。
     pub fn get_tool_call_indices(&self) -> Vec<u32> {
-        self.content_parts
-            .iter()
-            .filter_map(|(idx, part)| match part {
-                AssembledPart::ToolCall { .. } => Some(*idx),
-                _ => None,
-            })
-            .collect()
+        self.tool_call_order.iter().map(|(idx, _)| *idx).collect()
     }
 }
 
