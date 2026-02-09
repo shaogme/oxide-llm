@@ -1,7 +1,9 @@
 use futures::StreamExt;
 use oxide_llm::DynChatAgent;
 use oxide_llm::agent::claude::v1::message::{MessagesAgent, MessagesRequiredConfig};
-use oxide_llm::agent::gemini::v1beta::{GeminiAgent, GeminiRequiredConfig};
+use oxide_llm::agent::gemini::v1beta::generate_content::{
+    GenerateContentAgent, GenerateContentRequiredConfig,
+};
 use oxide_llm::agent::openai::v1::chat_completions::{
     ChatCompletionsAgent, ChatCompletionsRequiredConfig,
 };
@@ -103,11 +105,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let transport = AuthorizationLayer::new(transport, c.api_key);
             let transport = BaseUrlLayer::new(transport, c.base_url);
 
-            let agent_config = GeminiRequiredConfig {
+            let agent_config = GenerateContentRequiredConfig {
                 model: c.model,
                 endpoint: c.endpoint,
             };
-            Box::new(GeminiAgent::new(transport, agent_config))
+            Box::new(GenerateContentAgent::new(transport, agent_config))
         }
     };
 

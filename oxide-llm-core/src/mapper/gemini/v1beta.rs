@@ -3,8 +3,8 @@ use crate::message::{ContentPart, ImageSource, Message, Role};
 use crate::tool::ToolCall;
 
 use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
-use oxide_llm_proto::gemini::v1beta::response::GenerateContentResponse;
-use oxide_llm_proto::gemini::v1beta::{
+use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
+use oxide_llm_proto::gemini::v1beta::generate_content::{
     Blob, Content as GeminiContent, FileData, FunctionCall, FunctionResponse, Part as GeminiPart,
 };
 
@@ -186,19 +186,19 @@ impl TryFrom<GenerateContentResponse> for DeltaMessage {
         let candidate = candidate.unwrap();
 
         let finish_reason = candidate.finish_reason.as_ref().map(|r| match r {
-            oxide_llm_proto::gemini::v1beta::response::FinishReason::Stop => {
+            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Stop => {
                 crate::message::FinishReason::Stop
             }
-            oxide_llm_proto::gemini::v1beta::response::FinishReason::MaxTokens => {
+            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::MaxTokens => {
                 crate::message::FinishReason::Length
             }
-            oxide_llm_proto::gemini::v1beta::response::FinishReason::Safety => {
+            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Safety => {
                 crate::message::FinishReason::ContentFilter
             }
-            oxide_llm_proto::gemini::v1beta::response::FinishReason::Recitation => {
+            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Recitation => {
                 crate::message::FinishReason::ContentFilter
             }
-            oxide_llm_proto::gemini::v1beta::response::FinishReason::Other => {
+            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Other => {
                 crate::message::FinishReason::Other("Other".to_string())
             }
             // Gemini specific ones

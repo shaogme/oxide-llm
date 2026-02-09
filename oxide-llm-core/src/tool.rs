@@ -6,7 +6,7 @@ use oxide_llm_proto::{
     claude::v1::messages::request::{
         CustomTool as ClaudeCustomTool, Tool as ClaudeTool, ToolChoice as ClaudeToolChoice,
     },
-    gemini::v1beta::{
+    gemini::v1beta::generate_content::{
         FunctionCallingConfig as GeminiFunctionCallingConfig,
         FunctionCallingConfigMode as GeminiFunctionCallingConfigMode,
         FunctionDeclaration as GeminiFunctionDeclaration, ToolConfig as GeminiToolConfig,
@@ -497,8 +497,10 @@ impl Tool {
 /// 将 JSONSchema 转换为 Gemini 强类型 Schema。
 fn json_schema_to_gemini_schema(
     schema: &JSONSchema,
-) -> Option<oxide_llm_proto::gemini::v1beta::Schema> {
-    use oxide_llm_proto::gemini::v1beta::{Schema as GeminiSchema, Type as GeminiType};
+) -> Option<oxide_llm_proto::gemini::v1beta::generate_content::Schema> {
+    use oxide_llm_proto::gemini::v1beta::generate_content::{
+        Schema as GeminiSchema, Type as GeminiType,
+    };
 
     let schema_type = match schema.schema_type {
         Some(JSONSchemaType::String) => GeminiType::String,
@@ -723,8 +725,10 @@ impl From<ClaudeToolChoice> for ToolChoice {
 /// Recursively convert Gemini strong-typed Schema to JSONSchema.
 ///
 /// 递归将 Gemini 强类型 Schema 转换为 JSONSchema。
-fn gemini_schema_to_json_schema(schema: &oxide_llm_proto::gemini::v1beta::Schema) -> JSONSchema {
-    use oxide_llm_proto::gemini::v1beta::Type as GeminiType;
+fn gemini_schema_to_json_schema(
+    schema: &oxide_llm_proto::gemini::v1beta::generate_content::Schema,
+) -> JSONSchema {
+    use oxide_llm_proto::gemini::v1beta::generate_content::Type as GeminiType;
 
     let schema_type = match schema.schema_type {
         GeminiType::String => Some(JSONSchemaType::String),
