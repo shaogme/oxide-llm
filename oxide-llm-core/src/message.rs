@@ -408,20 +408,24 @@ pub struct MessageAssembler {
     role: Option<Role>,
     name: Option<String>,
 
-    // Text and Reasoning parts: indexed (for display order)
+    // Text and Reasoning parts: indexed
     content_parts: std::collections::BTreeMap<u32, AssembledPart>,
 
-    // Tool calls: keyed by ID (prevents collision)
+    // Tool calls: keyed by ID
     tool_calls: std::collections::HashMap<String, AssembledToolCall>,
-    tool_call_order: Vec<(u32, String)>, // (index, id) for ordering
+
+    // Optimization: Map index to the current active tool ID
+    // This allows O(1) lookup for incoming tool call deltas that lack an ID.
+    active_tool_id: std::collections::HashMap<u32, String>,
+
+    // Record appearance order: (index, id)
+    tool_call_order: Vec<(u32, String)>,
 
     usage: Option<Usage>,
     finish_reason: Option<FinishReason>,
 }
 
 /// Assembled content part (Text and Reasoning only)
-///
-/// Tool calls are stored separately in MessageAssembler.tool_calls
 #[derive(Debug, Clone)]
 enum AssembledPart {
     Text(String),
@@ -461,8 +465,6 @@ impl MessageAssembler {
             self.finish_reason = Some(reason);
         }
         if let Some(usage) = delta.usage {
-            // Usually usage comes at the end, overwrite is fine or accumulate?
-            // OpenAI sends separate usage chunk.
             self.usage = Some(usage);
         }
 
@@ -502,21 +504,23 @@ impl MessageAssembler {
                         }
                     }
                     DeltaContentPart::ToolCall(tool_call) => {
-                        // Get or generate tool ID
-                        let tool_id = if let Some(id) = tool_call.id.clone() {
+                        // 1. Determine Tool ID
+                        let tool_id = if let Some(id) = tool_call.id {
+                            // Explicit ID provided: update active mapping for this index
+                            self.active_tool_id.insert(tool_call.index, id.clone());
                             id
                         } else {
-                            self.tool_call_order
-                                .iter()
-                                .rev()
-                                .find(|(idx, _)| *idx == tool_call.index)
-                                .map(|(_, id)| id.clone())
+                            // No ID: lookup active mapping for this index
+                            // Fallback to generating a synthetic ID if not found (should be rare)
+                            self.active_tool_id
+                                .get(&tool_call.index)
+                                .cloned()
                                 .unwrap_or_else(|| format!("tool_{}", tool_call.index))
                         };
 
-                        // Get or create the tool call entry
+                        // 2. Get or create tool call entry
                         let entry = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
-                            // Record order on first occurrence
+                            // This is a NEW tool call (by ID). Record its order.
                             self.tool_call_order
                                 .push((tool_call.index, tool_id.clone()));
                             AssembledToolCall {
@@ -527,7 +531,7 @@ impl MessageAssembler {
                             }
                         });
 
-                        // Update fields
+                        // 3. Update fields
                         if let Some(tty) = tool_call.r#type {
                             entry.r#type = Some(tty);
                         }
@@ -552,10 +556,9 @@ impl MessageAssembler {
     ///
     /// 构建完整的 Message。
     pub fn build(self) -> Message {
-        // Combine indexed parts and tool calls, maintaining order
         let mut all_parts: Vec<(u32, ContentPart)> = Vec::new();
 
-        // Add indexed parts (text, reasoning)
+        // Add content parts
         for (index, part) in self.content_parts {
             let content_part = match part {
                 AssembledPart::Text(text) => ContentPart::Text { text },
@@ -566,10 +569,9 @@ impl MessageAssembler {
             all_parts.push((index, content_part));
         }
 
-        // Add tool calls in their recorded order
+        // Add tool calls
         for (index, tool_id) in self.tool_call_order {
             if let Some(tool_call) = self.tool_calls.get(&tool_id) {
-                // Try to parse arguments as JSON
                 let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
                     .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
 
@@ -584,8 +586,10 @@ impl MessageAssembler {
             }
         }
 
-        // Sort by index and extract content
+        // Sort by index.
+        // Important: Stable sort is preferred to keep relative order of items with same index (if any).
         all_parts.sort_by_key(|(index, _)| *index);
+
         let content = all_parts.into_iter().map(|(_, part)| part).collect();
 
         Message {
@@ -607,14 +611,14 @@ impl MessageAssembler {
     ///
     /// 根据索引获取特定的工具调用。
     pub fn get_tool_call(&self, index: u32) -> Option<crate::tool::ToolCall> {
-        // Find the tool ID for this index
+        // Find the LAST tool ID associated with this index in the order list.
         let tool_id = self
             .tool_call_order
             .iter()
+            .rev()
             .find(|(idx, _)| *idx == index)
-            .map(|(_, id)| id)?;
+            .map(|(_, id)| id.as_str())?;
 
-        // Get the tool call by ID
         self.get_tool_call_by_id(tool_id)
     }
 
@@ -623,7 +627,6 @@ impl MessageAssembler {
     /// 根据 ID 获取特定的工具调用。
     pub fn get_tool_call_by_id(&self, tool_id: &str) -> Option<crate::tool::ToolCall> {
         let tool_call = self.tool_calls.get(tool_id)?;
-
         let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
             .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
 
