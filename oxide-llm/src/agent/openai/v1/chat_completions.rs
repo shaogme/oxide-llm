@@ -1,5 +1,8 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use bytes::BytesMut;
-use futures::{Stream, StreamExt, stream::BoxStream};
+use futures::{ready, Stream};
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
@@ -216,8 +219,107 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     }
 }
 
+/// Stream for OpenAI Messages.
+///
+/// OpenAI Messages 流。
+pub struct MessageStream<S> {
+    stream: S,
+    buffer: BytesMut,
+    stopped: bool,
+}
+
+impl<S> MessageStream<S> {
+    pub fn new(stream: S) -> Self {
+        Self {
+            stream,
+            buffer: BytesMut::new(),
+            stopped: false,
+        }
+    }
+}
+
+impl<S> Stream for MessageStream<S>
+where
+    S: Stream<Item = std::result::Result<bytes::Bytes, oxide_llm_core::transport::TransportError>>
+        + Unpin,
+{
+    type Item = Result<DeltaMessage>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            // 1. Process buffer
+            if let Some(pos) = self.buffer.windows(2).position(|w| w == b"\n\n") {
+                let block = self.buffer.split_to(pos + 2);
+                let (item, stop) = process_block(&block);
+
+                if stop {
+                    self.stopped = true;
+                    if let Some(item) = item {
+                        return Poll::Ready(Some(item));
+                    }
+                    return Poll::Ready(None);
+                }
+
+                if let Some(item) = item {
+                    return Poll::Ready(Some(item));
+                }
+
+                continue;
+            }
+
+            // 2. Poll stream
+            match ready!(Pin::new(&mut self.stream).poll_next(cx)) {
+                Some(Ok(chunk)) => {
+                    self.buffer.extend_from_slice(&chunk);
+                }
+                Some(Err(e)) => {
+                    return Poll::Ready(Some(Err(AgentError::Transport(e))));
+                }
+                None => {
+                    return Poll::Ready(None);
+                }
+            }
+        }
+    }
+}
+
+fn process_block(block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+    let s = match std::str::from_utf8(block) {
+        Ok(s) => s,
+        Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
+    };
+
+    let mut chunk_to_yield = None;
+    let mut done = false;
+
+    for line in s.lines() {
+        if let Some(data) = line.strip_prefix("data: ") {
+            let data = data.trim();
+            if data == "[DONE]" {
+                done = true;
+                break;
+            }
+            match serde_json::from_str::<ChatCompletionChunk>(data) {
+                Ok(chunk) => match chunk.try_into() {
+                    Ok(delta) => {
+                        chunk_to_yield = Some(Ok(delta));
+                    }
+                    Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
+                },
+                Err(e) => return (Some(Err(AgentError::Json(e))), false),
+            }
+        }
+    }
+
+    if done {
+        return (chunk_to_yield, true);
+    }
+
+    (chunk_to_yield, false)
+}
+
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
-    type Stream = BoxStream<'static, Result<DeltaMessage>>;
+    type Stream = MessageStream<T::Stream>;
 
     /// Send a chat request to OpenAI.
     ///
@@ -258,88 +360,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
-        // Parse SSE Stream
-        let parsed_stream = parse_sse_stream::<T>(stream);
-        Ok(ChatStream::new(Box::pin(parsed_stream)))
+        // Return concrete stream
+        Ok(ChatStream::new(MessageStream::new(stream)))
     }
-}
-
-fn parse_sse_stream<T: Transport>(stream: T::Stream) -> impl Stream<Item = Result<DeltaMessage>> {
-    futures::stream::unfold(
-        (stream, BytesMut::new()),
-        |(mut stream, mut buffer)| async move {
-            loop {
-                // Check if buffer contains double newline
-                if let Some(pos) = buffer.windows(2).position(|w| w == b"\n\n") {
-                    // Found an event block
-                    let block = buffer.split_to(pos + 2); // Remove block from buffer
-
-                    let s = match std::str::from_utf8(&block) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            return Some((Err(AgentError::Utf8(e)), (stream, buffer)));
-                        }
-                    };
-
-                    let mut chunk_to_yield = None;
-                    let mut done = false;
-
-                    for line in s.lines() {
-                        if let Some(data) = line.strip_prefix("data: ") {
-                            let data = data.trim();
-                            if data == "[DONE]" {
-                                done = true;
-                                break;
-                            }
-                            // Parse JSON
-                            match serde_json::from_str::<ChatCompletionChunk>(data) {
-                                Ok(chunk) => {
-                                    // Convert to DeltaMessage
-                                    match chunk.try_into() {
-                                        Ok(delta) => {
-                                            chunk_to_yield = Some(delta);
-                                        }
-                                        Err(e) => {
-                                            return Some((
-                                                Err(AgentError::Mapper(e)),
-                                                (stream, buffer),
-                                            ));
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    return Some((Err(AgentError::Json(e)), (stream, buffer)));
-                                }
-                            }
-                        }
-                    }
-
-                    if done {
-                        return None;
-                    }
-
-                    if let Some(chunk) = chunk_to_yield {
-                        return Some((Ok(chunk), (stream, buffer)));
-                    } else {
-                        // Keep-alive or empty block, continue loop
-                        continue;
-                    }
-                }
-
-                // Read more
-                match stream.next().await {
-                    Some(Ok(chunk)) => {
-                        buffer.extend_from_slice(&chunk);
-                    }
-                    Some(Err(e)) => {
-                        return Some((Err(AgentError::Transport(e)), (stream, buffer)));
-                    }
-                    None => {
-                        // EOF
-                        return None;
-                    }
-                }
-            }
-        },
-    )
 }
