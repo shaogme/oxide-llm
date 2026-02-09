@@ -67,10 +67,11 @@ impl<B> TransportRequest<B> {
 /// 该 Trait 将上层业务逻辑（Agent）与底层的通信协议（HTTPClient, WebSocket 等）解耦。
 /// 实现者负责处理 Base URL、API Key 注入、请求头管理以及具体的网络 I/O。
 #[trait_morph::morph(Send)]
-pub trait Transport: Send + Sync + Clone {
+pub trait Transport: Send + Sync + Clone + 'static {
     type Stream: futures::stream::Stream<Item = Result<bytes::Bytes, TransportError>>
         + Send
-        + 'static;
+        + 'static
+        + Unpin;
 
     /// Sends a request and retrieval a response.
     ///

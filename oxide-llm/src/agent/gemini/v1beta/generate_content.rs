@@ -1,8 +1,8 @@
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
-use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
+use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::gemini::v1beta::generate_content::request::{
     GenerateContentRequest, GenerationConfig, SafetySetting,
 };
@@ -247,14 +247,12 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Parse SSE Stream
-        let parsed_stream = parse_sse_stream(stream.boxed());
+        let parsed_stream = parse_sse_stream::<T>(stream);
         Ok(ChatStream::new(Box::pin(parsed_stream)))
     }
 }
 
-fn parse_sse_stream(
-    stream: futures::stream::BoxStream<'static, std::result::Result<Bytes, TransportError>>,
-) -> impl Stream<Item = Result<DeltaMessage>> {
+fn parse_sse_stream<T: Transport>(stream: T::Stream) -> impl Stream<Item = Result<DeltaMessage>> {
     futures::stream::unfold(
         (stream, BytesMut::new()),
         |(mut stream, mut buffer)| async move {
