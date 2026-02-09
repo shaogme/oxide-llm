@@ -12,6 +12,7 @@ pub mod agent {
 }
 
 pub mod error;
+pub mod tool;
 
 pub mod core {
     pub use oxide_llm_core::*;

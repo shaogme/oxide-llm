@@ -116,26 +116,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Prepare Conversation State
     let mut state = ConversationState::new(None);
 
-    // Define "get_weather" Tool
-    let weather_tool = oxide_llm::core::tool::Tool::builder("get_weather")
-        .description("Get the current weather in a given location")
-        .parameters(
-            oxide_llm::core::tool::JSONSchema::object()
-                .required_property(
-                    "location",
-                    oxide_llm::core::tool::JSONSchema::string()
-                        .description("The city name, e.g. San Francisco"),
-                )
-                .property(
-                    "unit",
-                    oxide_llm::core::tool::JSONSchema::string()
-                        .enum_values(vec!["celsius", "fahrenheit"])
-                        .description("The unit of temperature"),
-                ),
-        )
-        .build();
+    struct WeatherTool;
 
-    state.add_tool(weather_tool);
+    impl oxide_llm::core::tool::ToolRunnable for WeatherTool {
+        fn definition(&self) -> oxide_llm::core::tool::Tool {
+            oxide_llm::core::tool::Tool::builder("get_weather")
+                .description("Get the current weather in a given location")
+                .parameters(
+                    oxide_llm::core::tool::JSONSchema::object()
+                        .required_property(
+                            "location",
+                            oxide_llm::core::tool::JSONSchema::string()
+                                .description("The city name, e.g. San Francisco"),
+                        )
+                        .property(
+                            "unit",
+                            oxide_llm::core::tool::JSONSchema::string()
+                                .enum_values(vec!["celsius", "fahrenheit"])
+                                .description("The unit of temperature"),
+                        ),
+                )
+                .build()
+        }
+
+        fn run(&self, args: serde_json::Value) -> oxide_llm::core::tool::traits::ToolFuture {
+            Box::pin(async move {
+                let location = args
+                    .get("location")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                let result = format!("The weather in {} is sunny, 25 degrees Celsius.", location);
+
+                Ok(vec![oxide_llm::core::message::ContentPart::Text {
+                    text: result,
+                }])
+            })
+        }
+    }
+
+    let mut registry = oxide_llm::tool::ToolRegistry::new();
+    registry.register(WeatherTool);
+
+    state.add_tools(registry.definitions());
 
     // 5. Interaction Loop
     let user_input = "What is the weather in Tokyo?";
@@ -264,30 +287,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tool_call.name, tool_call.arguments
             );
 
-            let result_content = if tool_call.name == "get_weather" {
-                // Parse arguments
-                let location = tool_call
-                    .arguments
-                    .get("location")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-
-                // Mock response
-                format!("The weather in {} is sunny, 25 degrees Celsius.", location)
+            let tool_result_bucket = if let Some(res) = registry
+                .execute(&tool_call.name, tool_call.arguments.clone())
+                .await
+            {
+                match res {
+                    Ok(content) => oxide_llm::core::tool::ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        content,
+                        is_error: false,
+                    },
+                    Err(err) => oxide_llm::core::tool::ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        content: vec![oxide_llm::core::message::ContentPart::Text {
+                            text: format!("Error executing tool: {}", err),
+                        }],
+                        is_error: true,
+                    },
+                }
             } else {
-                format!("Error: Unknown tool '{}'", tool_call.name)
+                oxide_llm::core::tool::ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    name: tool_call.name.clone(),
+                    content: vec![oxide_llm::core::message::ContentPart::Text {
+                        text: format!("Error: Unknown tool '{}'", tool_call.name),
+                    }],
+                    is_error: true,
+                }
             };
 
-            println!("[Tool Result] {}", result_content);
-
-            let tool_result = oxide_llm::core::tool::ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                name: tool_call.name.clone(),
-                content: vec![oxide_llm::core::message::ContentPart::Text {
-                    text: result_content,
-                }],
-                is_error: false,
-            };
+            // Print the result for demo purposes (extract text)
+            if let Some(oxide_llm::core::message::ContentPart::Text { text }) =
+                tool_result_bucket.content.first()
+            {
+                println!("[Tool Result] {}", text);
+            }
 
             // Gemini specific: Tool results must be followed by the original tool call?
             // Usually the conversation state handles the history.
@@ -296,7 +332,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.add_message(Message {
                 role: oxide_llm::core::message::Role::Tool,
                 content: vec![oxide_llm::core::message::ContentPart::ToolResult(
-                    tool_result,
+                    tool_result_bucket,
                 )],
                 name: None,
             });

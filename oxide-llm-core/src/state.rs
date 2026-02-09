@@ -56,6 +56,13 @@ impl ConversationState {
         self.tools.push(tool);
     }
 
+    /// Add multiple tools.
+    ///
+    /// 添加多个工具。
+    pub fn add_tools(&mut self, tools: Vec<Tool>) {
+        self.tools.extend(tools);
+    }
+
     /// Set tool choice.
     ///
     /// 设置工具选择。
