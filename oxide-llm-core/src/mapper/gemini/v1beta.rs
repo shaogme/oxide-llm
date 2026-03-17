@@ -32,11 +32,29 @@ fn convert_content_to_gemini_parts(
     parts: Vec<ContentPart>,
 ) -> Result<Vec<GeminiPart>, MapperError> {
     let mut gemini_parts = Vec::new();
+    let mut last_signature = None;
+
     for part in parts {
         match part {
-            ContentPart::Text { text } => {
+            ContentPart::Reasoning { text, signature } => {
+                if signature.is_some() {
+                    last_signature = signature.clone();
+                }
                 gemini_parts.push(GeminiPart {
                     text: Some(text),
+                    thought: Some(true),
+                    thought_signature: signature,
+                    ..Default::default()
+                });
+            }
+            ContentPart::Text { text, signature } => {
+                let sig = signature.or_else(|| last_signature.clone());
+                if sig.is_some() {
+                    last_signature = sig.clone();
+                }
+                gemini_parts.push(GeminiPart {
+                    text: Some(text),
+                    thought_signature: sig,
                     ..Default::default()
                 });
             }
@@ -72,19 +90,26 @@ fn convert_content_to_gemini_parts(
                 });
             }
             ContentPart::ToolCall(tc) => {
+                let sig = tc.signature.or_else(|| last_signature.clone());
+                if sig.is_some() {
+                    last_signature = sig.clone();
+                }
                 gemini_parts.push(GeminiPart {
                     function_call: Some(FunctionCall {
                         id: Some(tc.id),
                         name: tc.name,
                         args: tc.arguments,
                     }),
+                    thought_signature: sig,
                     ..Default::default()
                 });
             }
             ContentPart::ToolResult(tr) => {
                 let response_value = if tr.content.len() == 1 {
                     match &tr.content[0] {
-                        ContentPart::Text { text } => serde_json::json!({ "content": text }),
+                        ContentPart::Text { text, signature: _ } => {
+                            serde_json::json!({ "content": text })
+                        }
                         ContentPart::Json(value) => value.clone(),
                         _ => {
                             // Try to serialize other parts
@@ -95,6 +120,10 @@ fn convert_content_to_gemini_parts(
                     serde_json::to_value(&tr.content)?
                 };
 
+                let sig = tr.signature.or_else(|| last_signature.clone());
+                if sig.is_some() {
+                    last_signature = sig.clone();
+                }
                 gemini_parts.push(GeminiPart {
                     function_response: Some(FunctionResponse {
                         id: Some(tr.tool_call_id),
@@ -104,6 +133,7 @@ fn convert_content_to_gemini_parts(
                         will_continue: None,
                         scheduling: None,
                     }),
+                    thought_signature: sig,
                     ..Default::default()
                 });
             }
@@ -136,15 +166,32 @@ impl TryFrom<GenerateContentResponse> for Message {
 
         let mut content_parts = Vec::new();
 
+        let mut last_sig = None;
         for part in &candidate.content.parts {
+            let sig = part.thought_signature.clone().or_else(|| last_sig.clone());
+            if sig.is_some() {
+                last_sig = sig.clone();
+            }
+
             if let Some(text) = &part.text {
-                content_parts.push(ContentPart::Text { text: text.clone() });
+                if part.thought == Some(true) {
+                    content_parts.push(ContentPart::Reasoning {
+                        text: text.clone(),
+                        signature: sig,
+                    });
+                } else {
+                    content_parts.push(ContentPart::Text {
+                        text: text.clone(),
+                        signature: sig,
+                    });
+                }
             } else if let Some(fc) = &part.function_call {
                 // Interoperability: Gemini doesn't have call_id, so use name as ID.
                 content_parts.push(ContentPart::ToolCall(ToolCall {
                     id: fc.id.clone().unwrap_or_else(|| fc.name.clone()),
                     name: fc.name.clone(),
                     arguments: fc.args.clone(),
+                    signature: sig,
                 }));
             }
         }
@@ -207,19 +254,26 @@ impl TryFrom<GenerateContentResponse> for DeltaMessage {
 
         let mut content_parts = Vec::new();
 
+        let mut last_sig = None;
         for (i, part) in candidate.content.parts.iter().enumerate() {
+            let sig = part.thought_signature.clone().or_else(|| last_sig.clone());
+            if sig.is_some() {
+                last_sig = sig.clone();
+            }
+
             if part.thought == Some(true) {
                 if let Some(text) = &part.text {
                     content_parts.push(DeltaContentPart::Reasoning {
                         index: i as u32,
                         text: text.clone(),
-                        signature: part.thought_signature.clone(),
+                        signature: sig,
                     });
                 }
             } else if let Some(text) = &part.text {
                 content_parts.push(DeltaContentPart::Text {
                     index: i as u32,
                     text: text.clone(),
+                    signature: sig,
                 });
             } else if let Some(fc) = &part.function_call {
                 // Gemini sends full function call in one go usually, but for Delta we map it
@@ -233,6 +287,7 @@ impl TryFrom<GenerateContentResponse> for DeltaMessage {
                             serde_json::to_string(&fc.args).map_err(MapperError::JsonError)?,
                         ),
                     }),
+                    signature: sig,
                 }));
             }
         }

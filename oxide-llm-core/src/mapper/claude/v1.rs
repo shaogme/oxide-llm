@@ -49,7 +49,7 @@ fn convert_content_to_claude_blocks(
     let mut blocks = Vec::new();
     for part in parts {
         match part {
-            ContentPart::Text { text } => {
+            ContentPart::Text { text, signature: _ } => {
                 blocks.push(ContentBlock::Text(TextBlock {
                     text,
                     cache_control: None, // Cache control not supported in generic mapper yet
@@ -84,7 +84,7 @@ fn convert_content_to_claude_blocks(
             ContentPart::ToolResult(tr) => {
                 let content = if tr.content.len() == 1 {
                     match &tr.content[0] {
-                        ContentPart::Text { text } => ToolResultContent::Text(text.clone()),
+                        ContentPart::Text { text, signature: _ } => ToolResultContent::Text(text.clone()),
                         ContentPart::Json(value) => {
                             let text =
                                 serde_json::to_string(value).map_err(MapperError::JsonError)?;
@@ -145,6 +145,7 @@ impl TryFrom<MessagesResponse> for Message {
                 ContentBlock::Text(text_block) => {
                     content_parts.push(ContentPart::Text {
                         text: text_block.text,
+                        signature: None,
                     });
                 }
                 ContentBlock::ToolUse(tool_use) => {
@@ -152,6 +153,7 @@ impl TryFrom<MessagesResponse> for Message {
                         id: tool_use.id,
                         name: tool_use.name,
                         arguments: tool_use.input,
+                        signature: None,
                     }));
                 }
                 // Skip other blocks like Thinking for now as Core doesn't support them explicitly yet
@@ -215,6 +217,7 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                                 name: Some(tool_use.name),
                                 arguments: None, // Arguments come in Delta
                             }),
+                            signature: None,
                         }))
                     }
                     ChunkContentBlock::Thinking(t) => {
@@ -241,6 +244,7 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                                 name: Some(stu.name),
                                 arguments: Some(stu.input.to_string()),
                             }),
+                            signature: None,
                         }))
                     }
                     ChunkContentBlock::SearchResult(sr) => {
@@ -249,7 +253,11 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                             text.push_str(&block.text);
                             text.push('\n');
                         }
-                        Some(DeltaContentPart::Text { index, text })
+                        Some(DeltaContentPart::Text {
+                            index,
+                            text,
+                            signature: None,
+                        })
                     }
                     ChunkContentBlock::WebSearchToolResult(wstr) => {
                         let mut text = String::from("[Web Search Results]\n");
@@ -259,13 +267,18 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                                      let _ = writeln!(text, "- {} ({}) : {}", res.title, res.url, res.encrypted_content);
                                  }
                         }
-                        Some(DeltaContentPart::Text { index, text })
+                        Some(DeltaContentPart::Text {
+                            index,
+                            text,
+                            signature: None,
+                        })
                     }
                     ChunkContentBlock::Text(t) => {
                         if !t.text.is_empty() {
                             Some(DeltaContentPart::Text {
                                 index,
                                 text: t.text,
+                                signature: None,
                             })
                         } else {
                             None
@@ -289,7 +302,11 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
             MessageStreamEvent::ContentBlockDelta { index, delta } => {
                 let part = match delta {
                     ChunkContentBlockDelta::TextDelta { text } => {
-                        Some(DeltaContentPart::Text { index, text })
+                        Some(DeltaContentPart::Text {
+                            index,
+                            text,
+                            signature: None,
+                        })
                     }
                     ChunkContentBlockDelta::InputJsonDelta { partial_json } => {
                         Some(DeltaContentPart::ToolCall(DeltaToolCall {
@@ -300,6 +317,7 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                                 name: None,
                                 arguments: Some(partial_json),
                             }),
+                            signature: None,
                         }))
                     }
                     ChunkContentBlockDelta::ThinkingDelta { thinking } => {

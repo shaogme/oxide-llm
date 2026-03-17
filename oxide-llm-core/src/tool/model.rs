@@ -484,6 +484,8 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// Tool Execution Result.
@@ -496,6 +498,9 @@ pub struct ToolResult {
     pub content: Vec<ContentPart>,
     #[serde(default)]
     pub is_error: bool,
+    /// 思维签密上下文。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 impl ToolDefinition {

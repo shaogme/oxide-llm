@@ -145,14 +145,17 @@ impl<'a> Stream for RunnerStream<'a> {
                                                 name: tool_call.name.clone(),
                                                 content,
                                                 is_error: false,
+                                                signature: tool_call.signature.clone(),
                                             },
                                             Err(err) => ToolResult {
                                                 tool_call_id: tool_call.id.clone(),
                                                 name: tool_call.name.clone(),
                                                 content: vec![ContentPart::Text {
                                                     text: format!("Error executing tool: {}", err),
+                                                    signature: None,
                                                 }],
                                                 is_error: true,
+                                                signature: tool_call.signature.clone(),
                                             },
                                         }
                                     } else {
@@ -164,8 +167,10 @@ impl<'a> Stream for RunnerStream<'a> {
                                                     "Error: Unknown tool '{}'",
                                                     tool_call.name
                                                 ),
+                                                signature: None,
                                             }],
                                             is_error: true,
+                                            signature: tool_call.signature.clone(),
                                         }
                                     };
                                     results.push(result);

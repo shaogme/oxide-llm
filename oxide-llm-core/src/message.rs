@@ -58,7 +58,11 @@ pub enum ContentPart {
     /// Text content.
     ///
     /// 文本内容。
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 
     /// Image content.
     ///
@@ -156,7 +160,10 @@ impl Message {
     pub fn user(text: impl Into<String>) -> Self {
         Self {
             role: Role::User,
-            content: vec![ContentPart::Text { text: text.into() }],
+            content: vec![ContentPart::Text {
+                text: text.into(),
+                signature: None,
+            }],
             name: None,
         }
     }
@@ -167,7 +174,10 @@ impl Message {
     pub fn assistant(text: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
-            content: vec![ContentPart::Text { text: text.into() }],
+            content: vec![ContentPart::Text {
+                text: text.into(),
+                signature: None,
+            }],
             name: None,
         }
     }
@@ -231,7 +241,12 @@ pub struct DeltaMessage {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DeltaContentPart {
     /// 文本增量。
-    Text { index: u32, text: String },
+    Text {
+        index: u32,
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 
     /// 推理/思维链内容增量 (对应 Claude Thinking Block)。
     Reasoning {
@@ -266,6 +281,10 @@ pub struct DeltaToolCall {
     /// 函数信息增量。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<DeltaFunction>,
+
+    /// Thinking 签名。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// 增量函数信息。
@@ -367,11 +386,17 @@ impl FromIterator<ChatStreamEvent> for Message {
                     name = n;
                 }
                 ChatStreamEvent::Text { text } => match content.last_mut() {
-                    Some(ContentPart::Text { text: current }) => {
+                    Some(ContentPart::Text {
+                        text: current,
+                        signature: _,
+                    }) => {
                         current.push_str(&text);
                     }
                     _ => {
-                        content.push(ContentPart::Text { text });
+                        content.push(ContentPart::Text {
+                            text,
+                            signature: None,
+                        });
                     }
                 },
                 ChatStreamEvent::Reasoning { text } => match content.last_mut() {
@@ -423,12 +448,18 @@ pub struct MessageAssembler {
 
     usage: Option<Usage>,
     finish_reason: Option<FinishReason>,
+
+    // Sticky signature for current turn
+    last_signature: Option<String>,
 }
 
 /// Assembled content part (Text and Reasoning only)
 #[derive(Debug, Clone)]
 enum AssembledPart {
-    Text(String),
+    Text {
+        text: String,
+        signature: Option<String>,
+    },
     Reasoning {
         text: String,
         signature: Option<String>,
@@ -444,6 +475,7 @@ struct AssembledToolCall {
     r#type: Option<String>,
     name: Option<String>,
     arguments: String,
+    signature: Option<String>,
 }
 
 impl MessageAssembler {
@@ -477,13 +509,27 @@ impl MessageAssembler {
         if let Some(content) = delta.content {
             for part in content {
                 match part {
-                    DeltaContentPart::Text { index, text } => {
-                        let entry = self
-                            .content_parts
-                            .entry(index)
-                            .or_insert(AssembledPart::Text(String::new()));
-                        if let AssembledPart::Text(current_text) = entry {
+                    DeltaContentPart::Text {
+                        index,
+                        text,
+                        signature,
+                    } => {
+                        let entry = self.content_parts.entry(index).or_insert(AssembledPart::Text {
+                            text: String::new(),
+                            signature: None,
+                        });
+                        if let AssembledPart::Text {
+                            text: current_text,
+                            signature: current_sig,
+                        } = entry
+                        {
                             current_text.push_str(&text);
+                            if let Some(sig) = signature {
+                                *current_sig = Some(sig.clone());
+                                self.last_signature = Some(sig);
+                            } else if current_sig.is_none() {
+                                *current_sig = self.last_signature.clone();
+                            }
                         }
                     }
                     DeltaContentPart::Reasoning {
@@ -505,7 +551,10 @@ impl MessageAssembler {
                         {
                             current_text.push_str(&text);
                             if let Some(sig) = signature {
-                                *current_sig = Some(sig);
+                                *current_sig = Some(sig.clone());
+                                self.last_signature = Some(sig);
+                            } else if current_sig.is_none() {
+                                *current_sig = self.last_signature.clone();
                             }
                         }
                     }
@@ -534,12 +583,19 @@ impl MessageAssembler {
                                 r#type: None,
                                 name: None,
                                 arguments: String::new(),
+                                signature: None,
                             }
                         });
 
                         // 3. Update fields
                         if let Some(tty) = tool_call.r#type {
                             entry.r#type = Some(tty);
+                        }
+                        if let Some(sig) = tool_call.signature {
+                            entry.signature = Some(sig.clone());
+                            self.last_signature = Some(sig);
+                        } else if entry.signature.is_none() {
+                            entry.signature = self.last_signature.clone();
                         }
                         if let Some(func) = tool_call.function {
                             if let Some(fname) = func.name {
@@ -567,7 +623,7 @@ impl MessageAssembler {
         // Add content parts
         for (index, part) in self.content_parts {
             let content_part = match part {
-                AssembledPart::Text(text) => ContentPart::Text { text },
+                AssembledPart::Text { text, signature } => ContentPart::Text { text, signature },
                 AssembledPart::Reasoning { text, signature } => {
                     ContentPart::Reasoning { text, signature }
                 }
@@ -587,6 +643,7 @@ impl MessageAssembler {
                         id: tool_call.id.clone(),
                         name: tool_call.name.clone().unwrap_or_default(),
                         arguments: args_value,
+                        signature: tool_call.signature.clone(),
                     }),
                 ));
             }
@@ -640,6 +697,7 @@ impl MessageAssembler {
             id: tool_call.id.clone(),
             name: tool_call.name.clone().unwrap_or_default(),
             arguments: args_value,
+            signature: tool_call.signature.clone(),
         })
     }
 
@@ -776,13 +834,21 @@ where
                     if let Some(parts) = content {
                         for part in parts {
                             match part {
-                                DeltaContentPart::Text { index, text } => {
+                                DeltaContentPart::Text {
+                                    index,
+                                    text,
+                                    signature,
+                                } => {
                                     if !text.is_empty() {
                                         this.pending_events.push_back(ChatStreamEvent::Text {
                                             text: text.clone(),
                                         });
                                     }
-                                    assembler_content.push(DeltaContentPart::Text { index, text });
+                                    assembler_content.push(DeltaContentPart::Text {
+                                        index,
+                                        text,
+                                        signature,
+                                    });
                                 }
                                 DeltaContentPart::Reasoning {
                                     index,

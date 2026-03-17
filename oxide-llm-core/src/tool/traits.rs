@@ -80,7 +80,10 @@ impl<T: Tool> ToolRunnable for T {
                                 return Err(format!("Tool output serialization error: {}", e));
                             }
                         };
-                        Ok(vec![ContentPart::Text { text }])
+                        Ok(vec![ContentPart::Text {
+                            text,
+                            signature: None,
+                        }])
                     }
                     Err(e) => Err(e),
                 }

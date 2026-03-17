@@ -19,7 +19,7 @@ impl TryFrom<Message> for ChatCompletionMessage {
         match msg.role {
             Role::User => {
                 if msg.content.len() == 1 {
-                    if let ContentPart::Text { text } = &msg.content[0] {
+                    if let ContentPart::Text { text, signature: _ } = &msg.content[0] {
                         return Ok(ChatCompletionMessage::User {
                             content: UserContent::Text(text.clone()),
                             name: msg.name,
@@ -30,7 +30,7 @@ impl TryFrom<Message> for ChatCompletionMessage {
                 let mut parts = Vec::new();
                 for part in msg.content {
                     match part {
-                        ContentPart::Text { text } => {
+                        ContentPart::Text { text, signature: _ } => {
                             parts.push(OpenAIContentPart::Text { text });
                         }
                         ContentPart::Image(image) => {
@@ -84,7 +84,7 @@ impl TryFrom<Message> for ChatCompletionMessage {
                                 )
                             }
                         },
-                        ContentPart::Text { text } => match content {
+                        ContentPart::Text { text, signature: _ } => match content {
                             Some(ref mut c) => {
                                 c.push_str("\n\n");
                                 c.push_str(&text);
@@ -135,7 +135,7 @@ impl TryFrom<Message> for ChatCompletionMessage {
                     ContentPart::ToolResult(res) => {
                         let content_str = if res.content.len() == 1 {
                             match &res.content[0] {
-                                ContentPart::Text { text } => text.clone(),
+                                ContentPart::Text { text, signature: _ } => text.clone(),
                                 ContentPart::Json(value) => {
                                     serde_json::to_string(value).map_err(MapperError::JsonError)?
                                 }
@@ -198,6 +198,7 @@ impl TryFrom<ChatCompletionResponse> for Message {
         if let Some(content) = &msg.content {
             content_parts.push(ContentPart::Text {
                 text: content.clone(),
+                signature: None,
             });
         }
 
@@ -209,6 +210,7 @@ impl TryFrom<ChatCompletionResponse> for Message {
                     name: tc.function.name.clone(),
                     arguments: serde_json::from_str(&tc.function.arguments)
                         .map_err(MapperError::JsonError)?,
+                    signature: None,
                 }));
             }
         }
@@ -289,6 +291,7 @@ impl TryFrom<ChatCompletionChunk> for DeltaMessage {
             content_parts.push(DeltaContentPart::Text {
                 index: 0,
                 text: content.clone(),
+                signature: None,
             });
         }
 
@@ -316,6 +319,7 @@ impl TryFrom<ChatCompletionChunk> for DeltaMessage {
                         name: f.name.clone(),
                         arguments: f.arguments.clone(),
                     }),
+                    signature: None,
                 }));
             }
         }
