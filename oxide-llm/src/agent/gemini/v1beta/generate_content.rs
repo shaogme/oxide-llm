@@ -1,3 +1,4 @@
+use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
@@ -177,7 +178,7 @@ impl<T: Transport> GenerateContentAgent<T> {
         // Messages Conversion
         let contents: Vec<Content> = messages
             .into_iter()
-            .map(|msg| msg.try_into())
+            .map(GeminiMapper::from_core_message)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(AgentError::Mapper)?;
 
@@ -193,48 +194,12 @@ impl<T: Transport> GenerateContentAgent<T> {
     }
 }
 
-/// Stream for Gemini Messages.
-///
-/// Gemini Messages 流。
-
-fn process_block(block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
-    let s = match std::str::from_utf8(block) {
-        Ok(s) => s,
-        Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-    };
-
-    let mut chunk_to_yield = None;
-    let mut done = false;
-
-    for line in s.lines() {
-        if let Some(data) = line.strip_prefix("data: ") {
-            let data = data.trim();
-            if data == "[DONE]" {
-                done = true;
-                break;
-            }
-            match serde_json::from_str::<GenerateContentResponse>(data) {
-                Ok(chunk) => match chunk.try_into() {
-                    Ok(delta) => {
-                        chunk_to_yield = Some(Ok(delta));
-                    }
-                    Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                },
-                Err(e) => return (Some(Err(AgentError::Json(e))), false),
-            }
-        }
-    }
-
-    if done {
-        return (chunk_to_yield, true);
-    }
-
-    (chunk_to_yield, false)
-}
+// Stream for Gemini Messages.
+//
+// Gemini Messages 流。
 
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
-    type Stream =
-        crate::stream::MessageStream<T::Stream, fn(&[u8]) -> (Option<Result<DeltaMessage>>, bool)>;
+    type Stream = futures::stream::BoxStream<'static, Result<DeltaMessage>>;
 
     /// Send a chat request to Gemini.
     ///
@@ -253,7 +218,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Convert Response back to Core Message
-        let core_message: Message = response.try_into().map_err(AgentError::Mapper)?;
+        let core_message: Message =
+            GeminiMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }
@@ -286,9 +252,44 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Return concrete stream
-        Ok(ChatStream::new(crate::stream::MessageStream::new(
-            stream,
-            process_block,
-        )))
+        let mut mapper = GeminiStreamMapper::new();
+        let processor = move |block: &[u8]| -> (Option<Result<DeltaMessage>>, bool) {
+            let s = match std::str::from_utf8(block) {
+                Ok(s) => s,
+                Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
+            };
+
+            let mut chunk_to_yield = None;
+            let mut done = false;
+
+            for line in s.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    let data = data.trim();
+                    if data == "[DONE]" {
+                        done = true;
+                        break;
+                    }
+                    match serde_json::from_str::<GenerateContentResponse>(data) {
+                        Ok(chunk) => match mapper.map_response(chunk) {
+                            Ok(delta) => {
+                                chunk_to_yield = Some(Ok(delta));
+                            }
+                            Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
+                        },
+                        Err(e) => return (Some(Err(AgentError::Json(e))), false),
+                    }
+                }
+            }
+
+            if done {
+                return (chunk_to_yield, true);
+            }
+
+            (chunk_to_yield, false)
+        };
+
+        let message_stream = crate::stream::MessageStream::new(stream, processor);
+
+        Ok(ChatStream::new(futures::StreamExt::boxed(message_stream)))
     }
 }

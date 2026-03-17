@@ -2,20 +2,23 @@ use crate::mapper::MapperError;
 use crate::message::{Audio, ContentPart, Image, ImageSource, Message, Role};
 use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
 use crate::tool::ToolCall;
-use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk;
+use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk as OpenAIStreamChunk;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
     ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio, UserContent,
 };
 use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
 use oxide_llm_proto::openai::v1::{ToolCall as OpenAIToolCall, ToolCallFunction};
 
-/// Convert core Message to OpenAI ChatCompletionMessage.
+/// Mapper for OpenAI protocol.
 ///
-/// 将核心 Message 转换为 OpenAI ChatCompletionMessage。
-impl TryFrom<Message> for ChatCompletionMessage {
-    type Error = MapperError;
+/// OpenAI 协议映射器。
+pub struct OpenAIMapper;
 
-    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+impl OpenAIMapper {
+    /// Convert core Message to OpenAI ChatCompletionMessage.
+    ///
+    /// 将核心 Message 转换为 OpenAI ChatCompletionMessage。
+    pub fn from_core_message(msg: Message) -> Result<ChatCompletionMessage, MapperError> {
         match msg.role {
             Role::User => {
                 if msg.content.len() == 1 {
@@ -35,12 +38,12 @@ impl TryFrom<Message> for ChatCompletionMessage {
                         }
                         ContentPart::Image(image) => {
                             parts.push(OpenAIContentPart::ImageUrl {
-                                image_url: convert_image_openai(image)?,
+                                image_url: Self::convert_image_openai(image)?,
                             });
                         }
                         ContentPart::Audio(audio) => {
                             parts.push(OpenAIContentPart::InputAudio {
-                                input_audio: convert_audio_openai(audio)?,
+                                input_audio: Self::convert_audio_openai(audio)?,
                             });
                         }
                         ContentPart::Json(value) => {
@@ -155,40 +158,36 @@ impl TryFrom<Message> for ChatCompletionMessage {
             }
         }
     }
-}
 
-fn convert_image_openai(image: Image) -> Result<ImageUrl, MapperError> {
-    let url = match image.source {
-        ImageSource::Url { url } => url,
-        ImageSource::Base64 { data } => {
-            if let Some(media_type) = image.media_type {
-                format!("data:{};base64,{}", media_type, data)
-            } else {
-                return Err(MapperError::InvalidMediaType);
+    fn convert_image_openai(image: Image) -> Result<ImageUrl, MapperError> {
+        let url = match image.source {
+            ImageSource::Url { url } => url,
+            ImageSource::Base64 { data } => {
+                if let Some(media_type) = image.media_type {
+                    format!("data:{};base64,{}", media_type, data)
+                } else {
+                    return Err(MapperError::InvalidMediaType);
+                }
             }
-        }
-    };
+        };
 
-    Ok(ImageUrl {
-        url,
-        detail: image.detail,
-    })
-}
+        Ok(ImageUrl {
+            url,
+            detail: image.detail,
+        })
+    }
 
-fn convert_audio_openai(audio: Audio) -> Result<InputAudio, MapperError> {
-    Ok(InputAudio {
-        data: audio.data,
-        format: audio.format,
-    })
-}
+    fn convert_audio_openai(audio: Audio) -> Result<InputAudio, MapperError> {
+        Ok(InputAudio {
+            data: audio.data,
+            format: audio.format,
+        })
+    }
 
-/// Convert OpenAI ChatCompletionResponse to core Message.
-///
-/// 将 OpenAI ChatCompletionResponse 转换为核心 Message。
-impl TryFrom<ChatCompletionResponse> for Message {
-    type Error = MapperError;
-
-    fn try_from(resp: ChatCompletionResponse) -> Result<Self, Self::Error> {
+    /// Convert OpenAI ChatCompletionResponse to core Message.
+    ///
+    /// 将 OpenAI ChatCompletionResponse 转换为核心 Message。
+    pub fn to_core_message(resp: ChatCompletionResponse) -> Result<Message, MapperError> {
         let choice = resp.choices.first().ok_or(MapperError::EmptyResponse)?;
         let msg = &choice.message;
 
@@ -238,13 +237,17 @@ impl TryFrom<ChatCompletionResponse> for Message {
     }
 }
 
-/// Convert OpenAI ChatCompletionChunk to core DeltaMessage.
+/// A stateful mapper for OpenAI streaming responses.
 ///
-/// 将 OpenAI ChatCompletionChunk 转换为核心 DeltaMessage。
-impl TryFrom<ChatCompletionChunk> for DeltaMessage {
-    type Error = MapperError;
+/// 用于 OpenAI 流式响应的有状态映射器。
+pub struct OpenAIStreamMapper;
 
-    fn try_from(chunk: ChatCompletionChunk) -> Result<Self, Self::Error> {
+impl OpenAIStreamMapper {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn map_response(&mut self, chunk: OpenAIStreamChunk) -> Result<DeltaMessage, MapperError> {
         // Usage might be present at the end of the stream (stream_options)
         let usage = chunk.usage.map(|u| crate::message::Usage {
             input_tokens: u.prompt_tokens,
@@ -337,5 +340,11 @@ impl TryFrom<ChatCompletionChunk> for DeltaMessage {
             finish_reason,
             usage,
         })
+    }
+}
+
+impl Default for OpenAIStreamMapper {
+    fn default() -> Self {
+        Self::new()
     }
 }

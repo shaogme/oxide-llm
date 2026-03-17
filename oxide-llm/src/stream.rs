@@ -32,7 +32,7 @@ impl<S, F> MessageStream<S, F> {
 impl<S, F> Stream for MessageStream<S, F>
 where
     S: Stream<Item = std::result::Result<bytes::Bytes, TransportError>> + Unpin,
-    F: Fn(&[u8]) -> (Option<Result<DeltaMessage>>, bool) + Unpin,
+    F: FnMut(&[u8]) -> (Option<Result<DeltaMessage>>, bool) + Unpin,
 {
     type Item = Result<DeltaMessage>;
 
@@ -41,8 +41,7 @@ where
             // 1. Process buffer
             if let Some(pos) = self.buffer.windows(2).position(|w| w == b"\n\n") {
                 let block = self.buffer.split_to(pos + 2);
-                let processor = &self.processor;
-                let (item, stop) = processor(&block);
+                let (item, stop) = (self.processor)(&block);
 
                 if stop {
                     self.stopped = true;

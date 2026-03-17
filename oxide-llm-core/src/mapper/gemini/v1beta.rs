@@ -8,17 +8,20 @@ use oxide_llm_proto::gemini::v1beta::generate_content::{
     Blob, Content as GeminiContent, FileData, FunctionCall, FunctionResponse, Part as GeminiPart,
 };
 
-/// Convert core Message to Gemini Content.
+/// Mapper for Gemini protocol.
 ///
-/// 将核心 Message 转换为 Gemini Content。
-impl TryFrom<Message> for GeminiContent {
-    type Error = MapperError;
+/// Gemini 协议映射器。
+pub struct GeminiMapper;
 
-    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+impl GeminiMapper {
+    /// Convert core Message to Gemini Content.
+    ///
+    /// 将核心 Message 转换为 Gemini Content。
+    pub fn from_core_message(msg: Message) -> Result<GeminiContent, MapperError> {
         let (role, parts) = match msg.role {
-            Role::User => ("user", convert_content_to_gemini_parts(msg.content)?),
-            Role::Assistant => ("model", convert_content_to_gemini_parts(msg.content)?),
-            Role::Tool => ("user", convert_content_to_gemini_parts(msg.content)?),
+            Role::User => ("user", Self::convert_content_to_gemini_parts(msg.content)?),
+            Role::Assistant => ("model", Self::convert_content_to_gemini_parts(msg.content)?),
+            Role::Tool => ("user", Self::convert_content_to_gemini_parts(msg.content)?),
         };
 
         Ok(GeminiContent {
@@ -26,142 +29,138 @@ impl TryFrom<Message> for GeminiContent {
             role: Some(role.to_string()),
         })
     }
-}
 
-fn convert_content_to_gemini_parts(
-    parts: Vec<ContentPart>,
-) -> Result<Vec<GeminiPart>, MapperError> {
-    let mut gemini_parts = Vec::new();
-    let mut last_signature = None;
+    fn convert_content_to_gemini_parts(
+        parts: Vec<ContentPart>,
+    ) -> Result<Vec<GeminiPart>, MapperError> {
+        let mut gemini_parts = Vec::new();
+        let mut last_signature = None;
 
-    for part in parts {
-        match part {
-            ContentPart::Reasoning { text, signature } => {
-                if signature.is_some() {
-                    last_signature = signature.clone();
-                }
-                gemini_parts.push(GeminiPart {
-                    text: Some(text),
-                    thought: Some(true),
-                    thought_signature: signature,
-                    ..Default::default()
-                });
-            }
-            ContentPart::Text { text, signature } => {
-                let sig = signature.or_else(|| last_signature.clone());
-                if sig.is_some() {
-                    last_signature = sig.clone();
-                }
-                gemini_parts.push(GeminiPart {
-                    text: Some(text),
-                    thought_signature: sig,
-                    ..Default::default()
-                });
-            }
-            ContentPart::Image(image) => {
-                // Gemini usually expects InlineData for base64
-                if let ImageSource::Base64 { data } = image.source {
+        for part in parts {
+            match part {
+                ContentPart::Reasoning { text, signature } => {
+                    if signature.is_some() {
+                        last_signature = signature.clone();
+                    }
                     gemini_parts.push(GeminiPart {
-                        inline_data: Some(Blob {
-                            mime_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
-                            data,
-                        }),
+                        text: Some(text),
+                        thought: Some(true),
+                        thought_signature: signature,
                         ..Default::default()
                     });
-                } else {
-                    if let ImageSource::Url { url } = image.source {
+                }
+                ContentPart::Text { text, signature } => {
+                    let sig = signature.or_else(|| last_signature.clone());
+                    if sig.is_some() {
+                        last_signature = sig.clone();
+                    }
+                    gemini_parts.push(GeminiPart {
+                        text: Some(text),
+                        thought_signature: sig,
+                        ..Default::default()
+                    });
+                }
+                ContentPart::Image(image) => {
+                    // Gemini usually expects InlineData for base64
+                    if let ImageSource::Base64 { data } = image.source {
                         gemini_parts.push(GeminiPart {
-                            file_data: Some(FileData {
-                                mime_type: image.media_type,
-                                file_uri: url,
+                            inline_data: Some(Blob {
+                                mime_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
+                                data,
                             }),
                             ..Default::default()
                         });
-                    }
-                }
-            }
-            ContentPart::Audio(audio) => {
-                gemini_parts.push(GeminiPart {
-                    inline_data: Some(Blob {
-                        mime_type: format!("audio/{}", audio.format), // e.g. audio/mp3
-                        data: audio.data,
-                    }),
-                    ..Default::default()
-                });
-            }
-            ContentPart::ToolCall(tc) => {
-                let sig = tc.signature.or_else(|| last_signature.clone());
-                if sig.is_some() {
-                    last_signature = sig.clone();
-                }
-                gemini_parts.push(GeminiPart {
-                    function_call: Some(FunctionCall {
-                        id: Some(tc.id),
-                        name: tc.name,
-                        args: tc.arguments,
-                    }),
-                    thought_signature: sig,
-                    ..Default::default()
-                });
-            }
-            ContentPart::ToolResult(tr) => {
-                let response_value = if tr.content.len() == 1 {
-                    match &tr.content[0] {
-                        ContentPart::Text { text, signature: _ } => {
-                            serde_json::json!({ "content": text })
-                        }
-                        ContentPart::Json(value) => value.clone(),
-                        _ => {
-                            // Try to serialize other parts
-                            serde_json::to_value(&tr.content)?
+                    } else {
+                        if let ImageSource::Url { url } = image.source {
+                            gemini_parts.push(GeminiPart {
+                                file_data: Some(FileData {
+                                    mime_type: image.media_type,
+                                    file_uri: url,
+                                }),
+                                ..Default::default()
+                            });
                         }
                     }
-                } else {
-                    serde_json::to_value(&tr.content)?
-                };
+                }
+                ContentPart::Audio(audio) => {
+                    gemini_parts.push(GeminiPart {
+                        inline_data: Some(Blob {
+                            mime_type: format!("audio/{}", audio.format), // e.g. audio/mp3
+                            data: audio.data,
+                        }),
+                        ..Default::default()
+                    });
+                }
+                ContentPart::ToolCall(tc) => {
+                    let sig = tc.signature.or_else(|| last_signature.clone());
+                    if sig.is_some() {
+                        last_signature = sig.clone();
+                    }
+                    gemini_parts.push(GeminiPart {
+                        function_call: Some(FunctionCall {
+                            id: Some(tc.id),
+                            name: tc.name,
+                            args: tc.arguments,
+                        }),
+                        thought_signature: sig,
+                        ..Default::default()
+                    });
+                }
+                ContentPart::ToolResult(tr) => {
+                    let response_value = if tr.content.len() == 1 {
+                        match &tr.content[0] {
+                            ContentPart::Text { text, signature: _ } => {
+                                serde_json::json!({ "content": text })
+                            }
+                            ContentPart::Json(value) => value.clone(),
+                            _ => {
+                                // Try to serialize other parts
+                                serde_json::to_value(&tr.content)?
+                            }
+                        }
+                    } else {
+                        serde_json::to_value(&tr.content)?
+                    };
 
-                let sig = tr.signature.or_else(|| last_signature.clone());
-                if sig.is_some() {
-                    last_signature = sig.clone();
+                    let sig = tr.signature.or_else(|| last_signature.clone());
+                    if sig.is_some() {
+                        last_signature = sig.clone();
+                    }
+                    gemini_parts.push(GeminiPart {
+                        function_response: Some(FunctionResponse {
+                            id: Some(tr.tool_call_id),
+                            name: tr.name,
+                            response: response_value,
+                            parts: None,
+                            will_continue: None,
+                            scheduling: None,
+                        }),
+                        thought_signature: sig,
+                        ..Default::default()
+                    });
                 }
-                gemini_parts.push(GeminiPart {
-                    function_response: Some(FunctionResponse {
-                        id: Some(tr.tool_call_id),
-                        name: tr.name,
-                        response: response_value,
-                        parts: None,
-                        will_continue: None,
-                        scheduling: None,
-                    }),
-                    thought_signature: sig,
-                    ..Default::default()
-                });
-            }
-            ContentPart::Json(value) => {
-                let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
-                gemini_parts.push(GeminiPart {
-                    text: Some(text),
-                    ..Default::default()
-                });
-            }
-            _ => {
-                return Err(MapperError::UnsupportedContent {
-                    role: "Any".to_string(),
-                    protocol: "Gemini".to_string(),
-                });
+                ContentPart::Json(value) => {
+                    let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
+                    gemini_parts.push(GeminiPart {
+                        text: Some(text),
+                        ..Default::default()
+                    });
+                }
+                _ => {
+                    return Err(MapperError::UnsupportedContent {
+                        role: "Any".to_string(),
+                        protocol: "Gemini".to_string(),
+                    });
+                }
             }
         }
+        Ok(gemini_parts)
     }
-    Ok(gemini_parts)
-}
 
-/// Convert Gemini GenerateContentResponse to core Message.
-///
-/// 将 Gemini GenerateContentResponse 转换为核心 Message。
-impl TryFrom<GenerateContentResponse> for Message {
-    type Error = MapperError;
-
-    fn try_from(resp: GenerateContentResponse) -> Result<Self, Self::Error> {
+    /// Convert Gemini GenerateContentResponse to core Message.
+    ///
+    /// 将 Gemini GenerateContentResponse 转换为核心 Message。
+    pub fn to_core_message(resp: GenerateContentResponse) -> Result<Message, MapperError> {
         let candidate = resp.candidates.first().ok_or(MapperError::EmptyResponse)?;
 
         let mut content_parts = Vec::new();
@@ -204,13 +203,30 @@ impl TryFrom<GenerateContentResponse> for Message {
     }
 }
 
-/// Convert Gemini GenerateContentResponse to core DeltaMessage.
+/// A stateful mapper for Gemini streaming responses.
 ///
-/// 将 Gemini GenerateContentResponse 转换为核心 DeltaMessage。
-impl TryFrom<GenerateContentResponse> for DeltaMessage {
-    type Error = MapperError;
+/// 用于 Gemini 流式响应的有状态映射器。
+pub struct GeminiStreamMapper {
+    last_signature: Option<String>,
+}
 
-    fn try_from(resp: GenerateContentResponse) -> Result<Self, Self::Error> {
+impl Default for GeminiStreamMapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GeminiStreamMapper {
+    pub fn new() -> Self {
+        Self {
+            last_signature: None,
+        }
+    }
+
+    pub fn map_response(
+        &mut self,
+        resp: GenerateContentResponse,
+    ) -> Result<DeltaMessage, MapperError> {
         let candidate = resp.candidates.first();
 
         // Usage info might be available at top level
@@ -248,18 +264,17 @@ impl TryFrom<GenerateContentResponse> for DeltaMessage {
             oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Other => {
                 crate::message::FinishReason::Other("Other".to_string())
             }
-            // Gemini specific ones
             _ => crate::message::FinishReason::Other(format!("{:?}", r)),
         });
 
         let mut content_parts = Vec::new();
 
-        let mut last_sig = None;
         for (i, part) in candidate.content.parts.iter().enumerate() {
-            let sig = part.thought_signature.clone().or_else(|| last_sig.clone());
-            if sig.is_some() {
-                last_sig = sig.clone();
+            // Update sticky signature
+            if let Some(sig) = &part.thought_signature {
+                self.last_signature = Some(sig.clone());
             }
+            let sig = self.last_signature.clone();
 
             if part.thought == Some(true) {
                 if let Some(text) = &part.text {

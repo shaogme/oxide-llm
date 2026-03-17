@@ -2,6 +2,7 @@ use crate::mapper::MapperError;
 use crate::message::{ContentPart, ImageSource, Message, Role};
 use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
 use crate::tool::ToolCall;
+use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
 use oxide_llm_proto::claude::v1::messages::request::Message as ClaudeMessage;
 use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
 use oxide_llm_proto::claude::v1::messages::{
@@ -9,23 +10,26 @@ use oxide_llm_proto::claude::v1::messages::{
     Role as ClaudeRole, TextBlock, ThinkingBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
 };
 
-/// Convert core Message to Claude Message.
+/// Mapper for Claude protocol.
 ///
-/// 将核心 Message 转换为 Claude Message。
-impl TryFrom<Message> for ClaudeMessage {
-    type Error = MapperError;
+/// Claude 协议映射器。
+pub struct ClaudeMapper;
 
-    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+impl ClaudeMapper {
+    /// Convert core Message to Claude Message.
+    ///
+    /// 将核心 Message 转换为 Claude Message。
+    pub fn from_core_message(msg: Message) -> Result<ClaudeMessage, MapperError> {
         match msg.role {
             Role::User => {
-                let blocks = convert_content_to_claude_blocks(msg.content)?;
+                let blocks = Self::convert_content_to_claude_blocks(msg.content)?;
                 Ok(ClaudeMessage {
                     role: ClaudeRole::User,
                     content: ClaudeContent::Blocks(blocks),
                 })
             }
             Role::Assistant => {
-                let blocks = convert_content_to_claude_blocks(msg.content)?;
+                let blocks = Self::convert_content_to_claude_blocks(msg.content)?;
                 Ok(ClaudeMessage {
                     role: ClaudeRole::Assistant,
                     content: ClaudeContent::Blocks(blocks),
@@ -33,7 +37,7 @@ impl TryFrom<Message> for ClaudeMessage {
             }
             Role::Tool => {
                 // In Claude, tool results are sent as User messages with ToolResult blocks
-                let blocks = convert_content_to_claude_blocks(msg.content)?;
+                let blocks = Self::convert_content_to_claude_blocks(msg.content)?;
                 Ok(ClaudeMessage {
                     role: ClaudeRole::User,
                     content: ClaudeContent::Blocks(blocks),
@@ -41,103 +45,103 @@ impl TryFrom<Message> for ClaudeMessage {
             }
         }
     }
-}
 
-fn convert_content_to_claude_blocks(
-    parts: Vec<ContentPart>,
-) -> Result<Vec<ContentBlock>, MapperError> {
-    let mut blocks = Vec::new();
-    for part in parts {
-        match part {
-            ContentPart::Text { text, signature: _ } => {
-                blocks.push(ContentBlock::Text(TextBlock {
-                    text,
-                    cache_control: None, // Cache control not supported in generic mapper yet
-                    citations: None,
-                }));
-            }
-            ContentPart::Image(image) => {
-                let source = match image.source {
-                    ImageSource::Base64 { data } => ClaudeImageSource::Base64 {
-                        r#type: "base64".to_string(),
-                        media_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
-                        data,
-                    },
-                    ImageSource::Url { url } => ClaudeImageSource::Url {
-                        r#type: "url".to_string(),
-                        url,
-                    },
-                };
-                blocks.push(ContentBlock::Image(ImageBlock {
-                    source,
-                    cache_control: None,
-                }));
-            }
-            ContentPart::ToolCall(tc) => {
-                blocks.push(ContentBlock::ToolUse(ToolUseBlock {
-                    id: tc.id,
-                    name: tc.name,
-                    input: tc.arguments,
-                    cache_control: None,
-                }));
-            }
-            ContentPart::ToolResult(tr) => {
-                let content = if tr.content.len() == 1 {
-                    match &tr.content[0] {
-                        ContentPart::Text { text, signature: _ } => ToolResultContent::Text(text.clone()),
-                        ContentPart::Json(value) => {
-                            let text =
-                                serde_json::to_string(value).map_err(MapperError::JsonError)?;
-                            ToolResultContent::Text(text)
+    pub fn convert_content_to_claude_blocks(
+        parts: Vec<ContentPart>,
+    ) -> Result<Vec<ContentBlock>, MapperError> {
+        let mut blocks = Vec::new();
+        for part in parts {
+            match part {
+                ContentPart::Text { text, signature: _ } => {
+                    blocks.push(ContentBlock::Text(TextBlock {
+                        text,
+                        cache_control: None, // Cache control not supported in generic mapper yet
+                        citations: None,
+                    }));
+                }
+                ContentPart::Image(image) => {
+                    let source = match image.source {
+                        ImageSource::Base64 { data } => ClaudeImageSource::Base64 {
+                            r#type: "base64".to_string(),
+                            media_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
+                            data,
+                        },
+                        ImageSource::Url { url } => ClaudeImageSource::Url {
+                            r#type: "url".to_string(),
+                            url,
+                        },
+                    };
+                    blocks.push(ContentBlock::Image(ImageBlock {
+                        source,
+                        cache_control: None,
+                    }));
+                }
+                ContentPart::ToolCall(tc) => {
+                    blocks.push(ContentBlock::ToolUse(ToolUseBlock {
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.arguments,
+                        cache_control: None,
+                    }));
+                }
+                ContentPart::ToolResult(tr) => {
+                    let content = if tr.content.len() == 1 {
+                        match &tr.content[0] {
+                            ContentPart::Text { text, signature: _ } => {
+                                ToolResultContent::Text(text.clone())
+                            }
+                            ContentPart::Json(value) => {
+                                let text =
+                                    serde_json::to_string(value).map_err(MapperError::JsonError)?;
+                                ToolResultContent::Text(text)
+                            }
+                            _ => ToolResultContent::Blocks(Self::convert_content_to_claude_blocks(
+                                tr.content,
+                            )?),
                         }
-                        _ => {
-                            ToolResultContent::Blocks(convert_content_to_claude_blocks(tr.content)?)
-                        }
-                    }
-                } else {
-                    ToolResultContent::Blocks(convert_content_to_claude_blocks(tr.content)?)
-                };
+                    } else {
+                        ToolResultContent::Blocks(Self::convert_content_to_claude_blocks(
+                            tr.content,
+                        )?)
+                    };
 
-                blocks.push(ContentBlock::ToolResult(ToolResultBlock {
-                    tool_use_id: tr.tool_call_id,
-                    content,
-                    is_error: if tr.is_error { Some(true) } else { None },
-                    cache_control: None,
-                }));
-            }
-            ContentPart::Json(value) => {
-                let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
-                blocks.push(ContentBlock::Text(TextBlock {
-                    text,
-                    cache_control: None,
-                    citations: None,
-                }));
-            }
-            ContentPart::Reasoning { text, signature } => {
-                blocks.push(ContentBlock::Thinking(ThinkingBlock {
-                    thinking: text,
-                    signature: signature.unwrap_or_default(),
-                }));
-            }
-            _ => {
-                // Audio, Refusal not directly supported in Claude basic blocks or mapped differently
-                return Err(MapperError::UnsupportedContent {
-                    role: "Any".to_string(),
-                    protocol: "Claude".to_string(),
-                });
+                    blocks.push(ContentBlock::ToolResult(ToolResultBlock {
+                        tool_use_id: tr.tool_call_id,
+                        content,
+                        is_error: if tr.is_error { Some(true) } else { None },
+                        cache_control: None,
+                    }));
+                }
+                ContentPart::Json(value) => {
+                    let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
+                    blocks.push(ContentBlock::Text(TextBlock {
+                        text,
+                        cache_control: None,
+                        citations: None,
+                    }));
+                }
+                ContentPart::Reasoning { text, signature } => {
+                    blocks.push(ContentBlock::Thinking(ThinkingBlock {
+                        thinking: text,
+                        signature: signature.unwrap_or_default(),
+                    }));
+                }
+                _ => {
+                    // Audio, Refusal not directly supported in Claude basic blocks or mapped differently
+                    return Err(MapperError::UnsupportedContent {
+                        role: "Any".to_string(),
+                        protocol: "Claude".to_string(),
+                    });
+                }
             }
         }
+        Ok(blocks)
     }
-    Ok(blocks)
-}
 
-/// Convert Claude MessagesResponse to core Message.
-///
-/// 将 Claude MessagesResponse 转换为核心 Message。
-impl TryFrom<MessagesResponse> for Message {
-    type Error = MapperError;
-
-    fn try_from(resp: MessagesResponse) -> Result<Self, Self::Error> {
+    /// Convert Claude MessagesResponse to core Message.
+    ///
+    /// 将 Claude MessagesResponse 转换为核心 Message。
+    pub fn to_core_message(resp: MessagesResponse) -> Result<Message, MapperError> {
         let mut content_parts = Vec::new();
 
         for block in resp.content {
@@ -169,15 +173,17 @@ impl TryFrom<MessagesResponse> for Message {
     }
 }
 
-/// Convert Claude MessageStreamEvent to core DeltaMessage.
+/// A stateful mapper for Claude streaming responses.
 ///
-/// 将 Claude MessageStreamEvent 转换为核心 DeltaMessage。
-impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> for DeltaMessage {
-    type Error = MapperError;
+/// 用于 Claude 流式响应的有状态映射器。
+pub struct ClaudeStreamMapper;
 
-    fn try_from(
-        event: oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent,
-    ) -> Result<Self, Self::Error> {
+impl ClaudeStreamMapper {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn map_response(&mut self, event: ClaudeStreamEvent) -> Result<DeltaMessage, MapperError> {
         use oxide_llm_proto::claude::v1::messages::chunk::{
             ChunkContentBlock, ChunkContentBlockDelta, MessageStreamEvent,
         };
@@ -301,13 +307,11 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
             }
             MessageStreamEvent::ContentBlockDelta { index, delta } => {
                 let part = match delta {
-                    ChunkContentBlockDelta::TextDelta { text } => {
-                        Some(DeltaContentPart::Text {
-                            index,
-                            text,
-                            signature: None,
-                        })
-                    }
+                    ChunkContentBlockDelta::TextDelta { text } => Some(DeltaContentPart::Text {
+                        index,
+                        text,
+                        signature: None,
+                    }),
                     ChunkContentBlockDelta::InputJsonDelta { partial_json } => {
                         Some(DeltaContentPart::ToolCall(DeltaToolCall {
                             index,
@@ -384,5 +388,11 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                 protocol: format!("Claude Error: {}", error.message),
             }),
         }
+    }
+}
+
+impl Default for ClaudeStreamMapper {
+    fn default() -> Self {
+        Self::new()
     }
 }

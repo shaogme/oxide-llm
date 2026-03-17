@@ -448,9 +448,6 @@ pub struct MessageAssembler {
 
     usage: Option<Usage>,
     finish_reason: Option<FinishReason>,
-
-    // Sticky signature for current turn
-    last_signature: Option<String>,
 }
 
 /// Assembled content part (Text and Reasoning only)
@@ -525,10 +522,7 @@ impl MessageAssembler {
                         {
                             current_text.push_str(&text);
                             if let Some(sig) = signature {
-                                *current_sig = Some(sig.clone());
-                                self.last_signature = Some(sig);
-                            } else if current_sig.is_none() {
-                                *current_sig = self.last_signature.clone();
+                                *current_sig = Some(sig);
                             }
                         }
                     }
@@ -551,10 +545,7 @@ impl MessageAssembler {
                         {
                             current_text.push_str(&text);
                             if let Some(sig) = signature {
-                                *current_sig = Some(sig.clone());
-                                self.last_signature = Some(sig);
-                            } else if current_sig.is_none() {
-                                *current_sig = self.last_signature.clone();
+                                *current_sig = Some(sig);
                             }
                         }
                     }
@@ -592,10 +583,7 @@ impl MessageAssembler {
                             entry.r#type = Some(tty);
                         }
                         if let Some(sig) = tool_call.signature {
-                            entry.signature = Some(sig.clone());
-                            self.last_signature = Some(sig);
-                        } else if entry.signature.is_none() {
-                            entry.signature = self.last_signature.clone();
+                            entry.signature = Some(sig);
                         }
                         if let Some(func) = tool_call.function {
                             if let Some(fname) = func.name {

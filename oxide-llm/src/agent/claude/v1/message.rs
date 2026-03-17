@@ -1,9 +1,9 @@
-use oxide_llm_core::mapper::MapperError;
+use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
 use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
-use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent;
+use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
 use oxide_llm_proto::claude::v1::messages::request::{
     Message as ClaudeMessage, MessagesRequest, OutputConfig, SystemPrompt, ThinkingConfig, Tool,
     ToolChoice,
@@ -144,7 +144,7 @@ impl<T: Transport> MessagesAgent<T> {
         // 1. 将核心消息转换为 Claude 消息
         let claude_messages: Vec<ClaudeMessage> = messages
             .into_iter()
-            .map(|msg| msg.try_into())
+            .map(ClaudeMapper::from_core_message)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(AgentError::Mapper)?;
 
@@ -161,50 +161,12 @@ impl<T: Transport> MessagesAgent<T> {
     }
 }
 
-fn process_block(block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
-    let s = match std::str::from_utf8(block) {
-        Ok(s) => s,
-        Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-    };
-
-    let mut chunk_to_yield = None;
-    let mut stop = false;
-
-    for line in s.lines() {
-        if let Some(data) = line.strip_prefix("data: ") {
-            let data = data.trim();
-
-            match serde_json::from_str::<MessageStreamEvent>(data) {
-                Ok(event) => {
-                    if matches!(&event, MessageStreamEvent::MessageStop) {
-                        stop = true;
-                    }
-                    if let MessageStreamEvent::Error { .. } = &event {
-                        stop = true;
-                    }
-
-                    match event.try_into() {
-                        Ok(delta) => {
-                            chunk_to_yield = Some(Ok(delta));
-                        }
-                        Err(e) => {
-                            if !matches!(e, MapperError::IgnoredEvent { .. }) {
-                                return (Some(Err(AgentError::Mapper(e))), false);
-                            }
-                        }
-                    }
-                }
-                Err(e) => return (Some(Err(AgentError::Json(e))), false),
-            }
-        }
-    }
-
-    (chunk_to_yield, stop)
-}
+// Stream for Claude Messages.
+//
+// Claude Messages 流。
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
-    type Stream =
-        crate::stream::MessageStream<T::Stream, fn(&[u8]) -> (Option<Result<DeltaMessage>>, bool)>;
+    type Stream = futures::stream::BoxStream<'static, Result<DeltaMessage>>;
 
     /// Send a chat request to Claude.
     ///
@@ -222,7 +184,8 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Convert Response back to Core Message
-        let core_message: Message = response.try_into().map_err(AgentError::Mapper)?;
+        let core_message: Message =
+            ClaudeMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }
@@ -246,9 +209,53 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
             .map_err(AgentError::Transport)?;
 
         // Return concrete stream
-        Ok(ChatStream::new(crate::stream::MessageStream::new(
-            stream,
-            process_block,
-        )))
+        let mut mapper = ClaudeStreamMapper::new();
+        let processor = move |block: &[u8]| -> (Option<Result<DeltaMessage>>, bool) {
+            let s = match std::str::from_utf8(block) {
+                Ok(s) => s,
+                Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
+            };
+
+            let mut chunk_to_yield = None;
+            let mut stop = false;
+
+            for line in s.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    let data = data.trim();
+
+                    match serde_json::from_str::<ClaudeStreamEvent>(data) {
+                        Ok(event) => {
+                            if matches!(&event, ClaudeStreamEvent::MessageStop) {
+                                stop = true;
+                            }
+                            if let ClaudeStreamEvent::Error { .. } = &event {
+                                stop = true;
+                            }
+
+                            match mapper.map_response(event) {
+                                Ok(delta) => {
+                                    chunk_to_yield = Some(Ok(delta));
+                                }
+                                Err(e) => {
+                                    if !matches!(
+                                        e,
+                                        oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }
+                                    ) {
+                                        return (Some(Err(AgentError::Mapper(e))), false);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => return (Some(Err(AgentError::Json(e))), false),
+                    }
+                }
+            }
+
+            (chunk_to_yield, stop)
+        };
+
+        let message_stream = crate::stream::MessageStream::new(stream, processor);
+
+        Ok(ChatStream::new(futures::StreamExt::boxed(message_stream)))
     }
 }
