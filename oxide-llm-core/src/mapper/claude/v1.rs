@@ -6,7 +6,7 @@ use oxide_llm_proto::claude::v1::messages::request::Message as ClaudeMessage;
 use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
 use oxide_llm_proto::claude::v1::messages::{
     Content as ClaudeContent, ContentBlock, ImageBlock, ImageSource as ClaudeImageSource,
-    Role as ClaudeRole, TextBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
+    Role as ClaudeRole, TextBlock, ThinkingBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
 };
 
 /// Convert core Message to Claude Message.
@@ -111,6 +111,12 @@ fn convert_content_to_claude_blocks(
                     text,
                     cache_control: None,
                     citations: None,
+                }));
+            }
+            ContentPart::Reasoning { text, signature } => {
+                blocks.push(ContentBlock::Thinking(ThinkingBlock {
+                    thinking: text,
+                    signature: signature.unwrap_or_default(),
                 }));
             }
             _ => {
@@ -336,9 +342,9 @@ impl TryFrom<oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent> f
                 });
 
                 let usage = crate::message::Usage {
-                    input_tokens: 0, // Input tokens were in MessageStart
+                    input_tokens: usage.input_tokens,
                     output_tokens: usage.output_tokens,
-                    total_tokens: usage.output_tokens, // Delta usage usually just output
+                    total_tokens: usage.input_tokens + usage.output_tokens,
                 };
 
                 Ok(DeltaMessage {

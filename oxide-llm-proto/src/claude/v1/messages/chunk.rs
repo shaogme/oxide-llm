@@ -74,6 +74,7 @@ pub struct ChunkMessageDelta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkMessageDeltaUsage {
+    pub input_tokens: u32,
     pub output_tokens: u32,
 }
 

@@ -465,7 +465,13 @@ impl MessageAssembler {
             self.finish_reason = Some(reason);
         }
         if let Some(usage) = delta.usage {
-            self.usage = Some(usage);
+            if let Some(current) = self.usage.as_mut() {
+                current.input_tokens = current.input_tokens.max(usage.input_tokens);
+                current.output_tokens = current.output_tokens.max(usage.output_tokens);
+                current.total_tokens = current.input_tokens + current.output_tokens;
+            } else {
+                self.usage = Some(usage);
+            }
         }
 
         if let Some(content) = delta.content {

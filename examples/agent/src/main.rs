@@ -238,35 +238,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut runner = oxide_llm::runner::RunnerStream::new(&*agent, &registry, &mut state, 5);
 
+    let mut in_reasoning = false;
     while let Some(event_result) = runner.next().await {
         match event_result {
-            Ok(event) => match event {
-                ChatStreamEvent::Start { role, name } => {
-                    println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
+            Ok(event) => {
+                match &event {
+                    ChatStreamEvent::Reasoning { .. } => {
+                        if !in_reasoning {
+                            print!("[Thinking] ");
+                            in_reasoning = true;
+                        }
+                    }
+                    _ => {
+                        if in_reasoning {
+                            println!();
+                            in_reasoning = false;
+                        }
+                    }
                 }
-                ChatStreamEvent::Reasoning { text } => {
-                    print!("[Thinking] {}", text);
-                    std::io::stdout().flush().unwrap();
+
+                match event {
+                    ChatStreamEvent::Start { role, name } => {
+                        println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
+                    }
+                    ChatStreamEvent::Reasoning { text } => {
+                        print!("{}", text);
+                        std::io::stdout().flush().unwrap();
+                    }
+                    ChatStreamEvent::Text { text } => {
+                        print!("{}", text);
+                        std::io::stdout().flush().unwrap();
+                    }
+                    ChatStreamEvent::Finished {
+                        usage,
+                        finish_reason,
+                    } => {
+                        println!();
+                        println!(
+                            "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
+                            usage, finish_reason
+                        );
+                    }
+                    ChatStreamEvent::ToolCallStart { index, name, .. } => {
+                        println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
+                    }
+                    _ => {}
                 }
-                ChatStreamEvent::Text { text } => {
-                    print!("{}", text);
-                    std::io::stdout().flush().unwrap();
-                }
-                ChatStreamEvent::Finished {
-                    usage,
-                    finish_reason,
-                } => {
-                    println!();
-                    println!(
-                        "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
-                        usage, finish_reason
-                    );
-                }
-                ChatStreamEvent::ToolCallStart { index, name, .. } => {
-                    println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
-                }
-                _ => {}
-            },
+            }
             Err(e) => {
                 eprintln!("\nError in stream: {}", e);
             }
