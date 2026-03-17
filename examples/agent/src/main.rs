@@ -1,3 +1,4 @@
+use clap::Parser;
 use futures::StreamExt;
 use oxide_llm::DynChatAgent;
 use oxide_llm::agent::claude::v1::message::{MessagesAgent, MessagesRequiredConfig};
@@ -16,11 +17,47 @@ use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[derive(Deserialize, Clone)]
+struct SecretString(String);
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "********")
+    }
+}
+
+impl std::fmt::Display for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "********")
+    }
+}
+
+impl SecretString {
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Name of the agent to use
+    #[arg(short, long)]
+    name: Option<String>,
+}
 
 #[derive(Deserialize)]
 struct Config {
-    agent: AgentConfig,
+    agents: Vec<NamedAgentConfig>,
+}
+
+#[derive(Deserialize)]
+struct NamedAgentConfig {
+    name: String,
+    #[serde(flatten)]
+    config: AgentConfig,
 }
 
 #[derive(Deserialize)]
@@ -38,7 +75,7 @@ enum AgentConfig {
 struct OpenAIConfig {
     base_url: String,
     endpoint: String,
-    api_key: String,
+    api_key: SecretString,
     model: String,
 }
 
@@ -46,7 +83,7 @@ struct OpenAIConfig {
 struct ClaudeConfig {
     base_url: String,
     endpoint: String,
-    api_key: String,
+    api_key: SecretString,
     model: String,
     max_tokens: u32,
 }
@@ -55,7 +92,7 @@ struct ClaudeConfig {
 struct GeminiConfig {
     base_url: String,
     endpoint: String,
-    api_key: String,
+    api_key: SecretString,
     model: String,
 }
 
@@ -161,40 +198,62 @@ impl Tool for StockTool {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli_args = Args::parse();
+
     // 1. Load configuration
-    let config_path = Path::new("examples/agent/agent.toml");
+    let config_path = if Path::new("agent.toml").exists() {
+        PathBuf::from("agent.toml")
+    } else {
+        PathBuf::from("examples/agent/agent.toml")
+    };
+
     if !config_path.exists() {
-        eprintln!("Config file not found: {:?}", config_path);
-        eprintln!("Please create it based on the example.");
+        eprintln!("Config file not found in current directory or 'examples/agent/'");
         return Ok(());
     }
 
     let config_str = fs::read_to_string(config_path)?;
     let config: Config = toml::from_str(&config_str)?;
 
-    // 2. Build Agent
-    let agent: Box<dyn DynChatAgent> = match config.agent {
+    // 2. Select Agent
+    let named_config = if let Some(name) = &cli_args.name {
+        config
+            .agents
+            .iter()
+            .find(|a| &a.name == name)
+            .ok_or_else(|| format!("Agent with name '{}' not found", name))?
+    } else {
+        config
+            .agents
+            .first()
+            .ok_or_else(|| "No agents configured".to_string())?
+    };
+
+    println!("Using agent: {}", named_config.name);
+
+    // 3. Build Agent
+    let agent: Box<dyn DynChatAgent> = match &named_config.config {
         AgentConfig::OpenAI(c) => {
             println!("Loaded config for OpenAI model: {}", c.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key)
-                .with_base_url(c.base_url);
+                .with_authorization(c.api_key.expose().to_string())
+                .with_base_url(c.base_url.clone());
 
             let agent_config = ChatCompletionsRequiredConfig {
-                model: c.model,
-                endpoint: c.endpoint,
+                model: c.model.clone(),
+                endpoint: c.endpoint.clone(),
             };
             Box::new(ChatCompletionsAgent::new(transport, agent_config))
         }
         AgentConfig::Claude(c) => {
             println!("Loaded config for Claude model: {}", c.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key)
-                .with_base_url(c.base_url);
+                .with_authorization(c.api_key.expose().to_string())
+                .with_base_url(c.base_url.clone());
 
             let agent_config = MessagesRequiredConfig {
-                model: c.model,
-                endpoint: c.endpoint,
+                model: c.model.clone(),
+                endpoint: c.endpoint.clone(),
                 max_tokens: c.max_tokens,
             };
             Box::new(MessagesAgent::new(transport, agent_config))
@@ -202,12 +261,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AgentConfig::Gemini(c) => {
             println!("Loaded config for Gemini model: {}", c.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key)
-                .with_base_url(c.base_url);
+                .with_authorization(c.api_key.expose().to_string())
+                .with_base_url(c.base_url.clone());
 
             let agent_config = GenerateContentRequiredConfig {
-                model: c.model,
-                endpoint: c.endpoint,
+                model: c.model.clone(),
+                endpoint: c.endpoint.clone(),
             };
             Box::new(GenerateContentAgent::new(transport, agent_config))
         }
