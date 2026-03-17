@@ -17,7 +17,7 @@ model = "gpt-3.5-turbo"
 # Example for Gemini
 # [agent]
 # type = "gemini"
-# base_url = "https://api.anthropic.com/v1beta"
+# base_url = "https://generativelanguage.googleapis.com/v1beta"
 # endpoint = "models/gemini-3-flash:streamGenerateContent"
 # api_key = "AIza..."
 # model = "gemini-3-flash"

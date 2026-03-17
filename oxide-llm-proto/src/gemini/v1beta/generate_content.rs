@@ -756,6 +756,7 @@ pub struct UsageMetadata {
     /// Number of tokens in the prompt.
     ///
     /// 提示中的令牌数。
+    #[serde(default)]
     pub prompt_token_count: i32,
     /// Number of tokens in the cached part of the prompt (the cached content).
     ///
@@ -777,9 +778,8 @@ pub struct UsageMetadata {
     /// 仅输出。思考模型的思考令牌数。
     #[serde(default)]
     pub thoughts_token_count: i32,
-    /// Total token count for the generation request (prompt + response candidates).
-    ///
     /// 生成请求（提示 + 响应候选项）的总令牌数。
+    #[serde(default)]
     pub total_token_count: i32,
     /// Output only. List of modalities that were processed in the request input.
     ///
