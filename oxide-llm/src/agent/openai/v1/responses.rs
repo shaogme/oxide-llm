@@ -63,18 +63,18 @@ impl<T: Transport> ResponsesAgent<T> {
         let tools = if tools.is_empty() {
             None
         } else {
-            Some(tools.into_iter().map(|t| t.to_openai()).collect())
+            Some(tools.into_iter().map(|t| t.to_openai_response()).collect())
         };
 
         let mut input_items: Vec<InputItem> = Vec::new();
 
         for msg in messages {
             input_items
-                .push(OpenAIResponseMapper::from_core_message(msg).map_err(AgentError::Mapper)?);
+                .extend(OpenAIResponseMapper::from_core_message(msg).map_err(AgentError::Mapper)?);
         }
 
         let input_param = InputParam::List(input_items);
-        let tc = tool_choice.map(|tc| tc.to_openai());
+        let tc = tool_choice.map(|tc| tc.to_openai_response_choice());
 
         let mut config = self.config.clone();
         if let Some(prompt) = system_prompt

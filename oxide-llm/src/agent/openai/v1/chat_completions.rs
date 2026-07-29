@@ -71,7 +71,12 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         let tools = if tools.is_empty() {
             None
         } else {
-            Some(tools.into_iter().map(|t| t.to_openai()).collect())
+            Some(
+                tools
+                    .into_iter()
+                    .map(|t| t.to_openai_chat_completions())
+                    .collect(),
+            )
         };
 
         // 1. Convert Core Messages to OpenAI Messages
@@ -90,7 +95,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             messages
                 .into_iter()
                 .try_fold(initial_messages, |mut acc, msg| {
-                    acc.push(OpenAIChatCompletionMapper::from_core_message(msg)?);
+                    acc.extend(OpenAIChatCompletionMapper::from_core_message(msg)?);
                     Ok(acc)
                 })
                 .map_err(AgentError::Mapper)?
@@ -98,7 +103,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
-        let tc = tool_choice.map(|tc| tc.to_openai());
+        let tc = tool_choice.map(|tc| tc.to_openai_chat_completions());
 
         let mut request = self
             .config

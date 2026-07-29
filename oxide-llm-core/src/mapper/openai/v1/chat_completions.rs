@@ -7,7 +7,7 @@ use oxide_llm_proto::openai::v1::chat_completions::request::{
     ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio, UserContent,
 };
 use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
-use oxide_llm_proto::openai::v1::{ToolCall as OpenAIToolCall, ToolCallFunction};
+use oxide_llm_proto::openai::v1::chat_completions::{ToolCall as OpenAIToolCall, ToolCallFunction};
 
 /// Mapper for OpenAI Chat Completions protocol.
 ///
@@ -18,16 +18,16 @@ impl OpenAIChatCompletionMapper {
     /// Convert core Message to OpenAI ChatCompletionMessage.
     ///
     /// 将核心 Message 转换为 OpenAI ChatCompletionMessage。
-    pub fn from_core_message(msg: Message) -> Result<ChatCompletionMessage, MapperError> {
+    pub fn from_core_message(msg: Message) -> Result<Vec<ChatCompletionMessage>, MapperError> {
         match msg.role {
             Role::User => {
                 if msg.content.len() == 1
                     && let ContentPart::Text { text, signature: _ } = &msg.content[0]
                 {
-                    return Ok(ChatCompletionMessage::User {
+                    return Ok(vec![ChatCompletionMessage::User {
                         content: UserContent::Text(text.clone()),
                         name: msg.name,
-                    });
+                    }]);
                 }
 
                 let mut parts = Vec::new();
@@ -60,10 +60,10 @@ impl OpenAIChatCompletionMapper {
                     }
                 }
 
-                Ok(ChatCompletionMessage::User {
+                Ok(vec![ChatCompletionMessage::User {
                     content: UserContent::Parts(parts),
                     name: msg.name,
-                })
+                }])
             }
             Role::Assistant => {
                 let mut content: Option<String> = None;
@@ -95,12 +95,21 @@ impl OpenAIChatCompletionMapper {
                             None => content = Some(text),
                         },
                         ContentPart::ToolCall(tc) => {
+                            if tc.name.is_empty() {
+                                return Err(MapperError::MissingField {
+                                    field: "tool_call.function.name".to_string(),
+                                });
+                            }
+                            let arguments = match &tc.arguments {
+                                serde_json::Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            };
                             tool_calls.push(OpenAIToolCall {
                                 id: tc.id,
                                 r#type: "function".into(),
                                 function: ToolCallFunction {
                                     name: tc.name,
-                                    arguments: tc.arguments.to_string().into(),
+                                    arguments: arguments.into(),
                                 },
                             });
                         }
@@ -122,39 +131,46 @@ impl OpenAIChatCompletionMapper {
                     Some(tool_calls)
                 };
 
-                Ok(ChatCompletionMessage::Assistant {
+                let content = content.and_then(|c| if c.is_empty() { None } else { Some(c) });
+
+                Ok(vec![ChatCompletionMessage::Assistant {
                     content: content.map(Into::into),
                     name: msg.name,
                     tool_calls,
                     refusal,
-                })
+                }])
             }
             Role::Tool => {
-                if msg.content.len() != 1 {
-                    return Err(MapperError::InvalidOpenAIToolMessage);
+                if msg.content.is_empty() {
+                    return Err(MapperError::MissingToolResult);
                 }
 
-                match &msg.content[0] {
-                    ContentPart::ToolResult(res) => {
-                        let content_str = if res.content.len() == 1 {
-                            match &res.content[0] {
-                                ContentPart::Text { text, signature: _ } => text.clone(),
-                                ContentPart::Json(value) => {
-                                    serde_json::to_string(value).map_err(MapperError::JsonError)?
+                let mut tool_messages = Vec::with_capacity(msg.content.len());
+                for part in msg.content {
+                    match part {
+                        ContentPart::ToolResult(res) => {
+                            let content_str = if res.content.len() == 1 {
+                                match &res.content[0] {
+                                    ContentPart::Text { text, signature: _ } => text.clone(),
+                                    ContentPart::Json(value) => {
+                                        serde_json::to_string(value).map_err(MapperError::JsonError)?
+                                    }
+                                    _ => serde_json::to_string(&res.content)?,
                                 }
-                                _ => serde_json::to_string(&res.content)?,
-                            }
-                        } else {
-                            serde_json::to_string(&res.content)?
-                        };
+                            } else {
+                                serde_json::to_string(&res.content)?
+                            };
 
-                        Ok(ChatCompletionMessage::Tool {
-                            content: content_str,
-                            tool_call_id: res.tool_call_id.clone(),
-                        })
+                            tool_messages.push(ChatCompletionMessage::Tool {
+                                content: content_str,
+                                tool_call_id: res.tool_call_id,
+                            });
+                        }
+                        _ => return Err(MapperError::MissingToolResult),
                     }
-                    _ => Err(MapperError::MissingToolResult),
                 }
+
+                Ok(tool_messages)
             }
         }
     }
@@ -208,6 +224,11 @@ impl OpenAIChatCompletionMapper {
         // 2. Tool Calls
         if let Some(tool_calls) = msg.tool_calls {
             for tc in tool_calls {
+                if tc.function.name.is_empty() {
+                    return Err(MapperError::MissingField {
+                        field: "tool_call.function.name".to_string(),
+                    });
+                }
                 content_parts.push(ContentPart::ToolCall(ToolCall {
                     id: tc.id,
                     name: tc.function.name,
@@ -349,3 +370,109 @@ impl Default for OpenAIStreamMapper {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::ToolResult;
+
+    #[test]
+    fn test_openai_chat_completion_mapper_multiple_tool_results() {
+        let msg = Message {
+            role: Role::Tool,
+            content: vec![
+                ContentPart::ToolResult(ToolResult {
+                    tool_call_id: "call_1".into(),
+                    name: "get_weather".into(),
+                    content: vec![ContentPart::Text {
+                        text: "Sunny".into(),
+                        signature: None,
+                    }],
+                    is_error: false,
+                    signature: None,
+                }),
+                ContentPart::ToolResult(ToolResult {
+                    tool_call_id: "call_2".into(),
+                    name: "get_stock_price".into(),
+                    content: vec![ContentPart::Text {
+                        text: "$240.00".into(),
+                        signature: None,
+                    }],
+                    is_error: false,
+                    signature: None,
+                }),
+            ],
+            name: None,
+        };
+
+        let mapped = OpenAIChatCompletionMapper::from_core_message(msg).unwrap();
+        assert_eq!(mapped.len(), 2);
+
+        if let ChatCompletionMessage::Tool {
+            content,
+            tool_call_id,
+        } = &mapped[0]
+        {
+            assert_eq!(content, "Sunny");
+            assert_eq!(tool_call_id, "call_1");
+        } else {
+            panic!("Expected ChatCompletionMessage::Tool");
+        }
+
+        if let ChatCompletionMessage::Tool {
+            content,
+            tool_call_id,
+        } = &mapped[1]
+        {
+            assert_eq!(content, "$240.00");
+            assert_eq!(tool_call_id, "call_2");
+        } else {
+            panic!("Expected ChatCompletionMessage::Tool");
+        }
+    }
+
+    #[test]
+    fn test_openai_chat_completion_mapper_assistant_tool_call_arguments() {
+        let raw_args = r#"{"location":"Tokyo"}"#;
+        let msg = Message {
+            role: Role::Assistant,
+            content: vec![ContentPart::ToolCall(ToolCall {
+                id: "call_123".into(),
+                name: "get_weather".into(),
+                arguments: serde_json::Value::String(raw_args.to_string()),
+                signature: None,
+            })],
+            name: None,
+        };
+
+        let mapped = OpenAIChatCompletionMapper::from_core_message(msg).unwrap();
+        assert_eq!(mapped.len(), 1);
+
+        if let ChatCompletionMessage::Assistant { tool_calls, .. } = &mapped[0] {
+            let calls = tool_calls.as_ref().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].function.arguments.as_str(), raw_args);
+        } else {
+            panic!("Expected ChatCompletionMessage::Assistant");
+        }
+    }
+
+    #[test]
+    fn test_openai_chat_completion_mapper_empty_tool_name_error() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: vec![ContentPart::ToolCall(ToolCall {
+                id: "call_123".into(),
+                name: "".into(),
+                arguments: serde_json::Value::Null,
+                signature: None,
+            })],
+            name: None,
+        };
+
+        let err = OpenAIChatCompletionMapper::from_core_message(msg).unwrap_err();
+        assert!(matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name"));
+    }
+}
+
+

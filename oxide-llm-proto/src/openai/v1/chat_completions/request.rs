@@ -1,4 +1,4 @@
-use crate::openai::v1::{FunctionDefinition, Tool, ToolCall, ToolChoice};
+use super::{FunctionDefinition, Tool, ToolCall, ToolChoice};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

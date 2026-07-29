@@ -349,7 +349,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     ChatStreamEvent::ToolCallStart { index, name, .. } => {
                         println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
                     }
-                    _ => {}
+                    ChatStreamEvent::ToolCallFinished(tc) => {
+                        println!("[Tool Call Finished] Id: {}, Name: {}, Args: {}", tc.id, tc.name, tc.arguments);
+                    }
                 }
             }
             Err(e) => {

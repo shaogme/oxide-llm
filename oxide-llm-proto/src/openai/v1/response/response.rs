@@ -1,5 +1,7 @@
-use super::{ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Truncation};
-use crate::openai::v1::{LogProbs, Tool, ToolChoice};
+pub use super::{
+    ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Tool, ToolChoice, Truncation,
+};
+use crate::openai::v1::LogProbs;
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,6 +18,7 @@ pub struct Response {
     pub error: Option<ResponseError>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub incomplete_details: Option<IncompleteDetails>,
+    #[serde(default)]
     pub output: Vec<OutputItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
@@ -98,26 +101,42 @@ pub enum OutputItem {
     WebSearchCall(WebSearchToolCall),
     ComputerCall(ComputerToolCall),
     Reasoning(ReasoningItem),
-    CompactionBody(serde_json::Value), // Placeholder
+    CompactionBody(GenericToolCallItem),
     ImageGenCall(ImageGenToolCall),
     CodeInterpreterCall(CodeInterpreterToolCall),
-    LocalShellCall(serde_json::Value),          // Placeholder
-    FunctionShellCall(serde_json::Value),       // Placeholder
-    FunctionShellCallOutput(serde_json::Value), // Placeholder
-    ApplyPatchCall(serde_json::Value),          // Placeholder
-    ApplyPatchCallOutput(serde_json::Value),    // Placeholder
-    McpToolCall(serde_json::Value),             // Placeholder
-    McpListTools(serde_json::Value),            // Placeholder
-    McpApprovalRequest(serde_json::Value),      // Placeholder
-    CustomToolCall(serde_json::Value),          // Placeholder
+    LocalShellCall(GenericToolCallItem),
+    FunctionShellCall(GenericToolCallItem),
+    FunctionShellCallOutput(GenericToolCallItem),
+    ApplyPatchCall(GenericToolCallItem),
+    ApplyPatchCallOutput(GenericToolCallItem),
+    McpToolCall(GenericToolCallItem),
+    McpListTools(GenericToolCallItem),
+    McpApprovalRequest(GenericToolCallItem),
+    CustomToolCall(GenericToolCallItem),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenericToolCallItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputMessage {
-    pub id: String,
-    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<OutputMessageContent>,
-    pub status: ResponseStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,16 +144,26 @@ pub struct OutputMessage {
 pub enum OutputMessageContent {
     OutputText(OutputTextContent),
     Refusal(RefusalContent),
-    // Add other content types if any (e.g. image in output?)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputTextContent {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Vec<serde_json::Value>>, // Placeholder for annotations
+    pub annotations: Option<Vec<AnnotationItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logprobs: Option<Vec<LogProbs>>, // Using chat_completions LogProbs if compatible or simple vec
+    pub logprobs: Option<Vec<LogProbs>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationItem {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,82 +172,123 @@ pub struct RefusalContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_tokens: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseUsage {
     pub total_tokens: u32,
     pub input_tokens: u32,
     pub output_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_tokens_details: Option<serde_json::Value>,
+    pub input_token_details: Option<TokenDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_tokens_details: Option<serde_json::Value>,
+    pub output_token_details: Option<TokenDetails>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
-    // Add specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queries: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<serde_json::Value>>,
+    pub results: Option<Vec<WebSearchResult>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub arguments: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileSearchToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
-    // Add specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queries: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
-    // Add specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningItem {
-    pub id: String,
-    pub status: ResponseStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<Vec<serde_json::Value>>,
+    pub summary: Option<Vec<ReasoningContentPart>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<Vec<serde_json::Value>>,
+    pub content: Option<Vec<ReasoningContentPart>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReasoningContentPart {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageGenToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
-    // Add specific fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeInterpreterToolCall {
-    pub id: String,
-    pub status: ResponseStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ResponseStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub outputs: Option<Vec<serde_json::Value>>,
+    pub outputs: Option<Vec<ReasoningContentPart>>,
 }

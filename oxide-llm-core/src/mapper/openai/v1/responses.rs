@@ -18,7 +18,7 @@ impl OpenAIResponseMapper {
     /// 将核心 Message 转换为 OpenAI Response InputItem。
     pub fn from_core_message(
         msg: Message,
-    ) -> Result<oxide_llm_proto::openai::v1::response::request::InputItem, MapperError> {
+    ) -> Result<Vec<oxide_llm_proto::openai::v1::response::request::InputItem>, MapperError> {
         use oxide_llm_proto::openai::v1::response::request::{
             InputAudioContent, InputContentPart, InputItem, InputMessage, InputMessageContent,
         };
@@ -29,15 +29,34 @@ impl OpenAIResponseMapper {
             Role::Tool => "tool",
         };
 
-        if msg.content.len() == 1
-            && let ContentPart::Text { text, signature: _ } = &msg.content[0]
-        {
-            return Ok(InputItem::Message(InputMessage {
-                role: role_str.into(),
-                content: InputMessageContent::String(text.clone()),
-                name: msg.name,
-                status: None,
-            }));
+        let mut items = Vec::new();
+
+        if msg.role == Role::Tool {
+            for part in msg.content {
+                match part {
+                    ContentPart::ToolResult(res) => {
+                        let content_str = if res.content.len() == 1 {
+                            match &res.content[0] {
+                                ContentPart::Text { text, signature: _ } => text.clone(),
+                                ContentPart::Json(value) => {
+                                    serde_json::to_string(value).map_err(MapperError::JsonError)?
+                                }
+                                _ => serde_json::to_string(&res.content)?,
+                            }
+                        } else {
+                            serde_json::to_string(&res.content)?
+                        };
+
+                        items.push(InputItem::FunctionCallOutput {
+                            call_id: res.tool_call_id,
+                            output: content_str,
+                            id: None,
+                        });
+                    }
+                    _ => return Err(MapperError::MissingToolResult),
+                }
+            }
+            return Ok(items);
         }
 
         let mut parts = Vec::new();
@@ -72,22 +91,21 @@ impl OpenAIResponseMapper {
                     parts.push(InputContentPart::InputText { text });
                 }
                 ContentPart::ToolCall(tc) => {
-                    let text = serde_json::to_string(&tc).map_err(MapperError::JsonError)?;
-                    parts.push(InputContentPart::InputText { text });
-                }
-                ContentPart::ToolResult(res) => {
-                    let content_str = if res.content.len() == 1 {
-                        match &res.content[0] {
-                            ContentPart::Text { text, signature: _ } => text.clone(),
-                            ContentPart::Json(value) => {
-                                serde_json::to_string(value).map_err(MapperError::JsonError)?
-                            }
-                            _ => serde_json::to_string(&res.content)?,
-                        }
-                    } else {
-                        serde_json::to_string(&res.content)?
+                    if tc.name.is_empty() {
+                        return Err(MapperError::MissingField {
+                            field: "tool_call.function.name".to_string(),
+                        });
+                    }
+                    let arguments = match &tc.arguments {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
                     };
-                    parts.push(InputContentPart::InputText { text: content_str });
+                    items.push(InputItem::FunctionCall {
+                        call_id: tc.id,
+                        name: tc.name,
+                        arguments,
+                        id: None,
+                    });
                 }
                 ContentPart::Refusal { refusal } => {
                     parts.push(InputContentPart::InputText {
@@ -97,15 +115,31 @@ impl OpenAIResponseMapper {
                 ContentPart::Reasoning { text, signature: _ } => {
                     parts.push(InputContentPart::InputText { text });
                 }
+                _ => {}
             }
         }
 
-        Ok(InputItem::Message(InputMessage {
-            role: role_str.into(),
-            content: InputMessageContent::Parts(parts),
-            name: msg.name,
-            status: None,
-        }))
+        if !parts.is_empty() {
+            let content = if parts.len() == 1
+                && let InputContentPart::InputText { text } = &parts[0]
+            {
+                InputMessageContent::String(text.clone())
+            } else {
+                InputMessageContent::Parts(parts)
+            };
+
+            items.insert(
+                0,
+                InputItem::Message(InputMessage {
+                    role: role_str.into(),
+                    content,
+                    name: msg.name,
+                    status: None,
+                }),
+            );
+        }
+
+        Ok(items)
     }
 
     /// Convert OpenAI Response object to core Message.
@@ -138,10 +172,15 @@ impl OpenAIResponseMapper {
                     }
                 }
                 OutputItem::FunctionCall(fc) => {
+                    if fc.name.is_empty() {
+                        return Err(MapperError::MissingField {
+                            field: "tool_call.function.name".to_string(),
+                        });
+                    }
                     let arguments =
                         serde_json::from_str(&fc.arguments).map_err(MapperError::JsonError)?;
                     content_parts.push(ContentPart::ToolCall(ToolCall {
-                        id: fc.id.into(),
+                        id: fc.call_id.or(fc.id).unwrap_or_default().into(),
                         name: fc.name.into(),
                         arguments,
                         signature: None,
@@ -151,7 +190,7 @@ impl OpenAIResponseMapper {
                     if let Some(summary_vals) = reasoning.summary {
                         let text: String = summary_vals
                             .iter()
-                            .filter_map(|v| v.as_str())
+                            .filter_map(|v| v.text.as_deref())
                             .collect::<Vec<_>>()
                             .join("\n");
                         if !text.is_empty() {
@@ -267,7 +306,7 @@ impl OpenAIResponseStreamMapper {
                 role: None,
                 content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
                     index: output_index,
-                    id: Some(fc.id.into()),
+                    id: fc.call_id.or(fc.id).map(Into::into),
                     r#type: Some("function".into()),
                     function: Some(DeltaFunction {
                         name: Some(fc.name.into()),
@@ -305,12 +344,20 @@ impl OpenAIResponseStreamMapper {
                     output_tokens: u.output_tokens,
                     total_tokens: u.total_tokens,
                 });
-                let finish_reason = match response.status {
-                    ResponseStatus::Completed => Some(FinishReason::Stop),
-                    ResponseStatus::Incomplete => Some(FinishReason::Length),
-                    ResponseStatus::Failed => Some(FinishReason::Other("failed".into())),
-                    ResponseStatus::Cancelled => Some(FinishReason::Other("cancelled".into())),
-                    _ => None,
+                let has_function_call = response
+                    .output
+                    .iter()
+                    .any(|item| matches!(item, OutputItem::FunctionCall(_)));
+                let finish_reason = if has_function_call {
+                    Some(FinishReason::ToolCalls)
+                } else {
+                    match response.status {
+                        ResponseStatus::Completed => Some(FinishReason::Stop),
+                        ResponseStatus::Incomplete => Some(FinishReason::Length),
+                        ResponseStatus::Failed => Some(FinishReason::Other("failed".into())),
+                        ResponseStatus::Cancelled => Some(FinishReason::Other("cancelled".into())),
+                        _ => None,
+                    }
                 };
                 Ok(DeltaMessage {
                     role: None,
@@ -357,14 +404,14 @@ mod tests {
             error: None,
             incomplete_details: None,
             output: vec![OutputItem::Message(OutputMessage {
-                id: "msg_123".into(),
-                role: "assistant".into(),
+                id: Some("msg_123".into()),
+                role: Some("assistant".into()),
                 content: vec![OutputMessageContent::OutputText(OutputTextContent {
                     text: "Hello world".to_string(),
                     annotations: None,
                     logprobs: None,
                 })],
-                status: ResponseStatus::Completed,
+                status: Some(ResponseStatus::Completed),
             })],
             instructions: None,
             metadata: None,
@@ -419,6 +466,85 @@ mod tests {
             assert_eq!(text, "Hello");
         } else {
             panic!("Expected text delta part");
+        }
+    }
+
+    #[test]
+    fn test_openai_response_mapper_empty_tool_name_error() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: vec![ContentPart::ToolCall(ToolCall {
+                id: "call_123".into(),
+                name: "".into(),
+                arguments: serde_json::Value::Null,
+                signature: None,
+            })],
+            name: None,
+        };
+
+        let err = OpenAIResponseMapper::from_core_message(msg).unwrap_err();
+        assert!(matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name"));
+    }
+
+    #[test]
+    fn test_openai_response_mapper_tool_call_and_result_items() {
+        use oxide_llm_proto::openai::v1::response::request::InputItem;
+
+        let assistant_msg = Message {
+            role: Role::Assistant,
+            content: vec![ContentPart::ToolCall(ToolCall {
+                id: "call_101".into(),
+                name: "get_weather".into(),
+                arguments: serde_json::json!({"location":"Tokyo"}),
+                signature: None,
+            })],
+            name: None,
+        };
+
+        let items = OpenAIResponseMapper::from_core_message(assistant_msg).unwrap();
+        assert_eq!(items.len(), 1);
+        if let InputItem::FunctionCall {
+            call_id,
+            name,
+            arguments,
+            id: _,
+        } = &items[0]
+        {
+            assert_eq!(call_id, "call_101");
+            assert_eq!(name, "get_weather");
+            assert_eq!(arguments, r#"{"location":"Tokyo"}"#);
+        } else {
+            panic!("Expected InputItem::FunctionCall");
+        }
+
+        let tool_msg = Message {
+            role: Role::Tool,
+            content: vec![crate::message::ContentPart::ToolResult(
+                crate::tool::ToolResult {
+                    tool_call_id: "call_101".into(),
+                    name: "get_weather".into(),
+                    content: vec![ContentPart::Text {
+                        text: "Sunny".into(),
+                        signature: None,
+                    }],
+                    is_error: false,
+                    signature: None,
+                },
+            )],
+            name: None,
+        };
+
+        let result_items = OpenAIResponseMapper::from_core_message(tool_msg).unwrap();
+        assert_eq!(result_items.len(), 1);
+        if let InputItem::FunctionCallOutput {
+            call_id,
+            output,
+            id: _,
+        } = &result_items[0] {
+            assert_eq!(call_id, "call_101");
+            assert_eq!(output, "Sunny");
+        } else {
+            panic!("Expected InputItem::FunctionCallOutput");
         }
     }
 }

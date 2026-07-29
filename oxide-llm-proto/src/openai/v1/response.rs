@@ -3,6 +3,7 @@ pub mod request;
 #[allow(clippy::module_inception)]
 pub mod response;
 
+pub use crate::openai::v1::{FunctionDefinition, ToolChoiceFunction};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -31,6 +32,7 @@ pub enum ReasoningEffort {
     Medium,
     High,
     Xhigh,
+    Max,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,4 +72,32 @@ pub struct Prompt {
 pub enum Truncation {
     Auto,
     Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tool {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<FunctionDefinition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    Mode(String),
+    Function {
+        r#type: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        function: Option<ToolChoiceFunction>,
+    },
 }

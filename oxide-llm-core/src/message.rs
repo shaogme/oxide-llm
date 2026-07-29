@@ -587,14 +587,20 @@ impl MessageAssembler {
 
                         // 3. Update fields
                         if let Some(tty) = tool_call.r#type {
-                            entry.r#type = Some(tty);
+                            if !tty.is_empty() {
+                                entry.r#type = Some(tty);
+                            }
                         }
                         if let Some(sig) = tool_call.signature {
-                            entry.signature = Some(sig);
+                            if !sig.is_empty() {
+                                entry.signature = Some(sig);
+                            }
                         }
                         if let Some(func) = tool_call.function {
                             if let Some(fname) = func.name {
-                                entry.name = Some(fname);
+                                if !fname.is_empty() {
+                                    entry.name = Some(fname);
+                                }
                             }
                             if let Some(fargs) = func.arguments {
                                 entry.arguments.push_str(&fargs);
@@ -629,8 +635,12 @@ impl MessageAssembler {
         // Add tool calls
         for (index, tool_id) in self.tool_call_order {
             if let Some(tool_call) = self.tool_calls.get(&tool_id) {
-                let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-                    .unwrap_or(serde_json::Value::String(tool_call.arguments.to_string()));
+                let args_value: serde_json::Value = if tool_call.arguments.trim().is_empty() {
+                    serde_json::Value::Object(serde_json::Map::new())
+                } else {
+                    serde_json::from_str(&tool_call.arguments)
+                        .unwrap_or_else(|_| serde_json::Value::String(tool_call.arguments.clone()))
+                };
 
                 all_parts.push((
                     index,
@@ -685,8 +695,12 @@ impl MessageAssembler {
     /// 根据 ID 获取特定的工具调用。
     pub fn get_tool_call_by_id(&self, tool_id: &str) -> Option<crate::tool::ToolCall> {
         let tool_call = self.tool_calls.get(tool_id)?;
-        let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-            .unwrap_or(serde_json::Value::String(tool_call.arguments.to_string()));
+        let args_value: serde_json::Value = if tool_call.arguments.trim().is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(&tool_call.arguments)
+                .unwrap_or_else(|_| serde_json::Value::String(tool_call.arguments.clone()))
+        };
 
         Some(crate::tool::ToolCall {
             id: tool_call.id.clone(),

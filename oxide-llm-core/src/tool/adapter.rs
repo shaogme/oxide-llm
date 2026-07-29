@@ -13,9 +13,13 @@ use oxide_llm_proto::{
         FunctionDeclaration as GeminiFunctionDeclaration, ToolConfig as GeminiToolConfig,
     },
     openai::v1::{
-        FunctionDefinition as OpenAIFunctionDefinition, Tool as OpenAITool,
-        ToolChoice as OpenAIToolChoice, ToolChoiceFunction as OpenAIToolChoiceFunction,
-        ToolChoiceNamed as OpenAIToolChoiceNamed,
+        FunctionDefinition as OpenAIFunctionDefinition,
+        ToolChoiceFunction as OpenAIChatCompletionsToolChoiceFunction,
+        chat_completions::{
+            Tool as OpenAIChatCompletionsTool, ToolChoice as OpenAIChatCompletionsToolChoice,
+            ToolChoiceNamed as OpenAIChatCompletionsToolChoiceNamed,
+        },
+        response::{Tool as OpenAIResponseTool, ToolChoice as OpenAIResponseToolChoice},
     },
 };
 
@@ -30,7 +34,12 @@ pub trait ToolAdapter {
     /// Convert to OpenAI Tool.
     ///
     /// 转换为 OpenAI Tool。
-    fn to_openai(&self) -> OpenAITool;
+    fn to_openai_chat_completions(&self) -> OpenAIChatCompletionsTool;
+
+    /// Convert to OpenAI Response Tool.
+    ///
+    /// 转换为 OpenAI Response Tool。
+    fn to_openai_response(&self) -> OpenAIResponseTool;
 
     /// Convert to Gemini FunctionDeclaration.
     ///
@@ -47,7 +56,8 @@ pub trait ToolAdapter {
 ///
 /// `ToolChoice` 的扩展特性，支持协议转换。
 pub trait ToolChoiceAdapter {
-    fn to_openai(&self) -> OpenAIToolChoice;
+    fn to_openai_chat_completions(&self) -> OpenAIChatCompletionsToolChoice;
+    fn to_openai_response_choice(&self) -> OpenAIResponseToolChoice;
     fn to_gemini(&self) -> Option<GeminiToolConfig>;
     fn to_claude(&self) -> ClaudeToolChoice;
 }
@@ -57,14 +67,14 @@ pub trait ToolChoiceAdapter {
 // =========================================================================
 
 impl ToolAdapter for ToolDefinition {
-    fn to_openai(&self) -> OpenAITool {
+    fn to_openai_chat_completions(&self) -> OpenAIChatCompletionsTool {
         let parameters = self
             .function
             .parameters
             .as_ref()
             .and_then(|p| serde_json::to_value(p).ok());
 
-        OpenAITool {
+        OpenAIChatCompletionsTool {
             r#type: "function".into(),
             function: OpenAIFunctionDefinition {
                 name: self.function.name.clone(),
@@ -72,6 +82,23 @@ impl ToolAdapter for ToolDefinition {
                 parameters,
                 strict: self.function.strict,
             },
+        }
+    }
+
+    fn to_openai_response(&self) -> OpenAIResponseTool {
+        let parameters = self
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok());
+
+        OpenAIResponseTool {
+            r#type: "function".into(),
+            name: Some(self.function.name.to_string()),
+            description: self.function.description.as_ref().map(|s| s.to_string()),
+            parameters,
+            function: None,
+            strict: self.function.strict,
         }
     }
 
@@ -109,15 +136,30 @@ impl ToolAdapter for ToolDefinition {
 }
 
 impl ToolChoiceAdapter for ToolChoice {
-    fn to_openai(&self) -> OpenAIToolChoice {
+    fn to_openai_chat_completions(&self) -> OpenAIChatCompletionsToolChoice {
         match self {
-            ToolChoice::None => OpenAIToolChoice::String("none".into()),
-            ToolChoice::Auto => OpenAIToolChoice::String("auto".into()),
-            ToolChoice::Required => OpenAIToolChoice::String("required".into()),
-            ToolChoice::Function { name } => OpenAIToolChoice::Named(OpenAIToolChoiceNamed {
+            ToolChoice::None => OpenAIChatCompletionsToolChoice::String("none".into()),
+            ToolChoice::Auto => OpenAIChatCompletionsToolChoice::String("auto".into()),
+            ToolChoice::Required => OpenAIChatCompletionsToolChoice::String("required".into()),
+            ToolChoice::Function { name } => {
+                OpenAIChatCompletionsToolChoice::Named(OpenAIChatCompletionsToolChoiceNamed {
+                    r#type: "function".into(),
+                    function: OpenAIChatCompletionsToolChoiceFunction { name: name.clone() },
+                })
+            }
+        }
+    }
+
+    fn to_openai_response_choice(&self) -> OpenAIResponseToolChoice {
+        match self {
+            ToolChoice::None => OpenAIResponseToolChoice::Mode("none".into()),
+            ToolChoice::Auto => OpenAIResponseToolChoice::Mode("auto".into()),
+            ToolChoice::Required => OpenAIResponseToolChoice::Mode("required".into()),
+            ToolChoice::Function { name } => OpenAIResponseToolChoice::Function {
                 r#type: "function".into(),
-                function: OpenAIToolChoiceFunction { name: name.clone() },
-            }),
+                name: Some(name.to_string()),
+                function: None,
+            },
         }
     }
 
@@ -164,10 +206,10 @@ impl ToolChoiceAdapter for ToolChoice {
 
 // --- OpenAI -> Core ---
 
-impl TryFrom<OpenAITool> for ToolDefinition {
+impl TryFrom<OpenAIChatCompletionsTool> for ToolDefinition {
     type Error = String;
 
-    fn try_from(value: OpenAITool) -> Result<Self, Self::Error> {
+    fn try_from(value: OpenAIChatCompletionsTool) -> Result<Self, Self::Error> {
         if value.r#type != "function" {
             return Err(format!("Unsupported OpenAI tool type: {}", value.r#type));
         }
@@ -187,15 +229,15 @@ impl TryFrom<OpenAITool> for ToolDefinition {
     }
 }
 
-impl From<OpenAIToolChoice> for ToolChoice {
-    fn from(value: OpenAIToolChoice) -> Self {
+impl From<OpenAIChatCompletionsToolChoice> for ToolChoice {
+    fn from(value: OpenAIChatCompletionsToolChoice) -> Self {
         match value {
-            OpenAIToolChoice::String(s) => match s.as_ref() {
+            OpenAIChatCompletionsToolChoice::String(s) => match s.as_ref() {
                 "none" => ToolChoice::None,
                 "required" => ToolChoice::Required,
                 _ => ToolChoice::Auto, // Default to Auto for "auto" or unknowns
             },
-            OpenAIToolChoice::Named(named) => ToolChoice::Function {
+            OpenAIChatCompletionsToolChoice::Named(named) => ToolChoice::Function {
                 name: named.function.name,
             },
         }

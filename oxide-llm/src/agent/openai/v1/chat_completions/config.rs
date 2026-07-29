@@ -4,7 +4,7 @@ use oxide_llm_proto::openai::v1::chat_completions::request::{
     AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
     Stop, StreamOptions, WebSearchOptions,
 };
-use oxide_llm_proto::openai::v1::{FunctionDefinition, Tool, ToolChoice};
+use oxide_llm_proto::openai::v1::chat_completions::{FunctionDefinition, Tool, ToolChoice};
 use ref_str::StaticRefStr;
 
 /// Configuration for OpenAI Chat Completions Agent (Required).

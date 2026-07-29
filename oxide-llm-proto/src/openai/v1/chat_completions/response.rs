@@ -1,4 +1,5 @@
-use crate::openai::v1::{LogProbs, ToolCall};
+use crate::openai::v1::LogProbs;
+use super::ToolCall;
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 

@@ -1,5 +1,6 @@
-use super::{ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Truncation};
-use crate::openai::v1::{Tool, ToolChoice};
+use super::{
+    ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Tool, ToolChoice, Truncation,
+};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -127,11 +128,22 @@ pub enum InputParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum InputItem {
     Message(InputMessage),
-    // Add other input item types as needed based on InputItem schema
-    // ReferenceParam(ItemReferenceParam),
+    FunctionCall {
+        call_id: StaticRefStr,
+        name: StaticRefStr,
+        arguments: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<StaticRefStr>,
+    },
+    FunctionCallOutput {
+        call_id: StaticRefStr,
+        output: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<StaticRefStr>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
