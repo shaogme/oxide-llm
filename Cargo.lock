@@ -845,6 +845,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxide-llm-executor"
+version = "0.1.0"
+dependencies = [
+ "oxide-llm-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "oxide-llm-macros"
 version = "0.1.0"
 dependencies = [

@@ -1,11 +1,11 @@
+pub use crate::core::tool::{
+    DefaultExecutor, Executor, SequentialExecutor, ToolCall, ToolGroup, ToolRegistry,
+    ToolRunnable, ToolSet,
+};
 use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
-use crate::core::tool::{
-    ToolCall, ToolExecutionError, ToolGroup, ToolResult, ToolRunnable, ToolSet,
-};
 use crate::error::AgentError;
-use crate::tool::ToolRegistry;
 use futures::Stream;
 use std::future::Future;
 use std::pin::Pin;
@@ -15,14 +15,15 @@ use std::task::{Context, Poll};
 ///
 /// 用于协调 Agent 交互和工具执行的高级 Runner。
 #[derive(Clone, Default)]
-pub struct Runner<A, G = ()> {
+pub struct Runner<A, G = (), E = DefaultExecutor> {
     agent: A,
     registry: ToolRegistry<G>,
+    executor: E,
     max_turns: usize,
     auto_sync_tools: bool,
 }
 
-impl<A> Runner<A, ()> {
+impl<A> Runner<A, (), DefaultExecutor> {
     /// Creates a new `Runner` wrapping the given agent with default max turns (5).
     ///
     /// 创建一个新的 `Runner` 包装指定的 Agent，默认最大轮次数为 5。
@@ -30,13 +31,14 @@ impl<A> Runner<A, ()> {
         Self {
             agent,
             registry: ToolRegistry::new(),
+            executor: DefaultExecutor,
             max_turns: 5,
             auto_sync_tools: false,
         }
     }
 }
 
-impl<A, G: ToolGroup> Runner<A, G> {
+impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     /// Sets the maximum number of turns for interaction loops.
     ///
     /// 设置交互循环的最大轮次数。
@@ -53,16 +55,31 @@ impl<A, G: ToolGroup> Runner<A, G> {
         self
     }
 
+    /// Sets the custom executor for tool executions.
+    ///
+    /// 设置自定义的工具执行器。
+    pub fn with_executor<E2: Executor<G>>(self, executor: E2) -> Runner<A, G, E2> {
+        Runner {
+            agent: self.agent,
+            registry: self.registry,
+            executor,
+            max_turns: self.max_turns,
+            auto_sync_tools: self.auto_sync_tools,
+        }
+    }
+
     /// Registers a tool with the runner.
     ///
     /// 向 Runner 注册一个工具。
-    pub fn with_tool<T>(self, tool: T) -> Runner<A, ToolSet<G, T>>
+    pub fn with_tool<T>(self, tool: T) -> Runner<A, ToolSet<G, T>, E>
     where
         T: ToolRunnable + Clone + 'static,
+        E: Executor<ToolSet<G, T>>,
     {
         Runner {
             agent: self.agent,
             registry: self.registry.register(tool),
+            executor: self.executor,
             max_turns: self.max_turns,
             auto_sync_tools: self.auto_sync_tools,
         }
@@ -71,10 +88,14 @@ impl<A, G: ToolGroup> Runner<A, G> {
     /// Sets the tool registry for the runner.
     ///
     /// 设置 Runner 的工具注册表。
-    pub fn with_registry<G2: ToolGroup>(self, registry: ToolRegistry<G2>) -> Runner<A, G2> {
+    pub fn with_registry<G2: ToolGroup>(self, registry: ToolRegistry<G2>) -> Runner<A, G2, E>
+    where
+        E: Executor<G2>,
+    {
         Runner {
             agent: self.agent,
             registry,
+            executor: self.executor,
             max_turns: self.max_turns,
             auto_sync_tools: self.auto_sync_tools,
         }
@@ -110,6 +131,13 @@ impl<A, G: ToolGroup> Runner<A, G> {
         &self.registry
     }
 
+    /// Returns a reference to the executor.
+    ///
+    /// 返回工具执行器的引用。
+    pub fn executor(&self) -> &E {
+        &self.executor
+    }
+
     /// Returns the configured maximum turns.
     ///
     /// 返回配置的最大轮次数。
@@ -118,146 +146,67 @@ impl<A, G: ToolGroup> Runner<A, G> {
     }
 }
 
-impl<A: ChatAgent, G: ToolGroup> Runner<A, G> {
+impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     /// Creates a stream that manages the agent interaction loop and tool execution.
     ///
     /// 创建管理 Agent 交互循环和工具执行的流。
-    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, G> {
+    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, G, E> {
         if self.auto_sync_tools {
             self.sync_tools(state);
         }
-        RunnerStream::new(&self.agent, &self.registry, state, self.max_turns)
-    }
-}
-
-/// Future that executes a series of tool calls sequentially.
-///
-/// 顺序执行一系列工具调用的 Future。
-pub struct ExecuteToolsFuture<G: ToolGroup> {
-    registry: ToolRegistry<G>,
-    tool_calls: std::vec::IntoIter<ToolCall>,
-    current_exec: Option<(ToolCall, G::ExecFuture)>,
-    results: Vec<ToolResult>,
-}
-
-impl<G: ToolGroup> ExecuteToolsFuture<G> {
-    /// Creates a new `ExecuteToolsFuture`.
-    ///
-    /// 创建一个新的 `ExecuteToolsFuture`。
-    pub fn new(registry: ToolRegistry<G>, tool_calls: Vec<ToolCall>) -> Self {
-        Self {
-            registry,
-            tool_calls: tool_calls.into_iter(),
-            current_exec: None,
-            results: Vec::new(),
-        }
-    }
-}
-
-impl<G: ToolGroup> Unpin for ExecuteToolsFuture<G> {}
-
-impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
-    type Output = Result<Vec<ToolResult>, AgentError>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = &mut *self;
-        loop {
-            if let Some((_, ref mut fut)) = this.current_exec {
-                let pinned_fut = unsafe { Pin::new_unchecked(fut) };
-                match pinned_fut.poll(cx) {
-                    Poll::Ready(res) => {
-                        let (tool_call, _) = this.current_exec.take().unwrap();
-                        match res {
-                            Ok(content) => {
-                                this.results.push(ToolResult {
-                                    tool_call_id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    content,
-                                    is_error: false,
-                                    signature: tool_call.signature.clone(),
-                                });
-                            }
-                            Err(ToolExecutionError::Handled(content)) => {
-                                this.results.push(ToolResult {
-                                    tool_call_id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    content,
-                                    is_error: true,
-                                    signature: tool_call.signature.clone(),
-                                });
-                            }
-                            Err(ToolExecutionError::Fatal(fatal_err)) => {
-                                return Poll::Ready(Err(AgentError::ToolExecution(format!(
-                                    "Fatal error executing tool '{}': {}",
-                                    tool_call.name, fatal_err
-                                ))));
-                            }
-                        }
-                    }
-                    Poll::Pending => return Poll::Pending,
-                }
-            }
-
-            if let Some(tool_call) = this.tool_calls.next() {
-                let name = tool_call.name.clone();
-                let args = tool_call.arguments.clone();
-                if let Some(fut) = this.registry.execute(&name, args) {
-                    this.current_exec = Some((tool_call, fut));
-                } else {
-                    let result = ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
-                        content: vec![ContentPart::Text {
-                            text: format!("Error: Unknown tool '{}'", tool_call.name),
-                            signature: None,
-                        }],
-                        is_error: true,
-                        signature: tool_call.signature.clone(),
-                    };
-                    this.results.push(result);
-                }
-            } else {
-                return Poll::Ready(Ok(std::mem::take(&mut this.results)));
-            }
-        }
+        RunnerStream::new(
+            &self.agent,
+            &self.registry,
+            &self.executor,
+            state,
+            self.max_turns,
+        )
     }
 }
 
 /// A stream that manages the agent interaction loop, including tool execution.
 ///
 /// 管理 Agent 交互循环（包含工具执行）的流。
-pub struct RunnerStream<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup = ()> {
+pub struct RunnerStream<
+    'a,
+    A: ChatAgent + ?Sized + 'a,
+    G: ToolGroup = (),
+    E: Executor<G> = DefaultExecutor,
+> {
     agent: &'a A,
     registry: &'a ToolRegistry<G>,
+    executor: &'a E,
     state: &'a mut ConversationState,
     max_turns: usize,
 
-    phase: Phase<'a, A, G>,
+    phase: Phase<'a, A, G, E>,
     current_turn: usize,
     collected_events: Vec<ChatStreamEvent>,
 }
 
-enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> {
+enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> {
     Start,
     Initializing(A::ChatStreamFuture<'a>),
     Streaming(Box<ChatStream<A::Stream, AgentError>>),
-    ExecutingTools(ExecuteToolsFuture<G>),
+    ExecutingTools(E::Future<'a>),
     Done,
 }
 
-impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> RunnerStream<'a, A, G> {
+impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> RunnerStream<'a, A, G, E> {
     /// Creates a new `RunnerStream`.
     ///
     /// 创建一个新的 `RunnerStream`。
     pub fn new(
         agent: &'a A,
         registry: &'a ToolRegistry<G>,
+        executor: &'a E,
         state: &'a mut ConversationState,
         max_turns: usize,
     ) -> Self {
         RunnerStream {
             agent,
             registry,
+            executor,
             state,
             max_turns,
             phase: Phase::Start,
@@ -267,17 +216,18 @@ impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> RunnerStream<'a, A, G> {
     }
 }
 
-impl<'a, A, G> Stream for RunnerStream<'a, A, G>
+impl<'a, A, G, E> Stream for RunnerStream<'a, A, G, E>
 where
     A: ChatAgent + ?Sized + 'a,
     A::Stream: Unpin,
     A::ChatStreamFuture<'a>: Unpin,
     G: ToolGroup,
+    E: Executor<G>,
 {
     type Item = Result<ChatStreamEvent, AgentError>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = &mut *self;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = unsafe { self.get_unchecked_mut() };
         loop {
             match &mut this.phase {
                 Phase::Start => {
@@ -329,27 +279,33 @@ where
                             return Poll::Ready(None);
                         }
 
-                        let exec_fut = ExecuteToolsFuture::new(this.registry.clone(), tool_calls);
+                        let exec_fut = this.executor.execute(this.registry, tool_calls);
                         this.phase = Phase::ExecutingTools(exec_fut);
                     }
                     Poll::Pending => return Poll::Pending,
                 },
-                Phase::ExecutingTools(fut) => match Pin::new(fut).poll(cx) {
-                    Poll::Ready(Ok(results)) => {
-                        this.state.add_message(Message {
-                            role: Role::Tool,
-                            content: results.into_iter().map(ContentPart::ToolResult).collect(),
-                            name: None,
-                        });
+                Phase::ExecutingTools(fut) => {
+                    let pinned_fut = unsafe { Pin::new_unchecked(fut) };
+                    match pinned_fut.poll(cx) {
+                        Poll::Ready(Ok(results)) => {
+                            this.state.add_message(Message {
+                                role: Role::Tool,
+                                content: results.into_iter().map(ContentPart::ToolResult).collect(),
+                                name: None,
+                            });
 
-                        this.phase = Phase::Start;
+                            this.phase = Phase::Start;
+                        }
+                        Poll::Ready(Err(err)) => {
+                            this.phase = Phase::Done;
+                            return Poll::Ready(Some(Err(AgentError::ToolExecution(format!(
+                                "Fatal error executing tool: {}",
+                                err
+                            )))));
+                        }
+                        Poll::Pending => return Poll::Pending,
                     }
-                    Poll::Ready(Err(err)) => {
-                        this.phase = Phase::Done;
-                        return Poll::Ready(Some(Err(err)));
-                    }
-                    Poll::Pending => return Poll::Pending,
-                },
+                }
                 Phase::Done => return Poll::Ready(None),
             }
         }
@@ -359,7 +315,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxide_llm_core::tool::ToolDefinition;
+    use oxide_llm_core::tool::{ExecuteToolsFuture, ToolDefinition, ToolExecutionError};
     use std::sync::Arc;
 
     #[derive(Clone)]
@@ -495,10 +451,37 @@ mod tests {
         let exec_fut = ExecuteToolsFuture::new(registry, vec![tool_call]);
         let res = futures::executor::block_on(exec_fut);
         assert!(res.is_err());
-        if let Err(AgentError::ToolExecution(msg)) = res {
+        if let Err(ToolExecutionError::Fatal(msg)) = res {
             assert!(msg.contains("database unreachable"));
         } else {
-            panic!("Expected AgentError::ToolExecution");
+            panic!("Expected ToolExecutionError::Fatal");
         }
     }
+
+    struct SortingExecutor;
+
+    impl<G: ToolGroup> Executor<G> for SortingExecutor {
+        type Future<'a> = ExecuteToolsFuture<G>;
+
+        fn execute<'a>(
+            &'a self,
+            registry: &'a ToolRegistry<G>,
+            mut tool_calls: Vec<ToolCall>,
+        ) -> Self::Future<'a> {
+            tool_calls.sort_by(|a, b| a.name.cmp(&b.name));
+            ExecuteToolsFuture::new(registry.clone(), tool_calls)
+        }
+    }
+
+    #[test]
+    fn test_custom_sorting_executor() {
+        let agent = DummyAgent;
+        let runner = Runner::new(agent)
+            .with_tool(DummyTool)
+            .with_executor(SortingExecutor);
+
+        let mut state = ConversationState::new(None);
+        let _stream = runner.run_stream(&mut state);
+    }
 }
+

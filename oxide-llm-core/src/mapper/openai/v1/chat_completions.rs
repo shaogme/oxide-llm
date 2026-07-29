@@ -142,7 +142,7 @@ impl OpenAIChatCompletionMapper {
                     Some(tool_calls)
                 };
 
-                let content = content.and_then(|c| if c.is_empty() { None } else { Some(c) });
+                let content = content.filter(|c| !c.is_empty());
 
                 Ok(vec![ChatCompletionMessage::Assistant {
                     content: content.map(Into::into),

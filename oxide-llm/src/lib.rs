@@ -14,9 +14,8 @@ pub mod agent {
 pub mod error;
 pub mod runner;
 pub mod stream;
-pub mod tool;
 
-pub use runner::Runner;
+pub use runner::{DefaultExecutor, Executor, Runner, SequentialExecutor};
 
 pub mod macros {
     pub use oxide_llm_macros::*;

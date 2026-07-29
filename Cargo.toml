@@ -5,6 +5,7 @@ members = [
     "oxide-llm-proto",
     "oxide-llm-transport",
     "oxide-llm-macros",
+    "oxide-llm-executor",
     "examples/agent",
 ]
 resolver = "3"
@@ -33,6 +34,7 @@ oxide-llm-core = { path = "oxide-llm-core" }
 oxide-llm-proto = { path = "oxide-llm-proto" }
 oxide-llm-transport = { path = "oxide-llm-transport" }
 oxide-llm-macros = { path = "oxide-llm-macros" }
+oxide-llm-executor = { path = "oxide-llm-executor" }
 
 # External Crates
 serde = { version = "1.0", features = ["derive"] }

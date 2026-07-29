@@ -586,21 +586,15 @@ impl MessageAssembler {
                         });
 
                         // 3. Update fields
-                        if let Some(tty) = tool_call.r#type {
-                            if !tty.is_empty() {
-                                entry.r#type = Some(tty);
-                            }
+                        if let Some(tty) = tool_call.r#type.filter(|t| !t.is_empty()) {
+                            entry.r#type = Some(tty);
                         }
-                        if let Some(sig) = tool_call.signature {
-                            if !sig.is_empty() {
-                                entry.signature = Some(sig);
-                            }
+                        if let Some(sig) = tool_call.signature.filter(|s| !s.is_empty()) {
+                            entry.signature = Some(sig);
                         }
                         if let Some(func) = tool_call.function {
-                            if let Some(fname) = func.name {
-                                if !fname.is_empty() {
-                                    entry.name = Some(fname);
-                                }
+                            if let Some(fname) = func.name.filter(|n| !n.is_empty()) {
+                                entry.name = Some(fname);
                             }
                             if let Some(fargs) = func.arguments {
                                 entry.arguments.push_str(&fargs);

@@ -1,0 +1,28 @@
+[package]
+name = "oxide-llm-executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Executors for oxide-llm tools"
+readme.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+
+[dependencies]
+oxide-llm-core = { workspace = true }
+serde_json = { workspace = true }
+
+[dependencies.tokio]
+version = "1"
+features = ["sync", "rt"]
+optional = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

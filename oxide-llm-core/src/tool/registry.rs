@@ -1,4 +1,4 @@
-use oxide_llm_core::tool::{ToolDefinition, ToolGroup, ToolRunnable, ToolSet};
+use crate::tool::{ToolDefinition, ToolGroup, ToolRunnable, ToolSet};
 use serde_json::Value;
 
 /// A registry for managing and executing tools using static tool groups.
