@@ -1,5 +1,5 @@
-use crate::DynChatAgent;
-use crate::core::message::{ChatStreamEvent, ContentPart, Message, Role};
+use crate::ChatAgent;
+use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
 use crate::core::tool::{ToolCall, ToolResult};
 use crate::error::AgentError;
@@ -10,42 +10,36 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 /// A stream that manages the agent interaction loop, including tool execution.
-pub struct RunnerStream<'a> {
-    agent: &'a dyn DynChatAgent,
+pub struct RunnerStream<'a, A: ChatAgent + ?Sized> {
+    agent: &'a A,
     registry: &'a ToolRegistry,
     state: &'a mut ConversationState,
     max_turns: usize,
 
-    phase: Phase<'a>,
+    phase: Phase<'a, A::Stream>,
     current_turn: usize,
     collected_events: Vec<ChatStreamEvent>,
 }
 
-enum Phase<'a> {
+enum Phase<'a, S> {
     Start,
     Initializing(
         futures::future::BoxFuture<
             'a,
             Result<
-                crate::core::message::ChatStream<
-                    futures::stream::BoxStream<
-                        'static,
-                        Result<crate::core::message::DeltaMessage, AgentError>,
-                    >,
-                    AgentError,
-                >,
+                ChatStream<S, AgentError>,
                 AgentError,
             >,
         >,
     ),
-    Streaming(Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, AgentError>> + Send + 'a>>),
+    Streaming(ChatStream<S, AgentError>),
     ExecutingTools(Pin<Box<dyn Future<Output = Vec<ToolResult>> + Send + 'a>>),
     Done,
 }
 
-impl<'a> RunnerStream<'a> {
+impl<'a, A: ChatAgent + ?Sized> RunnerStream<'a, A> {
     pub fn new(
-        agent: &'a dyn DynChatAgent,
+        agent: &'a A,
         registry: &'a ToolRegistry,
         state: &'a mut ConversationState,
         max_turns: usize,
@@ -62,7 +56,10 @@ impl<'a> RunnerStream<'a> {
     }
 }
 
-impl<'a> Stream for RunnerStream<'a> {
+impl<'a, A: ChatAgent + ?Sized> Stream for RunnerStream<'a, A>
+where
+    A::Stream: Unpin,
+{
     type Item = Result<ChatStreamEvent, AgentError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -83,16 +80,14 @@ impl<'a> Stream for RunnerStream<'a> {
                     let state_clone = self.state.clone();
 
                     // Create a future that resolves to the stream and put it in Phase::Initializing
-                    let fut = self.agent.chat_stream(state_clone);
+                    let agent = self.agent;
+                    let fut = Box::pin(async move { agent.chat_stream(state_clone).await });
                     self.phase = Phase::Initializing(fut);
                 }
                 Phase::Initializing(fut) => {
                     match fut.as_mut().poll(cx) {
                         Poll::Ready(Ok(stream)) => {
-                            // Convert the ChatStream (which is a wrapper) into a BoxStream of events
-                            // Note: The ChatStream implements Stream<Item = Result<ChatStreamEvent, E>>
-                            // We need to box it to store in Phase enum
-                            self.phase = Phase::Streaming(Box::pin(stream));
+                            self.phase = Phase::Streaming(stream);
                         }
                         Poll::Ready(Err(e)) => {
                             self.phase = Phase::Done;
@@ -102,7 +97,7 @@ impl<'a> Stream for RunnerStream<'a> {
                     }
                 }
                 Phase::Streaming(stream) => {
-                    match stream.as_mut().poll_next(cx) {
+                    match Pin::new(stream).poll_next(cx) {
                         Poll::Ready(Some(Ok(event))) => {
                             self.collected_events.push(event.clone());
                             return Poll::Ready(Some(Ok(event)));

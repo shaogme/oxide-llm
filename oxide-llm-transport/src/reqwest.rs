@@ -1,4 +1,6 @@
-use futures::{StreamExt, stream::BoxStream};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use reqwest::{Client, RequestBuilder};
 use serde::{Serialize, de::DeserializeOwned};
@@ -82,8 +84,39 @@ fn map_reqwest_error(e: reqwest::Error) -> TransportError {
     }
 }
 
+/// Stream implementation for `ReqwestTransport`.
+///
+/// `ReqwestTransport` 的流实现。
+pub struct ReqwestStream {
+    inner: BoxStream<'static, Result<bytes::Bytes, TransportError>>,
+}
+
+impl ReqwestStream {
+    /// Creates a new `ReqwestStream` wrapping the inner stream.
+    ///
+    /// 创建包装内部流的新 `ReqwestStream`。
+    pub fn new<S>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self {
+            inner: stream
+                .map(|chunk_result| chunk_result.map_err(map_reqwest_error))
+                .boxed(),
+        }
+    }
+}
+
+impl Stream for ReqwestStream {
+    type Item = Result<bytes::Bytes, TransportError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
 impl Transport for ReqwestTransport {
-    type Stream = BoxStream<'static, Result<bytes::Bytes, TransportError>>;
+    type Stream = ReqwestStream;
 
     async fn send<Req, Res>(&self, req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
@@ -127,10 +160,6 @@ impl Transport for ReqwestTransport {
             });
         }
 
-        let stream = resp
-            .bytes_stream()
-            .map(|chunk_result| chunk_result.map_err(map_reqwest_error));
-
-        Ok(stream.boxed())
+        Ok(ReqwestStream::new(resp.bytes_stream()))
     }
 }

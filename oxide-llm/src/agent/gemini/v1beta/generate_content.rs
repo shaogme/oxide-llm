@@ -198,8 +198,69 @@ impl<T: Transport> GenerateContentAgent<T> {
 //
 // Gemini Messages 流。
 
+/// SSE Processor for Gemini GenerateContent stream events.
+///
+/// Gemini GenerateContent 流事件的 SSE 处理器。
+pub struct GeminiProcessor {
+    mapper: GeminiStreamMapper,
+}
+
+impl GeminiProcessor {
+    /// Creates a new `GeminiProcessor`.
+    ///
+    /// 创建一个新的 `GeminiProcessor`。
+    pub fn new() -> Self {
+        Self {
+            mapper: GeminiStreamMapper::new(),
+        }
+    }
+}
+
+impl Default for GeminiProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::stream::SseProcessor for GeminiProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+        let s = match std::str::from_utf8(block) {
+            Ok(s) => s,
+            Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
+        };
+
+        let mut chunk_to_yield = None;
+        let mut done = false;
+
+        for line in s.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                let data = data.trim();
+                if data == "[DONE]" {
+                    done = true;
+                    break;
+                }
+                match serde_json::from_str::<GenerateContentResponse>(data) {
+                    Ok(chunk) => match self.mapper.map_response(chunk) {
+                        Ok(delta) => {
+                            chunk_to_yield = Some(Ok(delta));
+                        }
+                        Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
+                    },
+                    Err(e) => return (Some(Err(AgentError::Json(e))), false),
+                }
+            }
+        }
+
+        if done {
+            return (chunk_to_yield, true);
+        }
+
+        (chunk_to_yield, false)
+    }
+}
+
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
-    type Stream = futures::stream::BoxStream<'static, Result<DeltaMessage>>;
+    type Stream = crate::stream::MessageStream<T::Stream, GeminiProcessor>;
 
     /// Send a chat request to Gemini.
     ///
@@ -251,45 +312,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
-        // Return concrete stream
-        let mut mapper = GeminiStreamMapper::new();
-        let processor = move |block: &[u8]| -> (Option<Result<DeltaMessage>>, bool) {
-            let s = match std::str::from_utf8(block) {
-                Ok(s) => s,
-                Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-            };
+        let message_stream = crate::stream::MessageStream::new(stream, GeminiProcessor::new());
 
-            let mut chunk_to_yield = None;
-            let mut done = false;
-
-            for line in s.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    let data = data.trim();
-                    if data == "[DONE]" {
-                        done = true;
-                        break;
-                    }
-                    match serde_json::from_str::<GenerateContentResponse>(data) {
-                        Ok(chunk) => match mapper.map_response(chunk) {
-                            Ok(delta) => {
-                                chunk_to_yield = Some(Ok(delta));
-                            }
-                            Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                        },
-                        Err(e) => return (Some(Err(AgentError::Json(e))), false),
-                    }
-                }
-            }
-
-            if done {
-                return (chunk_to_yield, true);
-            }
-
-            (chunk_to_yield, false)
-        };
-
-        let message_stream = crate::stream::MessageStream::new(stream, processor);
-
-        Ok(ChatStream::new(futures::StreamExt::boxed(message_stream)))
+        Ok(ChatStream::new(message_stream))
     }
 }

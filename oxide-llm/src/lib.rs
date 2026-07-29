@@ -87,6 +87,21 @@ impl<T: ChatAgent> DynChatAgent for T {
     }
 }
 
+impl ChatAgent for dyn DynChatAgent + '_ {
+    type Stream = BoxStream<'static, Result<DeltaMessage>>;
+
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        DynChatAgent::chat(self, state).await
+    }
+
+    async fn chat_stream(
+        &self,
+        state: ConversationState,
+    ) -> Result<ChatStream<Self::Stream, AgentError>> {
+        DynChatAgent::chat_stream(self, state).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

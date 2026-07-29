@@ -219,8 +219,69 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 //
 // OpenAI Messages 流。
 
+/// SSE Processor for OpenAI Chat Completion stream chunks.
+///
+/// OpenAI Chat Completion 流 Chunk 的 SSE 处理器。
+pub struct OpenAIProcessor {
+    mapper: OpenAIStreamMapper,
+}
+
+impl OpenAIProcessor {
+    /// Creates a new `OpenAIProcessor`.
+    ///
+    /// 创建一个新的 `OpenAIProcessor`。
+    pub fn new() -> Self {
+        Self {
+            mapper: OpenAIStreamMapper::new(),
+        }
+    }
+}
+
+impl Default for OpenAIProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl crate::stream::SseProcessor for OpenAIProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+        let s = match std::str::from_utf8(block) {
+            Ok(s) => s,
+            Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
+        };
+
+        let mut chunk_to_yield = None;
+        let mut done = false;
+
+        for line in s.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                let data = data.trim();
+                if data == "[DONE]" {
+                    done = true;
+                    break;
+                }
+                match serde_json::from_str::<OpenAIStreamChunk>(data) {
+                    Ok(chunk) => match self.mapper.map_response(chunk) {
+                        Ok(delta) => {
+                            chunk_to_yield = Some(Ok(delta));
+                        }
+                        Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
+                    },
+                    Err(e) => return (Some(Err(AgentError::Json(e))), false),
+                }
+            }
+        }
+
+        if done {
+            return (chunk_to_yield, true);
+        }
+
+        (chunk_to_yield, false)
+    }
+}
+
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
-    type Stream = futures::stream::BoxStream<'static, Result<DeltaMessage>>;
+    type Stream = crate::stream::MessageStream<T::Stream, OpenAIProcessor>;
 
     /// Send a chat request to OpenAI.
     ///
@@ -262,45 +323,8 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
-        // Return concrete stream
-        let mut mapper = OpenAIStreamMapper::new();
-        let processor = move |block: &[u8]| -> (Option<Result<DeltaMessage>>, bool) {
-            let s = match std::str::from_utf8(block) {
-                Ok(s) => s,
-                Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-            };
+        let message_stream = crate::stream::MessageStream::new(stream, OpenAIProcessor::new());
 
-            let mut chunk_to_yield = None;
-            let mut done = false;
-
-            for line in s.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    let data = data.trim();
-                    if data == "[DONE]" {
-                        done = true;
-                        break;
-                    }
-                    match serde_json::from_str::<OpenAIStreamChunk>(data) {
-                        Ok(chunk) => match mapper.map_response(chunk) {
-                            Ok(delta) => {
-                                chunk_to_yield = Some(Ok(delta));
-                            }
-                            Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                        },
-                        Err(e) => return (Some(Err(AgentError::Json(e))), false),
-                    }
-                }
-            }
-
-            if done {
-                return (chunk_to_yield, true);
-            }
-
-            (chunk_to_yield, false)
-        };
-
-        let message_stream = crate::stream::MessageStream::new(stream, processor);
-
-        Ok(ChatStream::new(futures::StreamExt::boxed(message_stream)))
+        Ok(ChatStream::new(message_stream))
     }
 }
