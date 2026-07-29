@@ -1,7 +1,6 @@
-use std::borrow::Cow;
-
 use crate::message::Message;
 use crate::tool::{ToolChoice, ToolDefinition};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
 /// Conversation State.
@@ -12,7 +11,7 @@ pub struct ConversationState {
     /// System Prompt.
     ///
     /// 系统提示词(可选)。
-    pub system_prompt: Option<Cow<'static, str>>,
+    pub system_prompt: Option<StaticRefStr>,
 
     /// Message list.
     ///
@@ -35,9 +34,9 @@ impl ConversationState {
     /// Create a new ConversationState.
     ///
     /// 创建一个新的 ConversationState。
-    pub fn new(system_prompt: Option<Cow<'static, str>>) -> Self {
+    pub fn new(system_prompt: impl Into<Option<StaticRefStr>>) -> Self {
         Self {
-            system_prompt,
+            system_prompt: system_prompt.into(),
             messages: Vec::new(),
             tools: Vec::new(),
             tool_choice: None,

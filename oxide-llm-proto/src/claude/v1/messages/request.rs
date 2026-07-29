@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,7 +26,7 @@ pub struct MessagesRequest {
 
     /// Custom text sequences that will cause the model to stop generating.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
+    pub stop_sequences: Option<Vec<StaticRefStr>>,
 
     /// Whether to incrementally stream the response using server-sent events.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,7 +62,7 @@ pub struct MessagesRequest {
 
     /// The service tier to use (e.g. "auto", "standard_only").
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<Cow<'static, str>>,
+    pub service_tier: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +74,7 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SystemPrompt {
-    Text(Cow<'static, str>),
+    Text(StaticRefStr),
     Blocks(Vec<ContentBlock>),
 }
 

@@ -1,35 +1,46 @@
 use clap::Parser;
 use futures::StreamExt;
-use oxide_llm::DynChatAgent;
-use oxide_llm::agent::claude::v1::message::{MessagesAgent, MessagesRequiredConfig};
-use oxide_llm::agent::gemini::v1beta::generate_content::{
-    GenerateContentAgent, GenerateContentRequiredConfig,
+use oxide_llm::{
+    DynChatAgent, Runner,
+    agent::{
+        claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
+        gemini::v1beta::generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
+        openai::v1::{
+            chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
+            responses::{ResponsesAgent, ResponsesRequiredConfig},
+        },
+    },
+    core::{
+        message::{ChatStreamEvent, Message},
+        state::ConversationState,
+        tool::Tool,
+        transport::TransportExt,
+    },
+    macros::Schema,
 };
-use oxide_llm::agent::openai::v1::chat_completions::{
-    ChatCompletionsAgent, ChatCompletionsRequiredConfig,
-};
-use oxide_llm::core::message::{ChatStreamEvent, Message};
-use oxide_llm::core::state::ConversationState;
-use oxide_llm::core::tool::Tool;
-use oxide_llm::core::transport::TransportExt;
-use oxide_llm::macros::Schema;
 use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::{
+    error::Error,
+    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    fs,
+    io::{Write, stdout},
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use tokio::time::sleep;
 
 #[derive(Deserialize, Clone)]
 struct SecretString(String);
 
-impl std::fmt::Debug for SecretString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for SecretString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "********")
     }
 }
 
-impl std::fmt::Display for SecretString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for SecretString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "********")
     }
 }
@@ -182,7 +193,7 @@ impl Tool for StockTool {
         let symbol = args.symbol.to_uppercase();
 
         // Simulate network delay
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(500)).await;
 
         if symbol == "AAPL" {
             Ok(StockOutput {
@@ -197,7 +208,7 @@ impl Tool for StockTool {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let cli_args = Args::parse();
 
     // 1. Load configuration
@@ -239,11 +250,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_authorization(c.api_key.expose().to_string())
                 .with_base_url(c.base_url.clone());
 
-            let agent_config = ChatCompletionsRequiredConfig {
-                model: c.model.clone().into(),
-                endpoint: c.endpoint.clone().into(),
-            };
-            Box::new(ChatCompletionsAgent::new(transport, agent_config))
+            if c.endpoint.contains("responses") {
+                let agent_config =
+                    ResponsesRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+                Box::new(ResponsesAgent::new(transport, agent_config))
+            } else {
+                let agent_config =
+                    ChatCompletionsRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+                Box::new(ChatCompletionsAgent::new(transport, agent_config))
+            }
         }
         AgentConfig::Claude(c) => {
             println!("Loaded config for Claude model: {}", c.model);
@@ -251,11 +266,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_authorization(c.api_key.expose().to_string())
                 .with_base_url(c.base_url.clone());
 
-            let agent_config = MessagesRequiredConfig {
-                model: c.model.clone().into(),
-                endpoint: c.endpoint.clone().into(),
-                max_tokens: c.max_tokens,
-            };
+            let agent_config =
+                MessagesRequiredConfig::new(c.model.clone(), c.max_tokens, c.endpoint.clone());
             Box::new(MessagesAgent::new(transport, agent_config))
         }
         AgentConfig::Gemini(c) => {
@@ -264,10 +276,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_authorization(c.api_key.expose().to_string())
                 .with_base_url(c.base_url.clone());
 
-            let agent_config = GenerateContentRequiredConfig {
-                model: c.model.clone().into(),
-                endpoint: c.endpoint.clone().into(),
-            };
+            let agent_config =
+                GenerateContentRequiredConfig::new(c.model.clone(), c.endpoint.clone());
             Box::new(GenerateContentAgent::new(transport, agent_config))
         }
     };
@@ -278,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let stock_tool = StockTool;
 
-    let runner = oxide_llm::Runner::new(agent)
+    let runner = Runner::new(agent)
         .with_tool(weather_tool)
         .with_tool(stock_tool)
         .with_max_turns(5);
@@ -320,11 +330,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     ChatStreamEvent::Reasoning { text } => {
                         print!("{}", text);
-                        std::io::stdout().flush().unwrap();
+                        stdout().flush().unwrap();
                     }
                     ChatStreamEvent::Text { text } => {
                         print!("{}", text);
-                        std::io::stdout().flush().unwrap();
+                        stdout().flush().unwrap();
                     }
                     ChatStreamEvent::Finished {
                         usage,

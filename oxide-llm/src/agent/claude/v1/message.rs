@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -7,83 +5,16 @@ use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
 use oxide_llm_proto::claude::v1::messages::request::{
-    Message as ClaudeMessage, MessagesRequest, OutputConfig, SystemPrompt, ThinkingConfig, Tool,
-    ToolChoice,
+    Message as ClaudeMessage, MessagesRequest, SystemPrompt,
 };
 use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
 
 use crate::ChatAgent;
 use crate::error::{AgentError, Result};
 
-/// Configuration for Claude Messages Agent (Required).
-///
-/// Claude Messages 代理配置 (必须)。
-#[derive(Debug, Clone)]
-pub struct MessagesRequiredConfig {
-    pub model: Cow<'static, str>,
-    /// The maximum number of tokens to generate.
-    ///
-    /// 最大生成 token 数。
-    pub max_tokens: u32,
-    pub endpoint: Cow<'static, str>,
-}
+pub mod config;
 
-/// Configuration for Claude Messages Agent (Optional).
-///
-/// Claude Messages 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct MessagesOptionalConfig {
-    pub metadata: Option<oxide_llm_proto::claude::v1::messages::request::Metadata>,
-    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
-    pub temperature: Option<f32>,
-    pub tool_choice: Option<ToolChoice>,
-    pub top_k: Option<u32>,
-    pub top_p: Option<f32>,
-    pub thinking: Option<ThinkingConfig>,
-    pub output_config: Option<OutputConfig>,
-    pub service_tier: Option<Cow<'static, str>>,
-}
-
-/// Configuration for Claude Messages Agent.
-///
-/// Claude Messages 代理配置。
-#[derive(Debug, Clone)]
-pub struct MessagesConfig {
-    pub required: MessagesRequiredConfig,
-    pub optional: MessagesOptionalConfig,
-}
-
-impl MessagesConfig {
-    /// Convert Config to MessagesRequest with provided messages.
-    ///
-    /// 将配置转换为 MessagesRequest，并填入消息。
-    pub fn to_request(
-        self,
-        messages: Vec<ClaudeMessage>,
-        system: Option<SystemPrompt>,
-        tools: Option<Vec<Tool>>,
-        tool_choice: Option<ToolChoice>,
-        stream: bool,
-    ) -> MessagesRequest {
-        MessagesRequest {
-            model: self.required.model.into(),
-            messages,
-            max_tokens: Some(self.required.max_tokens),
-            system,
-            metadata: self.optional.metadata,
-            stop_sequences: self.optional.stop_sequences,
-            stream: Some(stream),
-            temperature: self.optional.temperature,
-            tool_choice,
-            tools,
-            top_k: self.optional.top_k,
-            top_p: self.optional.top_p,
-            thinking: self.optional.thinking,
-            output_config: self.optional.output_config,
-            service_tier: self.optional.service_tier,
-        }
-    }
-}
+pub use config::{MessagesConfig, MessagesOptionalConfig, MessagesRequiredConfig};
 
 /// Claude Messages Agent.
 ///
@@ -108,10 +39,7 @@ impl<T: Transport> MessagesAgent<T> {
     pub fn new(transport: T, required: MessagesRequiredConfig) -> Self {
         Self {
             transport,
-            config: MessagesConfig {
-                required,
-                optional: MessagesOptionalConfig::default(),
-            },
+            config: MessagesConfig::new(required),
         }
     }
 
@@ -252,7 +180,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
 
         // Send Request
         let transport_req =
-            TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
+            TransportRequest::new(Method::Post, self.config.required().endpoint().to_string(), request);
         let response: MessagesResponse = self
             .transport
             .send(transport_req)
@@ -273,7 +201,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
             let transport_req =
-                TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
+                TransportRequest::new(Method::Post, self.config.required().endpoint().to_string(), request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, ClaudeProcessor::new())

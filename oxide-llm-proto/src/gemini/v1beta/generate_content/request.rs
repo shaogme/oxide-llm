@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use super::{Content, HarmBlockThreshold, HarmCategory, Schema, Tool, ToolConfig};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
@@ -43,7 +41,7 @@ pub struct GenerateContentRequest {
     ///
     /// 可选。缓存内容的名称，用作提供预测的上下文。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<Cow<'static, str>>,
+    pub cached_content: Option<StaticRefStr>,
 }
 
 /// Safety setting, affecting the safety-blocking behavior.
@@ -71,12 +69,12 @@ pub struct GenerationConfig {
     ///
     /// 可选。将停止输出生成的字符序列集（最多 5 个）。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
+    pub stop_sequences: Option<Vec<StaticRefStr>>,
     /// Optional. MIME type of the generated candidate text.
     ///
     /// 可选。生成的候选项文本的 MIME 类型。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_mime_type: Option<Cow<'static, str>>,
+    pub response_mime_type: Option<StaticRefStr>,
     /// Optional. Output schema of the generated candidate text.
     ///
     /// 可选。生成的候选项文本的输出模式。

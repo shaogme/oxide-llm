@@ -12,11 +12,11 @@ pub struct CreateResponseRequest {
 
     /// ID of the model to use.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<Cow<'static, str>>,
+    pub model: Option<StaticRefStr>,
 
     /// Specific output data to include.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<Cow<'static, str>>>,
+    pub include: Option<Vec<StaticRefStr>>,
 
     /// Whether to enable parallel tool calls.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,7 +28,7 @@ pub struct CreateResponseRequest {
 
     /// A system (or developer) message inserted into the model's context.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<Cow<'static, str>>,
+    pub instructions: Option<StaticRefStr>,
 
     /// If set to true, the model response data will be streamed to the client.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,7 +44,7 @@ pub struct CreateResponseRequest {
 
     /// Metadata to attach to the response.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<Cow<'static, str>, serde_json::Value>>,
+    pub metadata: Option<HashMap<StaticRefStr, serde_json::Value>>,
 
     /// Number of most likely tokens to return at each token position.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,23 +68,23 @@ pub struct CreateResponseRequest {
 
     /// User identifier (deprecated).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<Cow<'static, str>>,
+    pub user: Option<StaticRefStr>,
 
     /// Safety identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_identifier: Option<Cow<'static, str>>,
+    pub safety_identifier: Option<StaticRefStr>,
 
     /// Prompt cache key.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_key: Option<Cow<'static, str>>,
+    pub prompt_cache_key: Option<StaticRefStr>,
 
     /// Service tier.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<Cow<'static, str>>,
+    pub service_tier: Option<StaticRefStr>,
 
     /// Prompt cache retention policy.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_retention: Option<Cow<'static, str>>,
+    pub prompt_cache_retention: Option<StaticRefStr>,
 
     /// An upper bound for the number of tokens that can be generated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,7 +96,7 @@ pub struct CreateResponseRequest {
 
     /// The unique ID of the previous response to the model.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_response_id: Option<Cow<'static, str>>,
+    pub previous_response_id: Option<StaticRefStr>,
 
     /// Configuration options for reasoning models.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -5,115 +5,18 @@ use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk as OpenAIStreamChunk;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
-    AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
-    Stop, StreamOptions, WebSearchOptions,
+    ChatCompletionMessage, ChatCompletionRequest, StreamOptions,
 };
 use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
-use oxide_llm_proto::openai::v1::{FunctionDefinition, Tool, ToolChoice};
-use std::borrow::Cow;
-use std::collections::HashMap;
 
 use crate::ChatAgent;
 use crate::error::{AgentError, Result};
 
-/// Configuration for OpenAI Chat Completions Agent (Required).
-///
-/// OpenAI Chat Completions 代理配置 (必须)。
-#[derive(Debug, Clone)]
-pub struct ChatCompletionsRequiredConfig {
-    pub model: Cow<'static, str>,
-    pub endpoint: Cow<'static, str>,
-}
+pub mod config;
 
-/// Configuration for OpenAI Chat Completions Agent (Optional).
-///
-/// OpenAI Chat Completions 代理配置 (选填)。
-/// 包含了除 `messages` 和 `model` 之外的所有 `ChatCompletionRequest` 可选参数。
-#[derive(Debug, Clone, Default)]
-pub struct ChatCompletionsOptionalConfig {
-    pub frequency_penalty: Option<f32>,
-    pub logit_bias: Option<HashMap<Cow<'static, str>, f32>>,
-    pub logprobs: Option<bool>,
-    pub top_logprobs: Option<u8>,
-    pub max_tokens: Option<u32>,
-    pub max_completion_tokens: Option<u32>,
-    pub n: Option<u8>,
-    pub modalities: Option<Vec<Cow<'static, str>>>,
-    pub prediction: Option<PredictionContent>,
-    pub audio: Option<AudioOptions>,
-    pub presence_penalty: Option<f32>,
-    pub response_format: Option<ResponseFormat>,
-    pub seed: Option<i64>,
-    pub service_tier: Option<Cow<'static, str>>,
-    pub stop: Option<Stop>,
-    pub store: Option<bool>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub parallel_tool_calls: Option<bool>,
-    pub user: Option<Cow<'static, str>>,
-    pub function_call: Option<serde_json::Value>,
-    pub functions: Option<Vec<FunctionDefinition>>,
-    pub web_search_options: Option<WebSearchOptions>,
-    pub verbosity: Option<Cow<'static, str>>,
-    pub reasoning_effort: Option<Cow<'static, str>>,
-}
-
-/// Configuration for OpenAI Chat Completions Agent.
-///
-/// OpenAI Chat Completions 代理配置。
-#[derive(Debug, Clone)]
-pub struct ChatCompletionsConfig {
-    pub required: ChatCompletionsRequiredConfig,
-    pub optional: ChatCompletionsOptionalConfig,
-}
-
-impl ChatCompletionsConfig {
-    /// Convert Config to ChatCompletionRequest with provided messages.
-    ///
-    /// 将配置转换为 ChatCompletionRequest，并填入消息。
-    pub fn to_request(
-        self,
-        messages: Vec<ChatCompletionMessage>,
-        tools: Option<Vec<Tool>>,
-        tool_choice: Option<ToolChoice>,
-        is_stream: bool,
-        stream_options: Option<StreamOptions>,
-    ) -> ChatCompletionRequest {
-        ChatCompletionRequest {
-            messages,
-            model: self.required.model,
-            frequency_penalty: self.optional.frequency_penalty,
-            logit_bias: self.optional.logit_bias,
-            logprobs: self.optional.logprobs,
-            top_logprobs: self.optional.top_logprobs,
-            max_tokens: self.optional.max_tokens,
-            max_completion_tokens: self.optional.max_completion_tokens,
-            n: self.optional.n,
-            modalities: self.optional.modalities,
-            prediction: self.optional.prediction,
-            audio: self.optional.audio,
-            presence_penalty: self.optional.presence_penalty,
-            response_format: self.optional.response_format,
-            seed: self.optional.seed,
-            service_tier: self.optional.service_tier,
-            stop: self.optional.stop,
-            store: self.optional.store,
-            stream: Some(is_stream),
-            stream_options,
-            temperature: self.optional.temperature,
-            top_p: self.optional.top_p,
-            tools,
-            tool_choice,
-            parallel_tool_calls: self.optional.parallel_tool_calls,
-            user: self.optional.user,
-            function_call: self.optional.function_call,
-            functions: self.optional.functions,
-            web_search_options: self.optional.web_search_options,
-            verbosity: self.optional.verbosity,
-            reasoning_effort: self.optional.reasoning_effort,
-        }
-    }
-}
+pub use config::{
+    ChatCompletionsConfig, ChatCompletionsOptionalConfig, ChatCompletionsRequiredConfig,
+};
 
 /// OpenAI Chat Completions Agent.
 ///
@@ -138,10 +41,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     pub fn new(transport: T, required: ChatCompletionsRequiredConfig) -> Self {
         Self {
             transport,
-            config: ChatCompletionsConfig {
-                required,
-                optional: ChatCompletionsOptionalConfig::default(),
-            },
+            config: ChatCompletionsConfig::new(required),
         }
     }
 
@@ -295,8 +195,11 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
         let request = self.build_request(state, false)?;
 
         // Send Request
-        let transport_req =
-            TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
+        let transport_req = TransportRequest::new(
+            Method::Post,
+            self.config.required().endpoint().to_string(),
+            request,
+        );
         let response: ChatCompletionResponse = self
             .transport
             .send(transport_req)
@@ -316,8 +219,11 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
-            let transport_req =
-                TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
+            let transport_req = TransportRequest::new(
+                Method::Post,
+                self.config.required().endpoint().to_string(),
+                request,
+            );
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, OpenAIProcessor::new())

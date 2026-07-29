@@ -1,106 +1,20 @@
-use std::borrow::Cow;
-
 use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
-use oxide_llm_proto::gemini::v1beta::generate_content::request::{
-    GenerateContentRequest, GenerationConfig, SafetySetting,
-};
+use oxide_llm_proto::gemini::v1beta::generate_content::request::GenerateContentRequest;
 use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
-use oxide_llm_proto::gemini::v1beta::generate_content::{
-    Content, Part, Tool as GeminiTool, ToolConfig,
-};
+use oxide_llm_proto::gemini::v1beta::generate_content::{Content, Part, Tool as GeminiTool};
 
 use crate::ChatAgent;
 use crate::error::{AgentError, Result};
 
-/// Configuration for Gemini Agent (Required).
-///
-/// Gemini 代理配置 (必须)。
-#[derive(Debug, Clone)]
-pub struct GenerateContentRequiredConfig {
-    pub model: Cow<'static, str>,
-    pub endpoint: Cow<'static, str>,
-}
+pub mod config;
 
-/// Configuration for Gemini Agent (Optional).
-///
-/// Gemini 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct GenerateContentOptionalConfig {
-    pub safety_settings: Option<Vec<SafetySetting>>,
-    pub system_instruction: Option<Content>,
-    pub tool_config: Option<ToolConfig>,
-    pub cached_content: Option<Cow<'static, str>>,
-
-    // Generation Config fields
-    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
-    pub response_mime_type: Option<Cow<'static, str>>,
-    pub max_output_tokens: Option<i32>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub top_k: Option<i32>,
-    pub presence_penalty: Option<f32>,
-    pub frequency_penalty: Option<f32>,
-    pub response_logprobs: Option<bool>,
-    pub logprobs: Option<i32>,
-}
-
-/// Configuration for Gemini Agent.
-///
-/// Gemini 代理配置。
-#[derive(Debug, Clone)]
-pub struct GenerateContentConfig {
-    pub required: GenerateContentRequiredConfig,
-    pub optional: GenerateContentOptionalConfig,
-}
-
-impl GenerateContentConfig {
-    /// Convert Config to GenerateContentRequest with provided contents.
-    ///
-    /// 将配置转换为 GenerateContentRequest，并填入内容。
-    pub fn to_request(
-        self,
-        contents: Vec<Content>,
-        system_instruction_override: Option<Content>,
-        tools: Option<Vec<GeminiTool>>,
-        tool_config_override: Option<ToolConfig>,
-    ) -> GenerateContentRequest {
-        let generation_config = Some(GenerationConfig {
-            stop_sequences: self.optional.stop_sequences,
-            response_mime_type: self.optional.response_mime_type,
-            response_schema: None, // Can be added to optional config if needed
-            candidate_count: None,
-            max_output_tokens: self.optional.max_output_tokens,
-            temperature: self.optional.temperature,
-            top_p: self.optional.top_p,
-            top_k: self.optional.top_k,
-            seed: None,
-            presence_penalty: self.optional.presence_penalty,
-            frequency_penalty: self.optional.frequency_penalty,
-            response_logprobs: self.optional.response_logprobs,
-            logprobs: self.optional.logprobs,
-            speech_config: None,
-            thinking_config: None,
-            image_config: None,
-            media_resolution: None,
-            response_json_schema: None,
-            response_modalities: None,
-        });
-
-        GenerateContentRequest {
-            contents,
-            tools,
-            tool_config: tool_config_override.or(self.optional.tool_config),
-            safety_settings: self.optional.safety_settings,
-            system_instruction: system_instruction_override.or(self.optional.system_instruction),
-            generation_config,
-            cached_content: self.optional.cached_content,
-        }
-    }
-}
+pub use config::{
+    GenerateContentConfig, GenerateContentOptionalConfig, GenerateContentRequiredConfig,
+};
 
 /// Gemini Agent.
 ///
@@ -125,10 +39,7 @@ impl<T: Transport> GenerateContentAgent<T> {
     pub fn new(transport: T, required: GenerateContentRequiredConfig) -> Self {
         Self {
             transport,
-            config: GenerateContentConfig {
-                required,
-                optional: GenerateContentOptionalConfig::default(),
-            },
+            config: GenerateContentConfig::new(required),
         }
     }
 
@@ -152,7 +63,7 @@ impl<T: Transport> GenerateContentAgent<T> {
 
         // System Prompt Conversion
         let system_instruction = sys_prompt.map(|s| Content {
-            parts: vec![Part::text(s)],
+            parts: vec![Part::text(s.to_string())],
             role: None, // System instruction role is typically implied or None
         });
 
@@ -275,7 +186,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         let request = self.build_request(state)?;
 
         // Send Request
-        let endpoint = format!("{}:generateContent", self.config.required.endpoint);
+        let endpoint = format!("{}:generateContent", self.config.required().endpoint());
         let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
         let response: GenerateContentResponse = self
             .transport
@@ -298,7 +209,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         let fut = request_res.map(|request| {
             let endpoint = format!(
                 "{}:streamGenerateContent?alt=sse",
-                self.config.required.endpoint
+                self.config.required().endpoint()
             );
             let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
             self.transport.stream(transport_req)

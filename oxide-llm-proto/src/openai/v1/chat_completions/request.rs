@@ -1,7 +1,7 @@
 use crate::openai::v1::{FunctionDefinition, Tool, ToolCall, ToolChoice};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, collections::HashMap};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -9,7 +9,7 @@ pub struct ChatCompletionRequest {
     pub messages: Vec<ChatCompletionMessage>,
 
     /// ID of the model to use.
-    pub model: Cow<'static, str>,
+    pub model: StaticRefStr,
 
     /// Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,7 +17,7 @@ pub struct ChatCompletionRequest {
 
     /// Modify the likelihood of specified tokens appearing in the completion.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logit_bias: Option<HashMap<Cow<'static, str>, f32>>,
+    pub logit_bias: Option<HashMap<StaticRefStr, f32>>,
 
     /// Whether to return log probabilities of the output tokens or not.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +42,7 @@ pub struct ChatCompletionRequest {
 
     /// Output types that you would like the model to generate for this request.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modalities: Option<Vec<Cow<'static, str>>>,
+    pub modalities: Option<Vec<StaticRefStr>>,
 
     /// Configuration for a Predicted Output, which can greatly improve response times when large parts of the model response are known ahead of time.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,7 +66,7 @@ pub struct ChatCompletionRequest {
 
     /// Specifies the latency tier to use for processing the request. This argument is currently available to standard tier customers.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<Cow<'static, str>>,
+    pub service_tier: Option<StaticRefStr>,
 
     /// Up to 4 sequences where the API will stop generating further tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,7 +106,7 @@ pub struct ChatCompletionRequest {
 
     /// A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<Cow<'static, str>>,
+    pub user: Option<StaticRefStr>,
 
     /// Deprecated in favor of `tool_choice`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -121,17 +121,17 @@ pub struct ChatCompletionRequest {
     pub web_search_options: Option<WebSearchOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verbosity: Option<Cow<'static, str>>,
+    pub verbosity: Option<StaticRefStr>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<Cow<'static, str>>,
+    pub reasoning_effort: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "lowercase")]
 pub enum ChatCompletionMessage {
     System {
-        content: Cow<'static, str>,
+        content: StaticRefStr,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<StaticRefStr>,
     },

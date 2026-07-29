@@ -1,10 +1,19 @@
 [[agents]]
-name = "my-openai"
+name = "my-openai-chat"
 type = "openai"
 base_url = "https://api.openai.com/v1"
 endpoint = "chat/completions"
 api_key = "sk-..."
 model = "gpt-3.5-turbo"
+
+# Example for OpenAI Responses API
+[[agents]]
+name = "my-openai-responses"
+type = "openai"
+base_url = "https://api.openai.com/v1"
+endpoint = "responses"
+api_key = "sk-..."
+model = "gpt-4.5-preview"
 
 # Example for Claude
 [[agents]]
