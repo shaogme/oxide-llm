@@ -347,10 +347,20 @@ pub enum ChatStreamEvent {
     /// 文本流片段。
     Text { text: String },
 
+    /// Reasoning block start.
+    ///
+    /// 思考/推理块开始。
+    ReasoningStart,
+
     /// Reasoning stream chunk.
     ///
     /// 思考/推理流片段。
     Reasoning { text: String },
+
+    /// Reasoning block end.
+    ///
+    /// 思考/推理块结束。
+    ReasoningEnd,
 
     /// Tool call start chunk.
     ///
@@ -723,6 +733,7 @@ pub struct ChatStream<S, E> {
     stream_finished: bool,
     start_event_emitted: bool,
     finished_event_emitted: bool,
+    in_reasoning: bool,
     emitted_tool_starts: std::collections::HashSet<u32>,
     emitted_tool_finishes: std::collections::HashSet<u32>,
     _marker: std::marker::PhantomData<E>,
@@ -742,6 +753,7 @@ where
             stream_finished: self.stream_finished,
             start_event_emitted: self.start_event_emitted,
             finished_event_emitted: self.finished_event_emitted,
+            in_reasoning: self.in_reasoning,
             emitted_tool_starts: self.emitted_tool_starts,
             emitted_tool_finishes: self.emitted_tool_finishes,
             _marker: std::marker::PhantomData,
@@ -761,6 +773,7 @@ where
             stream_finished: false,
             start_event_emitted: false,
             finished_event_emitted: false,
+            in_reasoning: false,
             emitted_tool_starts: std::collections::HashSet::new(),
             emitted_tool_finishes: std::collections::HashSet::new(),
             _marker: std::marker::PhantomData,
@@ -791,6 +804,12 @@ where
 
             // 3. If stream finished but we haven't emitted Finished event, do it now
             if this.stream_finished {
+                if this.in_reasoning {
+                    this.in_reasoning = false;
+                    this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                    continue;
+                }
+
                 this.finished_event_emitted = true;
 
                 // Emit all completed tool calls that haven't been emitted yet
@@ -842,6 +861,10 @@ where
                                     text,
                                     signature,
                                 } => {
+                                    if this.in_reasoning {
+                                        this.in_reasoning = false;
+                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                    }
                                     if !text.is_empty() {
                                         this.pending_events.push_back(ChatStreamEvent::Text {
                                             text: text.clone(),
@@ -858,6 +881,10 @@ where
                                     text,
                                     signature,
                                 } => {
+                                    if !this.in_reasoning {
+                                        this.in_reasoning = true;
+                                        this.pending_events.push_back(ChatStreamEvent::ReasoningStart);
+                                    }
                                     if !text.is_empty() {
                                         this.pending_events.push_back(ChatStreamEvent::Reasoning {
                                             text: text.clone(),
@@ -870,6 +897,10 @@ where
                                     });
                                 }
                                 DeltaContentPart::ToolCall(tool) => {
+                                    if this.in_reasoning {
+                                        this.in_reasoning = false;
+                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                    }
                                     if !this.emitted_tool_starts.contains(&tool.index) {
                                         this.emitted_tool_starts.insert(tool.index);
                                         this.pending_events.push_back(
@@ -887,6 +918,10 @@ where
                                     assembler_content.push(DeltaContentPart::ToolCall(tool));
                                 }
                                 other => {
+                                    if this.in_reasoning {
+                                        this.in_reasoning = false;
+                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                    }
                                     assembler_content.push(other);
                                 }
                             }
@@ -913,5 +948,119 @@ where
                 Poll::Pending => return Poll::Pending,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::{executor::block_on, stream};
+
+    #[test]
+    fn test_chat_stream_reasoning_lifecycle() {
+        block_on(async {
+            let deltas = vec![
+                Ok::<_, String>(DeltaMessage {
+                    role: Some(Role::Assistant),
+                    content: Some(vec![DeltaContentPart::Reasoning {
+                        index: 0,
+                        text: "thinking part 1".to_string(),
+                        signature: None,
+                    }]),
+                    ..Default::default()
+                }),
+                Ok::<_, String>(DeltaMessage {
+                    content: Some(vec![DeltaContentPart::Reasoning {
+                        index: 0,
+                        text: "thinking part 2".to_string(),
+                        signature: None,
+                    }]),
+                    ..Default::default()
+                }),
+                Ok::<_, String>(DeltaMessage {
+                    content: Some(vec![DeltaContentPart::Text {
+                        index: 1,
+                        text: "final answer".to_string(),
+                        signature: None,
+                    }]),
+                    ..Default::default()
+                }),
+            ];
+
+            let stream = stream::iter(deltas);
+            let mut chat_stream = ChatStream::new(stream);
+
+            let mut events = Vec::new();
+            while let Some(res) = chat_stream.next().await {
+                events.push(res.unwrap());
+            }
+
+            assert_eq!(
+                events,
+                vec![
+                    ChatStreamEvent::Start {
+                        role: Role::Assistant,
+                        name: None,
+                    },
+                    ChatStreamEvent::ReasoningStart,
+                    ChatStreamEvent::Reasoning {
+                        text: "thinking part 1".to_string()
+                    },
+                    ChatStreamEvent::Reasoning {
+                        text: "thinking part 2".to_string()
+                    },
+                    ChatStreamEvent::ReasoningEnd,
+                    ChatStreamEvent::Text {
+                        text: "final answer".to_string()
+                    },
+                    ChatStreamEvent::Finished {
+                        usage: None,
+                        finish_reason: None,
+                    }
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn test_chat_stream_reasoning_end_on_stream_finish() {
+        block_on(async {
+            let deltas = vec![Ok::<_, String>(DeltaMessage {
+                role: Some(Role::Assistant),
+                content: Some(vec![DeltaContentPart::Reasoning {
+                    index: 0,
+                    text: "only reasoning".to_string(),
+                    signature: None,
+                }]),
+                ..Default::default()
+            })];
+
+            let stream = stream::iter(deltas);
+            let mut chat_stream = ChatStream::new(stream);
+
+            let mut events = Vec::new();
+            while let Some(res) = chat_stream.next().await {
+                events.push(res.unwrap());
+            }
+
+            assert_eq!(
+                events,
+                vec![
+                    ChatStreamEvent::Start {
+                        role: Role::Assistant,
+                        name: None,
+                    },
+                    ChatStreamEvent::ReasoningStart,
+                    ChatStreamEvent::Reasoning {
+                        text: "only reasoning".to_string()
+                    },
+                    ChatStreamEvent::ReasoningEnd,
+                    ChatStreamEvent::Finished {
+                        usage: None,
+                        finish_reason: None,
+                    }
+                ]
+            );
+        });
     }
 }

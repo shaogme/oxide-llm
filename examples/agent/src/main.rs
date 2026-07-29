@@ -313,55 +313,47 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut stream = runner.run_stream(&mut state);
 
-    let mut in_reasoning = false;
     while let Some(event_result) = stream.next().await {
         match event_result {
-            Ok(event) => {
-                match &event {
-                    ChatStreamEvent::Reasoning { .. } => {
-                        if !in_reasoning {
-                            print!("[Thinking] ");
-                            in_reasoning = true;
-                        }
-                    }
-                    _ => {
-                        if in_reasoning {
-                            println!();
-                            in_reasoning = false;
-                        }
-                    }
+            Ok(event) => match event {
+                ChatStreamEvent::Start { role, name } => {
+                    println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
                 }
-
-                match event {
-                    ChatStreamEvent::Start { role, name } => {
-                        println!("[Stream Started] Role: {:?}, Name: {:?}", role, name);
-                    }
-                    ChatStreamEvent::Reasoning { text } => {
-                        print!("{}", text);
-                        stdout().flush().unwrap();
-                    }
-                    ChatStreamEvent::Text { text } => {
-                        print!("{}", text);
-                        stdout().flush().unwrap();
-                    }
-                    ChatStreamEvent::Finished {
-                        usage,
-                        finish_reason,
-                    } => {
-                        println!();
-                        println!(
-                            "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
-                            usage, finish_reason
-                        );
-                    }
-                    ChatStreamEvent::ToolCallStart { index, name, .. } => {
-                        println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
-                    }
-                    ChatStreamEvent::ToolCallFinished(tc) => {
-                        println!("[Tool Call Finished] Id: {}, Name: {}, Args: {}", tc.id, tc.name, tc.arguments);
-                    }
+                ChatStreamEvent::ReasoningStart => {
+                    print!("[Thinking] ");
+                    stdout().flush().unwrap();
                 }
-            }
+                ChatStreamEvent::Reasoning { text } => {
+                    print!("{}", text);
+                    stdout().flush().unwrap();
+                }
+                ChatStreamEvent::ReasoningEnd => {
+                    println!();
+                }
+                ChatStreamEvent::Text { text } => {
+                    print!("{}", text);
+                    stdout().flush().unwrap();
+                }
+                ChatStreamEvent::Finished {
+                    usage,
+                    finish_reason,
+                } => {
+                    println!();
+                    println!(
+                        "[Stream Finished] Usage: {:?}, Finish Reason: {:?}",
+                        usage, finish_reason
+                    );
+                }
+                ChatStreamEvent::ToolCallStart { index, name, .. } => {
+                    println!("\n[Tool Call Start] Index: {}, Name: {:?}", index, name);
+                }
+                ChatStreamEvent::ToolCallFinished(tc) => {
+                    println!(
+                        "[Tool Call Finished] Id: {}, Name: {}, Args: {}",
+                        tc.id, tc.name, tc.arguments
+                    );
+                }
+            },
             Err(e) => {
                 eprintln!("\nError in stream: {}", e);
             }
