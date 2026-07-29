@@ -1,3 +1,4 @@
+pub mod chunk;
 pub mod request;
 #[allow(clippy::module_inception)]
 pub mod response;

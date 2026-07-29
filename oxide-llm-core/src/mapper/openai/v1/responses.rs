@@ -1,6 +1,11 @@
 use crate::mapper::MapperError;
-use crate::message::{ContentPart, ImageSource, Message, Role};
+use crate::message::{
+    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason,
+    ImageSource, Message, Role, Usage,
+};
 use crate::tool::ToolCall;
+use oxide_llm_proto::openai::v1::response::chunk::ResponseStreamEvent;
+use oxide_llm_proto::openai::v1::response::response::{OutputItem, ResponseStatus};
 
 /// Mapper for OpenAI Response API protocol.
 ///
@@ -175,6 +180,166 @@ impl OpenAIResponseMapper {
     }
 }
 
+/// Stateful mapper for OpenAI Response API streaming events.
+///
+/// 用于 OpenAI Response API 流式事件的有状态映射器。
+pub struct OpenAIResponseStreamMapper;
+
+impl OpenAIResponseStreamMapper {
+    /// Create a new `OpenAIResponseStreamMapper`.
+    ///
+    /// 创建一个新的 `OpenAIResponseStreamMapper`。
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Map OpenAI Response API stream event to a core DeltaMessage.
+    ///
+    /// 将 OpenAI Response API 流式事件映射为核心 DeltaMessage。
+    pub fn map_response(
+        &mut self,
+        event: ResponseStreamEvent,
+    ) -> Result<DeltaMessage, MapperError> {
+        match event {
+            ResponseStreamEvent::OutputTextDelta {
+                content_index,
+                delta,
+                ..
+            } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::Text {
+                    index: content_index,
+                    text: delta,
+                    signature: None,
+                }]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::RefusalDelta { delta, .. } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::Refusal {
+                    refusal: delta.into(),
+                }]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::ReasoningTextDelta {
+                content_index,
+                delta,
+                ..
+            } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::Reasoning {
+                    index: content_index,
+                    text: delta,
+                    signature: None,
+                }]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::FunctionCallArgumentsDelta {
+                output_index,
+                call_id,
+                delta,
+                ..
+            } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                    index: output_index,
+                    id: call_id,
+                    r#type: Some("function".into()),
+                    function: Some(DeltaFunction {
+                        name: None,
+                        arguments: Some(delta.into()),
+                    }),
+                    signature: None,
+                })]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::OutputItemAdded {
+                output_index, item, ..
+            } => match item {
+                OutputItem::FunctionCall(fc) => Ok(DeltaMessage {
+                    role: None,
+                    content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                        index: output_index,
+                        id: Some(fc.id.into()),
+                        r#type: Some("function".into()),
+                        function: Some(DeltaFunction {
+                            name: Some(fc.name.into()),
+                            arguments: if fc.arguments.is_empty() {
+                                None
+                            } else {
+                                Some(fc.arguments.into())
+                            },
+                        }),
+                        signature: None,
+                    })]),
+                    name: None,
+                    finish_reason: None,
+                    usage: None,
+                }),
+                _ => Ok(DeltaMessage::default()),
+            },
+            ResponseStreamEvent::AudioTranscriptDelta {
+                content_index,
+                delta,
+                ..
+            } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::Text {
+                    index: content_index,
+                    text: delta,
+                    signature: None,
+                }]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::Completed { response, .. } => {
+                let usage = response.usage.map(|u| Usage {
+                    input_tokens: u.input_tokens,
+                    output_tokens: u.output_tokens,
+                    total_tokens: u.total_tokens,
+                });
+                let finish_reason = match response.status {
+                    ResponseStatus::Completed => Some(FinishReason::Stop),
+                    ResponseStatus::Incomplete => Some(FinishReason::Length),
+                    ResponseStatus::Failed => Some(FinishReason::Other("failed".into())),
+                    ResponseStatus::Cancelled => Some(FinishReason::Other("cancelled".into())),
+                    _ => None,
+                };
+                Ok(DeltaMessage {
+                    role: None,
+                    content: None,
+                    name: None,
+                    finish_reason,
+                    usage,
+                })
+            }
+            ResponseStreamEvent::Created { .. } => Ok(DeltaMessage {
+                role: Some(Role::Assistant),
+                content: None,
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            _ => Ok(DeltaMessage::default()),
+        }
+    }
+}
+
+impl Default for OpenAIResponseStreamMapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +399,28 @@ mod tests {
             assert_eq!(text, "Hello world");
         } else {
             panic!("Expected text content part");
+        }
+    }
+
+    #[test]
+    fn test_openai_response_stream_mapper() {
+        let mut mapper = OpenAIResponseStreamMapper::new();
+        let event = ResponseStreamEvent::OutputTextDelta {
+            item_id: "msg_123".into(),
+            output_index: 0,
+            content_index: 0,
+            delta: "Hello".to_string(),
+            logprobs: None,
+            sequence_number: Some(1),
+        };
+        let delta = mapper.map_response(event).unwrap();
+        assert!(delta.content.is_some());
+        let parts = delta.content.unwrap();
+        assert_eq!(parts.len(), 1);
+        if let DeltaContentPart::Text { text, .. } = &parts[0] {
+            assert_eq!(text, "Hello");
+        } else {
+            panic!("Expected text delta part");
         }
     }
 }
