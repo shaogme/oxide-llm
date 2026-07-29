@@ -90,32 +90,28 @@ impl<T: Transport> InteractionsAgent<T> {
     }
 }
 
-/// SSE Processor for Gemini Interactions stream events.
+/// SSE Processor for Gemini Interactions raw stream events.
 ///
-/// Gemini Interactions 流事件的 SSE 处理器。
-pub struct InteractionsProcessor {
-    mapper: GeminiInteractionsStreamMapper,
-}
+/// Gemini Interactions 裸事件的 SSE 处理器。
+pub struct RawInteractionsProcessor;
 
-impl InteractionsProcessor {
-    /// Creates a new `InteractionsProcessor`.
+impl RawInteractionsProcessor {
+    /// Creates a new `RawInteractionsProcessor`.
     ///
-    /// 创建一个新的 `InteractionsProcessor`。
+    /// 创建一个新的 `RawInteractionsProcessor`。
     pub fn new() -> Self {
-        Self {
-            mapper: GeminiInteractionsStreamMapper::new(),
-        }
+        Self
     }
 }
 
-impl Default for InteractionsProcessor {
+impl Default for RawInteractionsProcessor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::stream::SseProcessor for InteractionsProcessor {
-    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+impl crate::stream::SseProcessor<InteractionSseEvent> for RawInteractionsProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<InteractionSseEvent>>, bool) {
         let s = match std::str::from_utf8(block) {
             Ok(s) => s,
             Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
@@ -140,12 +136,7 @@ impl crate::stream::SseProcessor for InteractionsProcessor {
                         ) {
                             done = true;
                         }
-                        match self.mapper.map_event(event) {
-                            Ok(delta) => {
-                                chunk_to_yield = Some(Ok(delta));
-                            }
-                            Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                        }
+                        chunk_to_yield = Some(Ok(event));
                     }
                     Err(e) => return (Some(Err(AgentError::Json(e))), false),
                 }
@@ -156,17 +147,39 @@ impl crate::stream::SseProcessor for InteractionsProcessor {
     }
 }
 
+impl crate::stream::StreamMapper<InteractionSseEvent> for GeminiInteractionsStreamMapper {
+    fn map_item(&mut self, raw: InteractionSseEvent) -> Result<Option<DeltaMessage>> {
+        self.map_event(raw).map(Some).map_err(AgentError::Mapper)
+    }
+}
+
 impl<T: Transport> ChatAgent for InteractionsAgent<T> {
-    type Stream = crate::stream::MessageStream<T::Stream, InteractionsProcessor>;
-    type ChatStreamFuture<'a>
-        = crate::stream::AgentChatStreamFuture<T::StreamFuture, InteractionsProcessor>
+    type RawMessage = Vec<InteractionSseEvent>;
+    type RawDelta = InteractionSseEvent;
+    type RawStream =
+        crate::stream::MessageStream<T::Stream, RawInteractionsProcessor, InteractionSseEvent>;
+    type ChatStreamRawFuture<'a>
+        = crate::stream::AgentChatStreamRawFuture<
+            T::StreamFuture,
+            RawInteractionsProcessor,
+            InteractionSseEvent,
+        >
     where
         Self: 'a;
 
-    /// Send a chat request to Gemini Interactions API.
+    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiInteractionsStreamMapper>;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<
+            Self::ChatStreamRawFuture<'a>,
+            GeminiInteractionsStreamMapper,
+        >
+    where
+        Self: 'a;
+
+    /// Send a chat request to Gemini Interactions API and return raw SSE events.
     ///
-    /// 发送聊天请求到 Gemini Interactions API。
-    async fn chat(&self, state: ConversationState) -> Result<Message> {
+    /// 发送聊天请求到 Gemini Interactions API 并返回原始 SSE 事件列表。
+    async fn chat_raw(&self, state: ConversationState) -> Result<Vec<InteractionSseEvent>> {
         let request = self.build_request(state, None)?;
 
         let endpoint = self.config.required().endpoint().to_string();
@@ -180,19 +193,48 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
-        let mut processor = InteractionsProcessor::new();
-        let mut assembler = oxide_llm_core::message::MessageAssembler::new();
+        let mut processor = RawInteractionsProcessor::new();
+        let mut events = Vec::new();
 
         while let Some(chunk_res) = stream.next().await {
             let chunk_bytes = chunk_res.map_err(AgentError::Transport)?;
-            let (delta_opt, done) = processor.process(&chunk_bytes);
-            if let Some(delta_res) = delta_opt {
-                let delta = delta_res?;
-                assembler.add(delta);
+            let (event_opt, done) = processor.process(&chunk_bytes);
+            if let Some(event_res) = event_opt {
+                let event = event_res?;
+                events.push(event);
             }
             if done {
                 break;
             }
+        }
+
+        Ok(events)
+    }
+
+    /// Send a chat request to Gemini Interactions API and receive a stream of raw SSE events.
+    ///
+    /// 发送聊天请求到 Gemini Interactions API 并接收原始 SSE 事件的流。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        let request_res = self.build_request(state, Some(true));
+        let fut = request_res.map(|request| {
+            let endpoint = self.config.required().endpoint().to_string();
+            let transport_req = TransportRequest::new(Method::Post, endpoint, request);
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamRawFuture::new(fut, RawInteractionsProcessor::new())
+    }
+
+    /// Send a chat request to Gemini Interactions API.
+    ///
+    /// 发送聊天请求到 Gemini Interactions API。
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        let events = self.chat_raw(state).await?;
+        let mut mapper = GeminiInteractionsStreamMapper::new();
+        let mut assembler = oxide_llm_core::message::MessageAssembler::new();
+
+        for event in events {
+            let delta = mapper.map_event(event).map_err(AgentError::Mapper)?;
+            assembler.add(delta);
         }
 
         Ok(assembler.build())
@@ -202,13 +244,10 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ///
     /// 发送聊天请求到 Gemini Interactions API 并接收流式响应。
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        let request_res = self.build_request(state, Some(true));
-        let fut = request_res.map(|request| {
-            let endpoint = self.config.required().endpoint().to_string();
-            let transport_req = TransportRequest::new(Method::Post, endpoint, request);
-            self.transport.stream(transport_req)
-        });
-        crate::stream::AgentChatStreamFuture::new(fut, InteractionsProcessor::new())
+        crate::stream::AgentChatStreamFuture::new(
+            self.chat_stream_raw(state),
+            GeminiInteractionsStreamMapper::new(),
+        )
     }
 }
 
@@ -256,15 +295,17 @@ mod tests {
 
     #[test]
     fn test_interactions_processor() {
-        use crate::stream::SseProcessor;
+        use crate::stream::{SseProcessor, StreamMapper};
 
-        let mut processor = InteractionsProcessor::new();
+        let mut processor = RawInteractionsProcessor::new();
+        let mut mapper = GeminiInteractionsStreamMapper::new();
         let sse_data = r#"data: {"event_type":"step.delta","index":0,"delta":{"type":"text","text":"Hello world"}}"#;
 
         let (res, done) = processor.process(sse_data.as_bytes());
         assert!(!done);
         assert!(res.is_some());
-        let delta = res.unwrap().unwrap();
+        let raw_event = res.unwrap().unwrap();
+        let delta = mapper.map_item(raw_event).unwrap().unwrap();
         assert_eq!(delta.role, Some(Role::Assistant));
         if let Some(parts) = delta.content {
             if let DeltaContentPart::Text { text, .. } = &parts[0] {

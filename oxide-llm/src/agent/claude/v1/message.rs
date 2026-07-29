@@ -99,32 +99,28 @@ impl<T: Transport> MessagesAgent<T> {
 //
 // Claude Messages 流。
 
-/// SSE Processor for Claude Messages stream events.
+/// SSE Processor for Claude Messages raw stream events.
 ///
-/// Claude Messages 流事件的 SSE 处理器。
-pub struct ClaudeProcessor {
-    mapper: ClaudeStreamMapper,
-}
+/// Claude Messages 裸事件的 SSE 处理器。
+pub struct RawClaudeProcessor;
 
-impl ClaudeProcessor {
-    /// Creates a new `ClaudeProcessor`.
+impl RawClaudeProcessor {
+    /// Creates a new `RawClaudeProcessor`.
     ///
-    /// 创建一个新的 `ClaudeProcessor`。
+    /// 创建一个新的 `RawClaudeProcessor`。
     pub fn new() -> Self {
-        Self {
-            mapper: ClaudeStreamMapper::new(),
-        }
+        Self
     }
 }
 
-impl Default for ClaudeProcessor {
+impl Default for RawClaudeProcessor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::stream::SseProcessor for ClaudeProcessor {
-    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+impl crate::stream::SseProcessor<ClaudeStreamEvent> for RawClaudeProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<ClaudeStreamEvent>>, bool) {
         let s = match std::str::from_utf8(block) {
             Ok(s) => s,
             Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
@@ -146,19 +142,7 @@ impl crate::stream::SseProcessor for ClaudeProcessor {
                             stop = true;
                         }
 
-                        match self.mapper.map_response(event) {
-                            Ok(delta) => {
-                                chunk_to_yield = Some(Ok(delta));
-                            }
-                            Err(e) => {
-                                if !matches!(
-                                    e,
-                                    oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }
-                                ) {
-                                    return (Some(Err(AgentError::Mapper(e))), false);
-                                }
-                            }
-                        }
+                        chunk_to_yield = Some(Ok(event));
                     }
                     Err(e) => return (Some(Err(AgentError::Json(e))), false),
                 }
@@ -169,17 +153,47 @@ impl crate::stream::SseProcessor for ClaudeProcessor {
     }
 }
 
+impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeStreamMapper {
+    fn map_item(&mut self, raw: ClaudeStreamEvent) -> Result<Option<DeltaMessage>> {
+        match self.map_response(raw) {
+            Ok(delta) => Ok(Some(delta)),
+            Err(e) => {
+                if matches!(
+                    e,
+                    oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }
+                ) {
+                    Ok(None)
+                } else {
+                    Err(AgentError::Mapper(e))
+                }
+            }
+        }
+    }
+}
+
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
-    type Stream = crate::stream::MessageStream<T::Stream, ClaudeProcessor>;
-    type ChatStreamFuture<'a>
-        = crate::stream::AgentChatStreamFuture<T::StreamFuture, ClaudeProcessor>
+    type RawMessage = MessagesResponse;
+    type RawDelta = ClaudeStreamEvent;
+    type RawStream =
+        crate::stream::MessageStream<T::Stream, RawClaudeProcessor, ClaudeStreamEvent>;
+    type ChatStreamRawFuture<'a>
+        = crate::stream::AgentChatStreamRawFuture<T::StreamFuture, RawClaudeProcessor, ClaudeStreamEvent>
     where
         Self: 'a;
 
-    /// Send a chat request to Claude.
+    type Stream = crate::stream::MappedStream<Self::RawStream, ClaudeStreamMapper>;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<
+            Self::ChatStreamRawFuture<'a>,
+            ClaudeStreamMapper,
+        >
+    where
+        Self: 'a;
+
+    /// Send a chat request to Claude and return raw response.
     ///
-    /// 发送聊天请求到 Claude。
-    async fn chat(&self, state: ConversationState) -> Result<Message> {
+    /// 发送聊天请求到 Claude 并返回原始响应。
+    async fn chat_raw(&self, state: ConversationState) -> Result<MessagesResponse> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -194,6 +208,31 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
+        Ok(response)
+    }
+
+    /// Send a chat request to Claude and receive a stream of raw chunks.
+    ///
+    /// 发送聊天请求到 Claude 并接收原始块的流式响应。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        let request_res = self.build_request(state, true);
+        let fut = request_res.map(|request| {
+            let transport_req = TransportRequest::new(
+                Method::Post,
+                self.config.required().endpoint().to_string(),
+                request,
+            );
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamRawFuture::new(fut, RawClaudeProcessor::new())
+    }
+
+    /// Send a chat request to Claude.
+    ///
+    /// 发送聊天请求到 Claude。
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        let response = self.chat_raw(state).await?;
+
         // Convert Response back to Core Message
         let core_message: Message =
             ClaudeMapper::to_core_message(response).map_err(AgentError::Mapper)?;
@@ -205,15 +244,9 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     ///
     /// 发送聊天请求到 Claude 并接收流式响应。
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        let request_res = self.build_request(state, true);
-        let fut = request_res.map(|request| {
-            let transport_req = TransportRequest::new(
-                Method::Post,
-                self.config.required().endpoint().to_string(),
-                request,
-            );
-            self.transport.stream(transport_req)
-        });
-        crate::stream::AgentChatStreamFuture::new(fut, ClaudeProcessor::new())
+        crate::stream::AgentChatStreamFuture::new(
+            self.chat_stream_raw(state),
+            ClaudeStreamMapper::new(),
+        )
     }
 }

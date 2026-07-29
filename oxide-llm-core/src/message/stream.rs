@@ -139,6 +139,12 @@ pub struct ChatStream<S, E> {
     _marker: PhantomData<E>,
 }
 
+impl<S, E> ChatStream<S, E> {
+    pub fn into_inner(self) -> S {
+        self.stream
+    }
+}
+
 impl<S, E> ChatStream<S, E>
 where
     S: Stream<Item = Result<DeltaMessage, E>> + Send + 'static,

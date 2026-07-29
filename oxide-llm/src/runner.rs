@@ -401,12 +401,28 @@ mod tests {
     struct DummyAgent;
 
     impl ChatAgent for DummyAgent {
+        type RawMessage = Message;
+        type RawDelta = crate::core::message::DeltaMessage;
+        type RawStream =
+            futures::stream::Empty<Result<crate::core::message::DeltaMessage, AgentError>>;
+        type ChatStreamRawFuture<'a>
+            = std::future::Ready<Result<Self::RawStream, AgentError>>
+        where
+            Self: 'a;
         type Stream =
             futures::stream::Empty<Result<crate::core::message::DeltaMessage, AgentError>>;
         type ChatStreamFuture<'a>
             = std::future::Ready<Result<ChatStream<Self::Stream, AgentError>, AgentError>>
         where
             Self: 'a;
+
+        async fn chat_raw(&self, _state: ConversationState) -> Result<Self::RawMessage, AgentError> {
+            Ok(Message::user("dummy"))
+        }
+
+        fn chat_stream_raw<'a>(&'a self, _state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+            std::future::ready(Ok(futures::stream::empty()))
+        }
 
         async fn chat(&self, _state: ConversationState) -> Result<Message, AgentError> {
             Ok(Message::user("dummy"))

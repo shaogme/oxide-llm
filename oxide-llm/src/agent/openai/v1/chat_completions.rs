@@ -124,32 +124,28 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 //
 // OpenAI Messages 流。
 
-/// SSE Processor for OpenAI Chat Completion stream chunks.
+/// SSE Processor for OpenAI Chat Completion raw stream chunks.
 ///
-/// OpenAI Chat Completion 流 Chunk 的 SSE 处理器。
-pub struct OpenAIProcessor {
-    mapper: OpenAIStreamMapper,
-}
+/// OpenAI Chat Completion 裸 Chunk 的 SSE 处理器。
+pub struct RawOpenAIProcessor;
 
-impl OpenAIProcessor {
-    /// Creates a new `OpenAIProcessor`.
+impl RawOpenAIProcessor {
+    /// Creates a new `RawOpenAIProcessor`.
     ///
-    /// 创建一个新的 `OpenAIProcessor`。
+    /// 创建一个新的 `RawOpenAIProcessor`。
     pub fn new() -> Self {
-        Self {
-            mapper: OpenAIStreamMapper::new(),
-        }
+        Self
     }
 }
 
-impl Default for OpenAIProcessor {
+impl Default for RawOpenAIProcessor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::stream::SseProcessor for OpenAIProcessor {
-    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+impl crate::stream::SseProcessor<OpenAIStreamChunk> for RawOpenAIProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<OpenAIStreamChunk>>, bool) {
         let s = match std::str::from_utf8(block) {
             Ok(s) => s,
             Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
@@ -166,12 +162,9 @@ impl crate::stream::SseProcessor for OpenAIProcessor {
                     break;
                 }
                 match serde_json::from_str::<OpenAIStreamChunk>(data) {
-                    Ok(chunk) => match self.mapper.map_response(chunk) {
-                        Ok(delta) => {
-                            chunk_to_yield = Some(Ok(delta));
-                        }
-                        Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                    },
+                    Ok(chunk) => {
+                        chunk_to_yield = Some(Ok(chunk));
+                    }
                     Err(e) => return (Some(Err(AgentError::Json(e))), false),
                 }
             }
@@ -185,17 +178,39 @@ impl crate::stream::SseProcessor for OpenAIProcessor {
     }
 }
 
+impl crate::stream::StreamMapper<OpenAIStreamChunk> for OpenAIStreamMapper {
+    fn map_item(&mut self, raw: OpenAIStreamChunk) -> Result<Option<DeltaMessage>> {
+        self.map_response(raw).map(Some).map_err(AgentError::Mapper)
+    }
+}
+
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
-    type Stream = crate::stream::MessageStream<T::Stream, OpenAIProcessor>;
-    type ChatStreamFuture<'a>
-        = crate::stream::AgentChatStreamFuture<T::StreamFuture, OpenAIProcessor>
+    type RawMessage = ChatCompletionResponse;
+    type RawDelta = OpenAIStreamChunk;
+    type RawStream =
+        crate::stream::MessageStream<T::Stream, RawOpenAIProcessor, OpenAIStreamChunk>;
+    type ChatStreamRawFuture<'a>
+        = crate::stream::AgentChatStreamRawFuture<
+            T::StreamFuture,
+            RawOpenAIProcessor,
+            OpenAIStreamChunk,
+        >
     where
         Self: 'a;
 
-    /// Send a chat request to OpenAI.
+    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIStreamMapper>;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<
+            Self::ChatStreamRawFuture<'a>,
+            OpenAIStreamMapper,
+        >
+    where
+        Self: 'a;
+
+    /// Send a chat request to OpenAI and return raw response.
     ///
-    /// 发送聊天请求到 OpenAI。
-    async fn chat(&self, state: ConversationState) -> Result<Message> {
+    /// 发送聊天请求到 OpenAI 并返回原始响应。
+    async fn chat_raw(&self, state: ConversationState) -> Result<ChatCompletionResponse> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -210,6 +225,31 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
+        Ok(response)
+    }
+
+    /// Send a chat request to OpenAI and receive a stream of raw chunks.
+    ///
+    /// 发送聊天请求到 OpenAI 并接收原始块的流式响应。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        let request_res = self.build_request(state, true);
+        let fut = request_res.map(|request| {
+            let transport_req = TransportRequest::new(
+                Method::Post,
+                self.config.required().endpoint().to_string(),
+                request,
+            );
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamRawFuture::new(fut, RawOpenAIProcessor::new())
+    }
+
+    /// Send a chat request to OpenAI.
+    ///
+    /// 发送聊天请求到 OpenAI。
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        let response = self.chat_raw(state).await?;
+
         // Convert Response back to Core Message
         let core_message: Message =
             OpenAIChatCompletionMapper::to_core_message(response).map_err(AgentError::Mapper)?;
@@ -221,15 +261,9 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ///
     /// 发送聊天请求到 OpenAI 并接收流式响应。
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        let request_res = self.build_request(state, true);
-        let fut = request_res.map(|request| {
-            let transport_req = TransportRequest::new(
-                Method::Post,
-                self.config.required().endpoint().to_string(),
-                request,
-            );
-            self.transport.stream(transport_req)
-        });
-        crate::stream::AgentChatStreamFuture::new(fut, OpenAIProcessor::new())
+        crate::stream::AgentChatStreamFuture::new(
+            self.chat_stream_raw(state),
+            OpenAIStreamMapper::new(),
+        )
     }
 }

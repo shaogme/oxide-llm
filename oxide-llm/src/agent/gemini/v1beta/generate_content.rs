@@ -114,32 +114,28 @@ impl<T: Transport> GenerateContentAgent<T> {
 //
 // Gemini Messages 流。
 
-/// SSE Processor for Gemini GenerateContent stream events.
+/// SSE Processor for Gemini GenerateContent raw stream events.
 ///
-/// Gemini GenerateContent 流事件的 SSE 处理器。
-pub struct GeminiProcessor {
-    mapper: GeminiGenerateContentStreamMapper,
-}
+/// Gemini GenerateContent 裸事件的 SSE 处理器。
+pub struct RawGeminiProcessor;
 
-impl GeminiProcessor {
-    /// Creates a new `GeminiProcessor`.
+impl RawGeminiProcessor {
+    /// Creates a new `RawGeminiProcessor`.
     ///
-    /// 创建一个新的 `GeminiProcessor`。
+    /// 创建一个新的 `RawGeminiProcessor`。
     pub fn new() -> Self {
-        Self {
-            mapper: GeminiGenerateContentStreamMapper::new(),
-        }
+        Self
     }
 }
 
-impl Default for GeminiProcessor {
+impl Default for RawGeminiProcessor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl crate::stream::SseProcessor for GeminiProcessor {
-    fn process(&mut self, block: &[u8]) -> (Option<Result<DeltaMessage>>, bool) {
+impl crate::stream::SseProcessor<GenerateContentResponse> for RawGeminiProcessor {
+    fn process(&mut self, block: &[u8]) -> (Option<Result<GenerateContentResponse>>, bool) {
         let s = match std::str::from_utf8(block) {
             Ok(s) => s,
             Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
@@ -156,12 +152,9 @@ impl crate::stream::SseProcessor for GeminiProcessor {
                     break;
                 }
                 match serde_json::from_str::<GenerateContentResponse>(data) {
-                    Ok(chunk) => match self.mapper.map_response(chunk) {
-                        Ok(delta) => {
-                            chunk_to_yield = Some(Ok(delta));
-                        }
-                        Err(e) => return (Some(Err(AgentError::Mapper(e))), false),
-                    },
+                    Ok(chunk) => {
+                        chunk_to_yield = Some(Ok(chunk));
+                    }
                     Err(e) => return (Some(Err(AgentError::Json(e))), false),
                 }
             }
@@ -175,17 +168,41 @@ impl crate::stream::SseProcessor for GeminiProcessor {
     }
 }
 
+impl crate::stream::StreamMapper<GenerateContentResponse>
+    for GeminiGenerateContentStreamMapper
+{
+    fn map_item(&mut self, raw: GenerateContentResponse) -> Result<Option<DeltaMessage>> {
+        self.map_response(raw).map(Some).map_err(AgentError::Mapper)
+    }
+}
+
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
-    type Stream = crate::stream::MessageStream<T::Stream, GeminiProcessor>;
-    type ChatStreamFuture<'a>
-        = crate::stream::AgentChatStreamFuture<T::StreamFuture, GeminiProcessor>
+    type RawMessage = GenerateContentResponse;
+    type RawDelta = GenerateContentResponse;
+    type RawStream =
+        crate::stream::MessageStream<T::Stream, RawGeminiProcessor, GenerateContentResponse>;
+    type ChatStreamRawFuture<'a>
+        = crate::stream::AgentChatStreamRawFuture<
+            T::StreamFuture,
+            RawGeminiProcessor,
+            GenerateContentResponse,
+        >
     where
         Self: 'a;
 
-    /// Send a chat request to Gemini.
+    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiGenerateContentStreamMapper>;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<
+            Self::ChatStreamRawFuture<'a>,
+            GeminiGenerateContentStreamMapper,
+        >
+    where
+        Self: 'a;
+
+    /// Send a chat request to Gemini and return the raw response.
     ///
-    /// 发送聊天请求到 Gemini。
-    async fn chat(&self, state: ConversationState) -> Result<Message> {
+    /// 发送聊天请求到 Gemini 并返回原始响应。
+    async fn chat_raw(&self, state: ConversationState) -> Result<GenerateContentResponse> {
         let request = self.build_request(state)?;
 
         // Send Request
@@ -196,6 +213,31 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             .send(transport_req)
             .await
             .map_err(AgentError::Transport)?;
+
+        Ok(response)
+    }
+
+    /// Send a chat request to Gemini and receive a stream of raw chunks.
+    ///
+    /// 发送聊天请求到 Gemini 并接收原始块的流式响应。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        let request_res = self.build_request(state);
+        let fut = request_res.map(|request| {
+            let endpoint = format!(
+                "{}:streamGenerateContent?alt=sse",
+                self.config.required().endpoint()
+            );
+            let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamRawFuture::new(fut, RawGeminiProcessor::new())
+    }
+
+    /// Send a chat request to Gemini.
+    ///
+    /// 发送聊天请求到 Gemini。
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        let response = self.chat_raw(state).await?;
 
         // Convert Response back to Core Message
         let core_message: Message =
@@ -208,15 +250,30 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     ///
     /// 发送聊天请求到 Gemini 并接收流式响应。
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        let request_res = self.build_request(state);
-        let fut = request_res.map(|request| {
-            let endpoint = format!(
-                "{}:streamGenerateContent?alt=sse",
-                self.config.required().endpoint()
-            );
-            let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
-            self.transport.stream(transport_req)
-        });
-        crate::stream::AgentChatStreamFuture::new(fut, GeminiProcessor::new())
+        crate::stream::AgentChatStreamFuture::new(
+            self.chat_stream_raw(state),
+            GeminiGenerateContentStreamMapper::new(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stream::SseProcessor;
+
+    #[test]
+    fn test_raw_gemini_processor() {
+        let mut processor = RawGeminiProcessor::new();
+        let sse_data = r#"data: {"candidates":[{"content":{"parts":[{"text":"Hello raw"}]}}]}"#;
+
+        let (res, done) = processor.process(sse_data.as_bytes());
+        assert!(!done);
+        assert!(res.is_some());
+        let raw_resp = res.unwrap().unwrap();
+        assert_eq!(
+            raw_resp.candidates[0].content.parts[0].text,
+            Some("Hello raw".to_string())
+        );
     }
 }
