@@ -190,24 +190,24 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiGenerateContentStreamMapper>;
+    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiGenerateContentStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
             Self::ChatStreamRawFuture<'a>,
             GeminiGenerateContentStreamMapper,
+            Self::RawDelta,
         >
     where
         Self: 'a;
 
-    /// Send a chat request to Gemini and return the raw response.
+    /// Send a chat request to Gemini and return raw response.
     ///
     /// 发送聊天请求到 Gemini 并返回原始响应。
     async fn chat_raw(&self, state: ConversationState) -> Result<GenerateContentResponse> {
         let request = self.build_request(state)?;
 
-        // Send Request
         let endpoint = format!("{}:generateContent", self.config.required().endpoint());
-        let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
+        let transport_req = TransportRequest::new(Method::Post, endpoint, request);
         let response: GenerateContentResponse = self
             .transport
             .send(transport_req)
@@ -217,10 +217,15 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         Ok(response)
     }
 
-    /// Send a chat request to Gemini and receive a stream of raw chunks.
+    /// Send a chat request to Gemini and receive a stream of raw chunks with configuration.
     ///
-    /// 发送聊天请求到 Gemini 并接收原始块的流式响应。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    /// 发送聊天请求到 Gemini 并接收带有配置的原始块的流式响应。
+    fn chat_stream_raw_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamRawFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state);
         let fut = request_res.map(|request| {
             let endpoint = format!(
@@ -230,7 +235,18 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
             self.transport.stream(transport_req)
         });
-        crate::stream::AgentChatStreamRawFuture::new(fut, RawGeminiProcessor::new())
+        crate::stream::AgentChatStreamRawFuture::with_hook(
+            fut,
+            RawGeminiProcessor::new(),
+            on_raw_delta,
+        )
+    }
+
+    /// Send a chat request to Gemini and receive a stream of raw chunks.
+    ///
+    /// 发送聊天请求到 Gemini 并接收原始块的流式响应。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        self.chat_stream_raw_with(state, Default::default())
     }
 
     /// Send a chat request to Gemini.
@@ -244,6 +260,24 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
             GeminiGenerateContentMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
+    }
+
+    /// Send a chat request to Gemini and receive a stream of chunks with configuration.
+    ///
+    /// 发送聊天请求到 Gemini 并接收带有配置的流式响应。
+    fn chat_stream_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
+        let on_delta = config.take_on_delta();
+        crate::stream::AgentChatStreamFuture::with_hooks(
+            self.chat_stream_raw(state),
+            GeminiGenerateContentStreamMapper::new(),
+            on_raw_delta,
+            on_delta,
+        )
     }
 
     /// Send a chat request to Gemini and receive a stream of chunks.

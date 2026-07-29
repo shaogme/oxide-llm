@@ -198,11 +198,12 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIStreamMapper>;
+    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
             Self::ChatStreamRawFuture<'a>,
             OpenAIStreamMapper,
+            Self::RawDelta,
         >
     where
         Self: 'a;
@@ -228,10 +229,15 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
         Ok(response)
     }
 
-    /// Send a chat request to OpenAI and receive a stream of raw chunks.
+    /// Send a chat request to OpenAI and receive a stream of raw chunks with configuration.
     ///
-    /// 发送聊天请求到 OpenAI 并接收原始块的流式响应。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    /// 发送聊天请求到 OpenAI 并接收带有配置的原始块的流式响应。
+    fn chat_stream_raw_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamRawFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
             let transport_req = TransportRequest::new(
@@ -241,7 +247,11 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
             );
             self.transport.stream(transport_req)
         });
-        crate::stream::AgentChatStreamRawFuture::new(fut, RawOpenAIProcessor::new())
+        crate::stream::AgentChatStreamRawFuture::with_hook(
+            fut,
+            RawOpenAIProcessor::new(),
+            on_raw_delta,
+        )
     }
 
     /// Send a chat request to OpenAI.
@@ -257,13 +267,21 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
         Ok(core_message)
     }
 
-    /// Send a chat request to OpenAI and receive a stream of chunks.
+    /// Send a chat request to OpenAI and receive a stream of chunks with configuration.
     ///
-    /// 发送聊天请求到 OpenAI 并接收流式响应。
-    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        crate::stream::AgentChatStreamFuture::new(
+    /// 发送聊天请求到 OpenAI 并接收带有配置的流式响应。
+    fn chat_stream_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
+        let on_delta = config.take_on_delta();
+        crate::stream::AgentChatStreamFuture::with_hooks(
             self.chat_stream_raw(state),
             OpenAIStreamMapper::new(),
+            on_raw_delta,
+            on_delta,
         )
     }
 }

@@ -14,7 +14,7 @@ mod tests {
             },
             openai::v1::{
                 chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
-                responses::{ResponsesAgent, ResponsesRequiredConfig},
+                responses::{ResponsesAgent, ResponsesConfig, ResponsesRequiredConfig},
             },
         },
         core::{
@@ -81,6 +81,59 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(text, "Hello from OpenAI Responses Non-Stream Mock!");
+    }
+
+    #[tokio::test]
+    async fn test_openai_responses_stateful_non_stream_e2e() {
+        let guard = MockServerGuard::start(3025);
+
+        let transport = ReqwestTransport::new()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone());
+
+        let required = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
+        let mut agent_config = ResponsesConfig::new(required.clone());
+        agent_config.optional_mut().set_store(Some(true));
+        let agent = ResponsesAgent::new(transport, required).with_config(agent_config);
+
+        // Step 1: Initial conversation turn with set_store(true)
+        let mut state = ConversationState::new(None);
+        state.add_message(Message::user("Hello Responses Non-Stream Stateful Step 1"));
+
+        // Use chat_raw to retrieve raw Response structure containing response ID
+        let response = agent
+            .chat_raw(state)
+            .await
+            .expect("First round chat_raw should succeed");
+        let previous_response_id = response.id.clone();
+        assert_eq!(previous_response_id, "resp_non_stream_stateful_001");
+
+        // Step 2: Discard first-round messages and set previous_response_id for next turn
+        let mut updated_config = agent.config().clone();
+        updated_config
+            .optional_mut()
+            .set_previous_response_id(Some(previous_response_id));
+        let agent_step2 = agent.with_config(updated_config);
+
+        let runner = Runner::new(agent_step2);
+        let mut state_step2 = ConversationState::new(None);
+        state_step2.add_message(Message::user("Hello Responses Non-Stream Stateful Step 2"));
+
+        let res_msg = runner
+            .run(&mut state_step2)
+            .await
+            .expect("Second round run should succeed");
+
+        let text = res_msg
+            .content
+            .iter()
+            .find_map(|part| match part {
+                ContentPart::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        assert_eq!(text, "Responses Non-Stream Stateful Step 2 Response");
     }
 
     #[tokio::test]

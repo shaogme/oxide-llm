@@ -101,6 +101,26 @@ export function createMockServer(port?: number): LLMock {
   );
 
   // 4. OpenAI Responses Agent matches
+  mock.onMessage(/Hello Responses Non-Stream Stateful Step 1/i, {
+    content: 'Responses Non-Stream Stateful Step 1 Response',
+    id: 'resp_non_stream_stateful_001',
+  });
+
+  mock.onMessage(/Hello Responses Non-Stream Stateful Step 2/i, {
+    content: 'Responses Non-Stream Stateful Step 2 Response',
+    id: 'resp_non_stream_stateful_002',
+  });
+
+  mock.onMessage(/Hello Responses Stream Stateful Step 1/i, {
+    content: 'Responses Stream Stateful Step 1 Response',
+    id: 'resp_stream_stateful_001',
+  });
+
+  mock.onMessage(/Hello Responses Stream Stateful Step 2/i, {
+    content: 'Responses Stream Stateful Step 2 Response',
+    id: 'resp_stream_stateful_002',
+  });
+
   mock.onMessage(/Hello Responses Non-Stream/i, {
     content: 'Hello from OpenAI Responses Non-Stream Mock!',
   });

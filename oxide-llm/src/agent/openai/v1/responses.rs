@@ -44,6 +44,21 @@ impl<T: Transport> ResponsesAgent<T> {
         self
     }
 
+    /// Get reference to the agent configuration.
+    ///
+    /// 获取代理配置的引用。
+    pub fn config(&self) -> &ResponsesConfig {
+        &self.config
+    }
+
+    /// Get mutable reference to the agent configuration.
+    ///
+    /// 获取代理配置的可变引用。
+    pub fn config_mut(&mut self) -> &mut ResponsesConfig {
+        &mut self.config
+    }
+
+
     /// Build a CreateResponseRequest from the conversation state.
     ///
     /// 根据对话状态构建 CreateResponseRequest。
@@ -170,11 +185,12 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIResponseStreamMapper>;
+    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIResponseStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
             Self::ChatStreamRawFuture<'a>,
             OpenAIResponseStreamMapper,
+            Self::RawDelta,
         >
     where
         Self: 'a;
@@ -199,10 +215,15 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
         Ok(response)
     }
 
-    /// Send a response request to OpenAI and receive a stream of raw chunks.
+    /// Send a response request to OpenAI and receive a stream of raw chunks with configuration.
     ///
-    /// 发送 Response 请求到 OpenAI 并接收原始块的流式响应。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    /// 发送 Response 请求到 OpenAI 并接收带有配置的原始块的流式响应。
+    fn chat_stream_raw_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamRawFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
             let transport_req = TransportRequest::new(
@@ -212,7 +233,11 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
             );
             self.transport.stream(transport_req)
         });
-        crate::stream::AgentChatStreamRawFuture::new(fut, RawOpenAIResponseProcessor::new())
+        crate::stream::AgentChatStreamRawFuture::with_hook(
+            fut,
+            RawOpenAIResponseProcessor::new(),
+            on_raw_delta,
+        )
     }
 
     /// Send a response request to OpenAI.
@@ -227,13 +252,23 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
         Ok(core_message)
     }
 
-    /// Send a response request to OpenAI and receive a stream of chunks.
+    /// Send a response request to OpenAI and receive a stream of chunks with configuration.
     ///
-    /// 发送 Response 请求到 OpenAI 并接收流式响应。
-    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        crate::stream::AgentChatStreamFuture::new(
+    /// 发送 Response 请求到 OpenAI 并接收带有配置的流式响应。
+    fn chat_stream_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
+        let on_delta = config.take_on_delta();
+        crate::stream::AgentChatStreamFuture::with_hooks(
             self.chat_stream_raw(state),
             OpenAIResponseStreamMapper::new(),
+            on_raw_delta,
+            on_delta,
         )
     }
 }
+
+

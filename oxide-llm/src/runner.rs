@@ -1,10 +1,10 @@
-pub use crate::core::tool::{
-    DefaultExecutor, Executor, SequentialExecutor, ToolCall, ToolGroup, ToolRegistry,
-    ToolRunnable, ToolSet,
-};
 use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
+pub use crate::core::tool::{
+    DefaultExecutor, Executor, SequentialExecutor, ToolCall, ToolGroup, ToolRegistry, ToolRunnable,
+    ToolSet,
+};
 use crate::error::AgentError;
 use futures::Stream;
 use std::future::Future;
@@ -207,6 +207,20 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     ///
     /// 创建管理 Agent 交互循环和工具执行的流。
     pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, G, E> {
+        self.run_stream_with(state, crate::ChatStreamConfig::default)
+    }
+
+    /// Creates a stream that manages the agent interaction loop and tool execution with stream configuration hooks.
+    ///
+    /// 创建带有流配置 Hook 的管理 Agent 交互循环和工具执行的流。
+    pub fn run_stream_with<'a, F>(
+        &'a self,
+        state: &'a mut ConversationState,
+        config_fn: F,
+    ) -> RunnerStream<'a, A, G, E>
+    where
+        F: Fn() -> crate::ChatStreamConfig<A::RawDelta> + Send + Sync + 'a,
+    {
         if self.auto_sync_tools {
             self.sync_tools(state);
         }
@@ -216,6 +230,7 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
             &self.executor,
             state,
             self.max_turns,
+            Some(Box::new(config_fn)),
         )
     }
 }
@@ -234,6 +249,7 @@ pub struct RunnerStream<
     executor: &'a E,
     state: &'a mut ConversationState,
     max_turns: usize,
+    config_fn: Option<Box<dyn Fn() -> crate::ChatStreamConfig<A::RawDelta> + Send + Sync + 'a>>,
 
     phase: Phase<'a, A, G, E>,
     current_turn: usize,
@@ -258,6 +274,7 @@ impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> RunnerStream<
         executor: &'a E,
         state: &'a mut ConversationState,
         max_turns: usize,
+        config_fn: Option<Box<dyn Fn() -> crate::ChatStreamConfig<A::RawDelta> + Send + Sync + 'a>>,
     ) -> Self {
         RunnerStream {
             agent,
@@ -265,6 +282,7 @@ impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> RunnerStream<
             executor,
             state,
             max_turns,
+            config_fn,
             phase: Phase::Start,
             current_turn: 0,
             collected_events: Vec::new(),
@@ -296,7 +314,11 @@ where
                     this.collected_events.clear();
 
                     let state_clone = this.state.clone();
-                    let fut = this.agent.chat_stream(state_clone);
+                    let fut = if let Some(ref config_fn) = this.config_fn {
+                        this.agent.chat_stream_with(state_clone, config_fn())
+                    } else {
+                        this.agent.chat_stream(state_clone)
+                    };
                     this.phase = Phase::Initializing(fut);
                 }
                 Phase::Initializing(fut) => match Pin::new(fut).poll(cx) {
@@ -416,16 +438,31 @@ mod tests {
         where
             Self: 'a;
 
-        async fn chat_raw(&self, _state: ConversationState) -> Result<Self::RawMessage, AgentError> {
+        async fn chat_raw(
+            &self,
+            _state: ConversationState,
+        ) -> Result<Self::RawMessage, AgentError> {
             Ok(Message::user("dummy"))
         }
 
-        fn chat_stream_raw<'a>(&'a self, _state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        fn chat_stream_raw_with<'a>(
+            &'a self,
+            _state: ConversationState,
+            _config: crate::ChatStreamRawConfig<Self::RawDelta>,
+        ) -> Self::ChatStreamRawFuture<'a> {
             std::future::ready(Ok(futures::stream::empty()))
         }
 
         async fn chat(&self, _state: ConversationState) -> Result<Message, AgentError> {
             Ok(Message::user("dummy"))
+        }
+
+        fn chat_stream_with<'a>(
+            &'a self,
+            _state: ConversationState,
+            _config: crate::ChatStreamConfig<Self::RawDelta>,
+        ) -> Self::ChatStreamFuture<'a> {
+            std::future::ready(Ok(ChatStream::new(futures::stream::empty())))
         }
 
         fn chat_stream<'a>(&'a self, _state: ConversationState) -> Self::ChatStreamFuture<'a> {
@@ -445,7 +482,8 @@ mod tests {
         assert!(state.tools.is_empty());
 
         // Default run_stream does NOT implicitly sync tools to ConversationState
-        let _stream = runner.run_stream(&mut state);
+        let stream = runner.run_stream(&mut state);
+        drop(stream);
         assert!(state.tools.is_empty());
 
         // Explicit sync_tools fills state.tools
@@ -465,7 +503,8 @@ mod tests {
         assert!(state.tools.is_empty());
 
         // Opted-in auto sync fills state.tools during run_stream
-        let _stream = runner.run_stream(&mut state);
+        let stream = runner.run_stream(&mut state);
+        drop(stream);
         assert_eq!(state.tools.len(), 1);
     }
 
@@ -490,11 +529,40 @@ mod tests {
         let runner = Runner::new(agent).with_tool(DummyTool);
 
         let mut state = ConversationState::new(None);
-        let _stream = runner.run_stream(&mut state);
+        let stream = runner.run_stream(&mut state);
+        drop(stream);
         assert!(state.tools.is_empty());
 
         runner.sync_tools(&mut state);
         assert_eq!(state.tools.len(), 1);
+    }
+
+    #[test]
+    fn test_runner_run_stream_with() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let agent = DummyAgent;
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new(None);
+
+        let count = Arc::new(AtomicUsize::new(0));
+        let count_clone = count.clone();
+
+        let stream = runner.run_stream_with(&mut state, move || {
+            let c = count_clone.clone();
+            crate::ChatStreamConfig::new().on_raw_delta(move |_raw| {
+                c.fetch_add(1, Ordering::SeqCst);
+            })
+        });
+
+        use futures::StreamExt;
+        futures::executor::block_on(async {
+            let mut s = stream;
+            while let Some(_) = s.next().await {}
+        });
+
+        // DummyAgent produces an empty stream, but run_stream_with correctly constructs and executes.
+        assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 
     #[derive(Clone)]
@@ -571,4 +639,3 @@ mod tests {
         let _stream = runner.run_stream(&mut state);
     }
 }
-

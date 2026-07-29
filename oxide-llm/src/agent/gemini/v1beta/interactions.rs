@@ -11,7 +11,6 @@ use oxide_llm_proto::gemini::v1beta::interactions::{
 use crate::{
     ChatAgent,
     error::{AgentError, Result},
-    stream::SseProcessor,
 };
 
 pub mod config;
@@ -167,61 +166,70 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiInteractionsStreamMapper>;
+    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiInteractionsStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
             Self::ChatStreamRawFuture<'a>,
             GeminiInteractionsStreamMapper,
+            Self::RawDelta,
         >
     where
         Self: 'a;
 
     /// Send a chat request to Gemini Interactions API and return raw SSE events.
     ///
-    /// 发送聊天请求到 Gemini Interactions API 并返回原始 SSE 事件列表。
+    /// 发送聊天请求到 Gemini Interactions API 并返回原始 SSE 事件。
     async fn chat_raw(&self, state: ConversationState) -> Result<Vec<InteractionSseEvent>> {
-        let request = self.build_request(state, None)?;
+        let request = self.build_request(state, Some(true))?;
 
         let endpoint = self.config.required().endpoint().to_string();
         let transport_req = TransportRequest::new(Method::Post, endpoint, request);
-
-        use futures::StreamExt;
-
-        let mut stream = self
+        let stream = self
             .transport
             .stream(transport_req)
             .await
             .map_err(AgentError::Transport)?;
 
-        let mut processor = RawInteractionsProcessor::new();
-        let mut events = Vec::new();
+        let mut message_stream =
+            crate::stream::MessageStream::new(stream, RawInteractionsProcessor::new());
 
-        while let Some(chunk_res) = stream.next().await {
-            let chunk_bytes = chunk_res.map_err(AgentError::Transport)?;
-            let (event_opt, done) = processor.process(&chunk_bytes);
-            if let Some(event_res) = event_opt {
-                let event = event_res?;
-                events.push(event);
-            }
-            if done {
-                break;
-            }
+        use futures::StreamExt;
+        let mut events = Vec::new();
+        while let Some(item) = message_stream.next().await {
+            let event = item?;
+            events.push(event);
         }
 
         Ok(events)
     }
 
-    /// Send a chat request to Gemini Interactions API and receive a stream of raw SSE events.
+    /// Send a chat request to Gemini Interactions API and receive a stream of raw SSE events with configuration.
     ///
-    /// 发送聊天请求到 Gemini Interactions API 并接收原始 SSE 事件的流。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    /// 发送聊天请求到 Gemini Interactions API 并接收带有配置的原始 SSE 事件的流。
+    fn chat_stream_raw_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamRawFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, Some(true));
         let fut = request_res.map(|request| {
             let endpoint = self.config.required().endpoint().to_string();
             let transport_req = TransportRequest::new(Method::Post, endpoint, request);
             self.transport.stream(transport_req)
         });
-        crate::stream::AgentChatStreamRawFuture::new(fut, RawInteractionsProcessor::new())
+        crate::stream::AgentChatStreamRawFuture::with_hook(
+            fut,
+            RawInteractionsProcessor::new(),
+            on_raw_delta,
+        )
+    }
+
+    /// Send a chat request to Gemini Interactions API and receive a stream of raw SSE events.
+    ///
+    /// 发送聊天请求到 Gemini Interactions API 并接收原始 SSE 事件的流。
+    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+        self.chat_stream_raw_with(state, crate::ChatStreamRawConfig::default())
     }
 
     /// Send a chat request to Gemini Interactions API.
@@ -240,14 +248,29 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
         Ok(assembler.build())
     }
 
+    /// Send a chat request to Gemini Interactions API and receive a stream of chunks with configuration.
+    ///
+    /// 发送聊天请求到 Gemini Interactions API 并接收带有配置的流式响应。
+    fn chat_stream_with<'a>(
+        &'a self,
+        state: ConversationState,
+        mut config: crate::ChatStreamConfig<Self::RawDelta>,
+    ) -> Self::ChatStreamFuture<'a> {
+        let on_raw_delta = config.take_on_raw_delta();
+        let on_delta = config.take_on_delta();
+        crate::stream::AgentChatStreamFuture::with_hooks(
+            self.chat_stream_raw(state),
+            GeminiInteractionsStreamMapper::new(),
+            on_raw_delta,
+            on_delta,
+        )
+    }
+
     /// Send a chat request to Gemini Interactions API and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Gemini Interactions API 并接收流式响应。
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
-        crate::stream::AgentChatStreamFuture::new(
-            self.chat_stream_raw(state),
-            GeminiInteractionsStreamMapper::new(),
-        )
+        self.chat_stream_with(state, crate::ChatStreamConfig::default())
     }
 }
 

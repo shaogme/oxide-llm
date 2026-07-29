@@ -29,14 +29,15 @@ where
     }
 }
 
-/// A generic stream for processing Server-Sent Events (SSE) or similar framed streams.
+/// A generic stream for processing Server-Sent Events (SSE) or similar framed streams, with optional hooks.
 ///
-/// 通用的 SSE 或者是类似分帧流的处理流。
+/// 通用的 SSE 或者是类似分帧流的处理流（可选带有 Hook）。
 pub struct MessageStream<S, P, Item = DeltaMessage> {
     stream: S,
     buffer: BytesMut,
     stopped: bool,
     processor: P,
+    on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
     _phantom: PhantomData<fn() -> Item>,
 }
 
@@ -47,6 +48,22 @@ impl<S, P, Item> MessageStream<S, P, Item> {
             buffer: BytesMut::new(),
             stopped: false,
             processor,
+            on_raw_delta: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn with_hook(
+        stream: S,
+        processor: P,
+        on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+    ) -> Self {
+        Self {
+            stream,
+            buffer: BytesMut::new(),
+            stopped: false,
+            processor,
+            on_raw_delta,
             _phantom: PhantomData,
         }
     }
@@ -69,12 +86,22 @@ where
                 if stop {
                     self.stopped = true;
                     if let Some(item) = item {
+                        if let Ok(ref val) = item {
+                            if let Some(hook) = self.on_raw_delta.as_mut() {
+                                hook(val);
+                            }
+                        }
                         return Poll::Ready(Some(item));
                     }
                     return Poll::Ready(None);
                 }
 
                 if let Some(item) = item {
+                    if let Ok(ref val) = item {
+                        if let Some(hook) = self.on_raw_delta.as_mut() {
+                            hook(val);
+                        }
+                    }
                     return Poll::Ready(Some(item));
                 }
 
@@ -104,6 +131,7 @@ where
 pub struct AgentChatStreamRawFuture<Fut, P, Item = DeltaMessage> {
     fut: std::result::Result<Fut, AgentError>,
     processor: Option<P>,
+    on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
     _phantom: PhantomData<fn() -> Item>,
 }
 
@@ -115,6 +143,23 @@ impl<Fut, P, Item> AgentChatStreamRawFuture<Fut, P, Item> {
         Self {
             fut,
             processor: Some(processor),
+            on_raw_delta: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Creates a new `AgentChatStreamRawFuture` with `on_raw_delta` hook.
+    ///
+    /// 创建带有 `on_raw_delta` Hook 的 `AgentChatStreamRawFuture`。
+    pub fn with_hook(
+        fut: Result<Fut>,
+        processor: P,
+        on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+    ) -> Self {
+        Self {
+            fut,
+            processor: Some(processor),
+            on_raw_delta,
             _phantom: PhantomData,
         }
     }
@@ -139,7 +184,8 @@ where
                             .processor
                             .take()
                             .expect("processor polled after completion");
-                        let message_stream = MessageStream::new(stream, processor);
+                        let on_raw_delta = this.on_raw_delta.take();
+                        let message_stream = MessageStream::with_hook(stream, processor, on_raw_delta);
                         Poll::Ready(Ok(message_stream))
                     }
                     Poll::Ready(Err(e)) => Poll::Ready(Err(AgentError::Transport(e))),
@@ -157,6 +203,43 @@ where
     }
 }
 
+/// A wrapper stream that triggers an `on_raw_delta` hook when items arrive.
+///
+/// 触发 `on_raw_delta` Hook 的流包装器。
+pub struct RawHookStream<S, RawDelta> {
+    stream: S,
+    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+}
+
+impl<S, RawDelta> RawHookStream<S, RawDelta> {
+    /// Creates a new `RawHookStream`.
+    pub fn new(
+        stream: S,
+        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+    ) -> Self {
+        Self { stream, on_raw_delta }
+    }
+}
+
+impl<S, RawDelta> Stream for RawHookStream<S, RawDelta>
+where
+    S: Stream<Item = Result<RawDelta>> + Unpin,
+{
+    type Item = Result<RawDelta>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.stream).poll_next(cx) {
+            Poll::Ready(Some(Ok(raw))) => {
+                if let Some(hook) = self.on_raw_delta.as_mut() {
+                    hook(&raw);
+                }
+                Poll::Ready(Some(Ok(raw)))
+            }
+            res => res,
+        }
+    }
+}
+
 /// Trait for mapping provider raw stream delta/event into core `DeltaMessage`.
 ///
 /// 将 Provider 原始流增量/事件映射为核心 `DeltaMessage` 的 Trait。
@@ -168,24 +251,48 @@ pub trait StreamMapper<RawDelta>: Unpin {
     fn map_item(&mut self, raw: RawDelta) -> Result<Option<DeltaMessage>>;
 }
 
-/// A stream wrapper that maps raw SSE items into DeltaMessages using a stream mapper.
+/// A stream wrapper that maps raw SSE items into DeltaMessages using a stream mapper, with optional hooks.
 ///
-/// 使用流映射器将 Raw SSE 项映射为 DeltaMessage 的流包装器。
-pub struct MappedStream<S, M> {
+/// 使用流映射器将 Raw SSE 项映射为 DeltaMessage 的流包装器（可带 Hook）。
+pub struct MappedStream<S, M, RawDelta = ()> {
     stream: S,
     mapper: M,
+    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+    on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
 }
 
-impl<S, M> MappedStream<S, M> {
+impl<S, M, RawDelta> MappedStream<S, M, RawDelta> {
     /// Creates a new `MappedStream`.
     ///
     /// 创建一个新的 `MappedStream`。
     pub fn new(stream: S, mapper: M) -> Self {
-        Self { stream, mapper }
+        Self {
+            stream,
+            mapper,
+            on_raw_delta: None,
+            on_delta: None,
+        }
+    }
+
+    /// Creates a new `MappedStream` with hooks.
+    ///
+    /// 创建带有 Hook 的 `MappedStream`。
+    pub fn with_hooks(
+        stream: S,
+        mapper: M,
+        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+        on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+    ) -> Self {
+        Self {
+            stream,
+            mapper,
+            on_raw_delta,
+            on_delta,
+        }
     }
 }
 
-impl<S, M, RawDelta> Stream for MappedStream<S, M>
+impl<S, M, RawDelta> Stream for MappedStream<S, M, RawDelta>
 where
     S: Stream<Item = Result<RawDelta>> + Unpin,
     M: StreamMapper<RawDelta>,
@@ -195,11 +302,21 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             match Pin::new(&mut self.stream).poll_next(cx) {
-                Poll::Ready(Some(Ok(raw))) => match self.mapper.map_item(raw) {
-                    Ok(Some(delta)) => return Poll::Ready(Some(Ok(delta))),
-                    Ok(None) => continue,
-                    Err(e) => return Poll::Ready(Some(Err(e))),
-                },
+                Poll::Ready(Some(Ok(raw))) => {
+                    if let Some(hook) = self.on_raw_delta.as_mut() {
+                        hook(&raw);
+                    }
+                    match self.mapper.map_item(raw) {
+                        Ok(Some(delta)) => {
+                            if let Some(hook) = self.on_delta.as_mut() {
+                                hook(&delta);
+                            }
+                            return Poll::Ready(Some(Ok(delta)));
+                        }
+                        Ok(None) => continue,
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                }
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
                 Poll::Ready(None) => return Poll::Ready(None),
                 Poll::Pending => return Poll::Pending,
@@ -211,12 +328,14 @@ where
 /// A named concrete Future that wraps a raw stream future and converts the raw stream into a `ChatStream`.
 ///
 /// 包装裸流 Future 并将裸流转换为 `ChatStream` 的具名 Future 结构体。
-pub struct AgentChatStreamFuture<Fut, M> {
+pub struct AgentChatStreamFuture<Fut, M, RawDelta = ()> {
     fut: Fut,
     mapper: Option<M>,
+    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+    on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
 }
 
-impl<Fut, M> AgentChatStreamFuture<Fut, M> {
+impl<Fut, M, RawDelta> AgentChatStreamFuture<Fut, M, RawDelta> {
     /// Creates a new `AgentChatStreamFuture`.
     ///
     /// 创建一个新的 `AgentChatStreamFuture`。
@@ -224,17 +343,36 @@ impl<Fut, M> AgentChatStreamFuture<Fut, M> {
         Self {
             fut,
             mapper: Some(mapper),
+            on_raw_delta: None,
+            on_delta: None,
+        }
+    }
+
+    /// Creates a new `AgentChatStreamFuture` with hooks.
+    ///
+    /// 创建带有 Hook 的 `AgentChatStreamFuture`。
+    pub fn with_hooks(
+        fut: Fut,
+        mapper: M,
+        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+        on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+    ) -> Self {
+        Self {
+            fut,
+            mapper: Some(mapper),
+            on_raw_delta,
+            on_delta,
         }
     }
 }
 
-impl<Fut, S, M, RawDelta> Future for AgentChatStreamFuture<Fut, M>
+impl<Fut, S, M, RawDelta> Future for AgentChatStreamFuture<Fut, M, RawDelta>
 where
     Fut: Future<Output = Result<S>>,
     S: Stream<Item = Result<RawDelta>> + Unpin + Send + 'static,
     M: StreamMapper<RawDelta>,
 {
-    type Output = Result<ChatStream<MappedStream<S, M>, AgentError>>;
+    type Output = Result<ChatStream<MappedStream<S, M, RawDelta>, AgentError>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
@@ -245,7 +383,9 @@ where
                     .mapper
                     .take()
                     .expect("AgentChatStreamFuture polled after completion");
-                let mapped_stream = MappedStream::new(raw_stream, mapper);
+                let on_raw_delta = this.on_raw_delta.take();
+                let on_delta = this.on_delta.take();
+                let mapped_stream = MappedStream::with_hooks(raw_stream, mapper, on_raw_delta, on_delta);
                 Poll::Ready(Ok(ChatStream::new(mapped_stream)))
             }
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
