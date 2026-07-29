@@ -318,7 +318,7 @@ impl MessagesConfig {
         stream: bool,
     ) -> MessagesRequest {
         MessagesRequest {
-            model: self.required.model.into(),
+            model: self.required.model,
             messages,
             max_tokens: Some(self.required.max_tokens),
             system,

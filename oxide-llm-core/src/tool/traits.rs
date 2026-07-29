@@ -70,10 +70,7 @@ impl<T: Tool> ToolRunnable for T {
         }
     }
 
-    fn run(
-        &self,
-        args: serde_json::Value,
-    ) -> Self::Future {
+    fn run(&self, args: serde_json::Value) -> Self::Future {
         // Deserialize arguments
         let args_parsed: Result<T::Args, _> = serde_json::from_value(args);
 

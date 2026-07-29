@@ -87,9 +87,7 @@ impl OpenAIResponseMapper {
                     } else {
                         serde_json::to_string(&res.content)?
                     };
-                    parts.push(InputContentPart::InputText {
-                        text: content_str.into(),
-                    });
+                    parts.push(InputContentPart::InputText { text: content_str });
                 }
                 ContentPart::Refusal { refusal } => {
                     parts.push(InputContentPart::InputText {
@@ -262,30 +260,30 @@ impl OpenAIResponseStreamMapper {
                 usage: None,
             }),
             ResponseStreamEvent::OutputItemAdded {
-                output_index, item, ..
-            } => match item {
-                OutputItem::FunctionCall(fc) => Ok(DeltaMessage {
-                    role: None,
-                    content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
-                        index: output_index,
-                        id: Some(fc.id.into()),
-                        r#type: Some("function".into()),
-                        function: Some(DeltaFunction {
-                            name: Some(fc.name.into()),
-                            arguments: if fc.arguments.is_empty() {
-                                None
-                            } else {
-                                Some(fc.arguments.into())
-                            },
-                        }),
-                        signature: None,
-                    })]),
-                    name: None,
-                    finish_reason: None,
-                    usage: None,
-                }),
-                _ => Ok(DeltaMessage::default()),
-            },
+                output_index,
+                item: OutputItem::FunctionCall(fc),
+                ..
+            } => Ok(DeltaMessage {
+                role: None,
+                content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                    index: output_index,
+                    id: Some(fc.id.into()),
+                    r#type: Some("function".into()),
+                    function: Some(DeltaFunction {
+                        name: Some(fc.name.into()),
+                        arguments: if fc.arguments.is_empty() {
+                            None
+                        } else {
+                            Some(fc.arguments.into())
+                        },
+                    }),
+                    signature: None,
+                })]),
+                name: None,
+                finish_reason: None,
+                usage: None,
+            }),
+            ResponseStreamEvent::OutputItemAdded { .. } => Ok(DeltaMessage::default()),
             ResponseStreamEvent::AudioTranscriptDelta {
                 content_index,
                 delta,

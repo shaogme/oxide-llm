@@ -177,7 +177,7 @@ impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
                                 tool_call_id: tool_call.id.clone(),
                                 name: tool_call.name.clone(),
                                 content: vec![ContentPart::Text {
-                                    text: format!("Error executing tool: {}", err).into(),
+                                    text: format!("Error executing tool: {}", err),
                                     signature: None,
                                 }],
                                 is_error: true,
@@ -200,7 +200,7 @@ impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
                         tool_call_id: tool_call.id.clone(),
                         name: tool_call.name.clone(),
                         content: vec![ContentPart::Text {
-                            text: format!("Error: Unknown tool '{}'", tool_call.name).into(),
+                            text: format!("Error: Unknown tool '{}'", tool_call.name),
                             signature: None,
                         }],
                         is_error: true,
@@ -232,7 +232,7 @@ pub struct RunnerStream<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup = ()> {
 enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> {
     Start,
     Initializing(A::ChatStreamFuture<'a>),
-    Streaming(ChatStream<A::Stream, AgentError>),
+    Streaming(Box<ChatStream<A::Stream, AgentError>>),
     ExecutingTools(ExecuteToolsFuture<G>),
     Done,
 }
@@ -287,7 +287,7 @@ where
                 }
                 Phase::Initializing(fut) => match Pin::new(fut).poll(cx) {
                     Poll::Ready(Ok(stream)) => {
-                        this.phase = Phase::Streaming(stream);
+                        this.phase = Phase::Streaming(Box::new(stream));
                     }
                     Poll::Ready(Err(e)) => {
                         this.phase = Phase::Done;

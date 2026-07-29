@@ -93,7 +93,7 @@ impl ClaudeMapper {
                             ContentPart::Json(value) => {
                                 let text =
                                     serde_json::to_string(value).map_err(MapperError::JsonError)?;
-                                ToolResultContent::Text(text.into())
+                                ToolResultContent::Text(text)
                             }
                             _ => ToolResultContent::Blocks(Self::convert_content_to_claude_blocks(
                                 tr.content,

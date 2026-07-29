@@ -179,8 +179,11 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
         let request = self.build_request(state, false)?;
 
         // Send Request
-        let transport_req =
-            TransportRequest::new(Method::Post, self.config.required().endpoint().to_string(), request);
+        let transport_req = TransportRequest::new(
+            Method::Post,
+            self.config.required().endpoint().to_string(),
+            request,
+        );
         let response: MessagesResponse = self
             .transport
             .send(transport_req)
@@ -200,8 +203,11 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
-            let transport_req =
-                TransportRequest::new(Method::Post, self.config.required().endpoint().to_string(), request);
+            let transport_req = TransportRequest::new(
+                Method::Post,
+                self.config.required().endpoint().to_string(),
+                request,
+            );
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, ClaudeProcessor::new())

@@ -92,7 +92,7 @@ impl OpenAIChatCompletionMapper {
                                 c.push_str("\n\n");
                                 c.push_str(&text);
                             }
-                            None => content = Some(text.into()),
+                            None => content = Some(text),
                         },
                         ContentPart::ToolCall(tc) => {
                             tool_calls.push(OpenAIToolCall {
@@ -139,13 +139,13 @@ impl OpenAIChatCompletionMapper {
                         let content_str = if res.content.len() == 1 {
                             match &res.content[0] {
                                 ContentPart::Text { text, signature: _ } => text.clone(),
-                                ContentPart::Json(value) => serde_json::to_string(value)
-                                    .map_err(MapperError::JsonError)?
-                                    .into(),
-                                _ => serde_json::to_string(&res.content)?.into(),
+                                ContentPart::Json(value) => {
+                                    serde_json::to_string(value).map_err(MapperError::JsonError)?
+                                }
+                                _ => serde_json::to_string(&res.content)?,
                             }
                         } else {
-                            serde_json::to_string(&res.content)?.into()
+                            serde_json::to_string(&res.content)?
                         };
 
                         Ok(ChatCompletionMessage::Tool {
@@ -310,7 +310,7 @@ impl OpenAIStreamMapper {
         }
 
         if let Some(refusal) = delta.refusal {
-            content_parts.push(DeltaContentPart::Refusal { refusal: refusal });
+            content_parts.push(DeltaContentPart::Refusal { refusal });
         }
 
         if let Some(tool_calls) = delta.tool_calls {

@@ -424,7 +424,7 @@ impl FromIterator<ChatStreamEvent> for Message {
         Message {
             role,
             content,
-            name: name.map(Into::into),
+            name,
         }
     }
 }

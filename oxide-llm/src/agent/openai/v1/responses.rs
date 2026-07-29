@@ -4,7 +4,9 @@ use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::response::chunk::ResponseStreamEvent;
-use oxide_llm_proto::openai::v1::response::request::{CreateResponseRequest, InputItem, InputParam};
+use oxide_llm_proto::openai::v1::response::request::{
+    CreateResponseRequest, InputItem, InputParam,
+};
 use oxide_llm_proto::openai::v1::response::response::Response;
 
 use crate::ChatAgent;
@@ -46,7 +48,11 @@ impl<T: Transport> ResponsesAgent<T> {
     /// Build a CreateResponseRequest from the conversation state.
     ///
     /// 根据对话状态构建 CreateResponseRequest。
-    fn build_request(&self, state: ConversationState, stream: bool) -> Result<CreateResponseRequest> {
+    fn build_request(
+        &self,
+        state: ConversationState,
+        stream: bool,
+    ) -> Result<CreateResponseRequest> {
         let ConversationState {
             system_prompt,
             messages,
@@ -63,17 +69,18 @@ impl<T: Transport> ResponsesAgent<T> {
         let mut input_items: Vec<InputItem> = Vec::new();
 
         for msg in messages {
-            input_items.push(OpenAIResponseMapper::from_core_message(msg).map_err(AgentError::Mapper)?);
+            input_items
+                .push(OpenAIResponseMapper::from_core_message(msg).map_err(AgentError::Mapper)?);
         }
 
         let input_param = InputParam::List(input_items);
         let tc = tool_choice.map(|tc| tc.to_openai());
 
         let mut config = self.config.clone();
-        if let Some(prompt) = system_prompt {
-            if config.optional().instructions().is_none() {
-                config.optional_mut().set_instructions(Some(prompt));
-            }
+        if let Some(prompt) = system_prompt
+            && config.optional().instructions().is_none()
+        {
+            config.optional_mut().set_instructions(Some(prompt));
         }
 
         let mut request = config.to_request(input_param, tools, tc, None);
@@ -159,8 +166,11 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     async fn chat(&self, state: ConversationState) -> Result<Message> {
         let request = self.build_request(state, false)?;
 
-        let transport_req =
-            TransportRequest::new(Method::Post, self.config.required().endpoint().to_string(), request);
+        let transport_req = TransportRequest::new(
+            Method::Post,
+            self.config.required().endpoint().to_string(),
+            request,
+        );
         let response: Response = self
             .transport
             .send(transport_req)
