@@ -1,5 +1,6 @@
 use super::{ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Truncation};
 use crate::openai::v1::{LogProbs, Tool, ToolChoice};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -138,7 +139,7 @@ pub struct OutputTextContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefusalContent {
-    pub refusal: String,
+    pub refusal: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

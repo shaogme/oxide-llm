@@ -81,7 +81,7 @@ impl<T: Tool> ToolRunnable for T {
                             }
                         };
                         Ok(vec![ContentPart::Text {
-                            text: text.into(),
+                            text,
                             signature: None,
                         }])
                     }

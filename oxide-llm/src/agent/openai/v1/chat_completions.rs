@@ -1,4 +1,4 @@
-use oxide_llm_core::mapper::openai::v1::{OpenAIMapper, OpenAIStreamMapper};
+use oxide_llm_core::mapper::openai::v1::{OpenAIChatCompletionMapper, OpenAIStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
@@ -190,7 +190,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             messages
                 .into_iter()
                 .try_fold(initial_messages, |mut acc, msg| {
-                    acc.push(OpenAIMapper::from_core_message(msg)?);
+                    acc.push(OpenAIChatCompletionMapper::from_core_message(msg)?);
                     Ok(acc)
                 })
                 .map_err(AgentError::Mapper)?
@@ -305,7 +305,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
 
         // Convert Response back to Core Message
         let core_message: Message =
-            OpenAIMapper::to_core_message(response).map_err(AgentError::Mapper)?;
+            OpenAIChatCompletionMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }

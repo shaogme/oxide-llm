@@ -2,13 +2,14 @@ pub mod request;
 #[allow(clippy::module_inception)]
 pub mod response;
 
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConversationParam {
-    Id(String),
+    Id(StaticRefStr),
     None, // Representing "off" or "auto" as generic json later or precise enums if known
 }
 
@@ -44,7 +45,7 @@ pub struct ResponseTextParam {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<TextResponseFormatConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verbosity: Option<String>, // Placeholder for Verbosity
+    pub verbosity: Option<StaticRefStr>, // Placeholder for Verbosity
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,11 +57,11 @@ pub enum TextResponseFormatConfiguration {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Prompt {
-    pub id: String,
+    pub id: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
+    pub version: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<HashMap<String, serde_json::Value>>,
+    pub variables: Option<HashMap<StaticRefStr, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

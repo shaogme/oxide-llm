@@ -143,7 +143,7 @@ impl GeminiMapper {
                 ContentPart::Json(value) => {
                     let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
                     gemini_parts.push(GeminiPart {
-                        text: Some(text.into()),
+                        text: Some(text),
                         ..Default::default()
                     });
                 }

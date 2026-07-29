@@ -1,6 +1,8 @@
 use super::{ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Truncation};
 use crate::openai::v1::{Tool, ToolChoice};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,11 +12,11 @@ pub struct CreateResponseRequest {
 
     /// ID of the model to use.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub model: Option<Cow<'static, str>>,
 
     /// Specific output data to include.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub include: Option<Vec<String>>,
+    pub include: Option<Vec<Cow<'static, str>>>,
 
     /// Whether to enable parallel tool calls.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,7 +28,7 @@ pub struct CreateResponseRequest {
 
     /// A system (or developer) message inserted into the model's context.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
+    pub instructions: Option<Cow<'static, str>>,
 
     /// If set to true, the model response data will be streamed to the client.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +44,7 @@ pub struct CreateResponseRequest {
 
     /// Metadata to attach to the response.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<HashMap<String, String>>,
+    pub metadata: Option<HashMap<Cow<'static, str>, serde_json::Value>>,
 
     /// Number of most likely tokens to return at each token position.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,23 +68,23 @@ pub struct CreateResponseRequest {
 
     /// User identifier (deprecated).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
+    pub user: Option<Cow<'static, str>>,
 
     /// Safety identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_identifier: Option<String>,
+    pub safety_identifier: Option<Cow<'static, str>>,
 
     /// Prompt cache key.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_key: Option<String>,
+    pub prompt_cache_key: Option<Cow<'static, str>>,
 
     /// Service tier.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Cow<'static, str>>,
 
     /// Prompt cache retention policy.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_retention: Option<String>,
+    pub prompt_cache_retention: Option<Cow<'static, str>>,
 
     /// An upper bound for the number of tokens that can be generated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,7 +96,7 @@ pub struct CreateResponseRequest {
 
     /// The unique ID of the previous response to the model.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_response_id: Option<String>,
+    pub previous_response_id: Option<Cow<'static, str>>,
 
     /// Configuration options for reasoning models.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,7 +122,7 @@ pub struct CreateResponseRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum InputParam {
-    String(String),
+    String(Cow<'static, str>),
     List(Vec<InputItem>),
 }
 
@@ -134,12 +136,12 @@ pub enum InputItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputMessage {
-    pub role: String,
+    pub role: Cow<'static, str>,
     pub content: InputMessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
+    pub status: Option<Cow<'static, str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,15 +155,14 @@ pub enum InputMessageContent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InputContentPart {
     InputText { text: String },
-    InputImage { image_url: String },
+    InputImage { image_url: StaticRefStr },
     InputAudio { input_audio: InputAudioContent },
-    // Add other content parts as needed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputAudioContent {
-    pub data: String,
-    pub format: String,
+    pub data: StaticRefStr,
+    pub format: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -115,7 +115,7 @@ impl ClaudeMapper {
                 ContentPart::Json(value) => {
                     let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
                     blocks.push(ContentBlock::Text(TextBlock {
-                        text: text.into(),
+                        text,
                         cache_control: None,
                         citations: None,
                     }));
@@ -261,7 +261,7 @@ impl ClaudeStreamMapper {
                         }
                         Some(DeltaContentPart::Text {
                             index,
-                            text: text.into(),
+                            text,
                             signature: None,
                         })
                     }
@@ -275,7 +275,7 @@ impl ClaudeStreamMapper {
                         }
                         Some(DeltaContentPart::Text {
                             index,
-                            text: text.into(),
+                            text,
                             signature: None,
                         })
                     }
