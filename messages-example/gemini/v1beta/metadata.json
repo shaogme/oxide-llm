@@ -1,4 +1,5 @@
 {
     "generate-content.md": "https://ai.google.dev/api/generate-content.md.txt",
-    "interactions-api.md": "https://ai.google.dev/api/interactions-api.md.txt"
+    "interactions-api.md": "https://ai.google.dev/api/interactions-api.md.txt",
+    "interactions.openapi.json": "https://ai.google.dev/static/api/interactions.openapi.json"
 }
