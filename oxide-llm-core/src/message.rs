@@ -1,7 +1,8 @@
 use futures::{Stream, StreamExt};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -126,6 +127,9 @@ pub struct Image {
     pub detail: Option<StaticRefStr>,
 }
 
+/// Image data source enum.
+///
+/// 图片数据源枚举。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ImageSource {
@@ -182,6 +186,17 @@ impl Message {
             name: None,
         }
     }
+
+    /// Create a new Message with specified role and content parts.
+    ///
+    /// 创建带有指定角色和内容部分的新 Message。
+    pub fn new(role: Role, content: Vec<ContentPart>) -> Self {
+        Self {
+            role,
+            content,
+            name: None,
+        }
+    }
 }
 
 /// Message history management.
@@ -211,36 +226,60 @@ impl MessageHistory {
     pub fn add(&mut self, message: Message) {
         self.messages.push(message);
     }
+
+    /// Builder pattern helper to add a message to history.
+    ///
+    /// 链式调用添加一条消息到历史。
+    pub fn with_message(mut self, message: Message) -> Self {
+        self.add(message);
+        self
+    }
 }
 
+/// Delta message structure for streaming responses.
+///
 /// 增量消息结构，用于流式响应。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct DeltaMessage {
+    /// Role usually only appears in the first chunk, may be None afterwards.
+    ///
     /// 角色通常只在第一个包出现，后续可能为 None。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
 
+    /// Incremental message content parts.
+    ///
     /// 消息内容的增量部分。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Vec<DeltaContentPart>>,
 
+    /// Sender name.
+    ///
     /// 发送者名称。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<StaticRefStr>,
 
+    /// Finish reason (usually appears at the end of the stream).
+    ///
     /// 结束原因 (通常在流的最后出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<FinishReason>,
 
+    /// Token usage statistics (may appear at start or end of stream).
+    ///
     /// Token 使用情况 (可能在流的开始或结束出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
 }
 
+/// Incremental content part.
+///
 /// 增量消息内容部分。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DeltaContentPart {
+    /// Text delta.
+    ///
     /// 文本增量。
     Text {
         index: u32,
@@ -249,73 +288,113 @@ pub enum DeltaContentPart {
         signature: Option<StaticRefStr>,
     },
 
+    /// Reasoning / Chain of Thought content delta (e.g. Claude Thinking Block).
+    ///
     /// 推理/思维链内容增量 (对应 Claude Thinking Block)。
     Reasoning {
         index: u32,
         text: String,
+        /// Optional signature or verification data for thinking block.
+        ///
         /// 可选：思维块的签名/验签数据。
         #[serde(skip_serializing_if = "Option::is_none")]
         signature: Option<StaticRefStr>,
     },
 
+    /// Tool call delta.
+    ///
     /// 工具调用增量。
     ToolCall(DeltaToolCall),
 
+    /// Refusal content delta (OpenAI specific).
+    ///
     /// 拒绝内容增量 (OpenAI)。
     Refusal { refusal: StaticRefStr },
 }
 
-/// 增量工具调用。
+/// Incremental tool call structure.
+///
+/// 增量工具调用结构。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeltaToolCall {
+    /// Index corresponding to ToolCall list in Message.
+    ///
     /// 对应 Message 中 ToolCall 列表的索引。
     pub index: u32,
 
+    /// Tool ID (usually only appears in the first chunk).
+    ///
     /// 工具 ID (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<StaticRefStr>,
 
+    /// Tool type (usually only appears in the first chunk).
+    ///
     /// 工具类型 (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<StaticRefStr>,
 
+    /// Function information delta.
+    ///
     /// 函数信息增量。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<DeltaFunction>,
 
+    /// Thinking signature.
+    ///
     /// Thinking 签名。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<StaticRefStr>,
 }
 
+/// Incremental function information.
+///
 /// 增量函数信息。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeltaFunction {
+    /// Function name (usually only appears in the first chunk).
+    ///
     /// 函数名 (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<StaticRefStr>,
 
+    /// Argument fragment.
+    ///
     /// 参数片段。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<StaticRefStr>,
 }
 
+/// Finish reason for stream completion.
+///
 /// 结束原因。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FinishReason {
+    /// Model stopped naturally.
+    ///
     /// 模型自然停止生成。
     Stop,
+    /// Reached maximum token limit.
+    ///
     /// 达到最大 Token 限制。
     Length,
+    /// Model requested tool calls.
+    ///
     /// 模型请求调用工具。
     ToolCalls,
+    /// Content intercepted by safety filter.
+    ///
     /// 内容被安全过滤器拦截。
     ContentFilter,
+    /// Other reasons.
+    ///
     /// 其他原因。
     Other(StaticRefStr),
 }
 
+/// Token usage statistics.
+///
 /// Token 使用量统计。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Usage {
@@ -448,14 +527,14 @@ pub struct MessageAssembler {
     name: Option<StaticRefStr>,
 
     // Text and Reasoning parts: indexed
-    content_parts: std::collections::BTreeMap<u32, AssembledPart>,
+    content_parts: BTreeMap<u32, AssembledPart>,
 
     // Tool calls: keyed by ID
-    tool_calls: std::collections::HashMap<StaticRefStr, AssembledToolCall>,
+    tool_calls: HashMap<StaticRefStr, AssembledToolCall>,
 
     // Optimization: Map index to the current active tool ID
     // This allows O(1) lookup for incoming tool call deltas that lack an ID.
-    active_tool_id: std::collections::HashMap<u32, StaticRefStr>,
+    active_tool_id: HashMap<u32, StaticRefStr>,
 
     // Record appearance order: (index, id)
     tool_call_order: Vec<(u32, StaticRefStr)>,
@@ -489,132 +568,155 @@ struct AssembledToolCall {
     signature: Option<StaticRefStr>,
 }
 
+impl AssembledToolCall {
+    fn to_tool_call(&self) -> crate::tool::ToolCall {
+        let arguments: serde_json::Value = if self.arguments.trim().is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_str(&self.arguments)
+                .unwrap_or_else(|_| serde_json::Value::String(self.arguments.clone()))
+        };
+
+        crate::tool::ToolCall {
+            id: self.id.clone(),
+            name: self.name.clone().unwrap_or_default(),
+            arguments,
+            signature: self.signature.clone(),
+        }
+    }
+}
+
 impl MessageAssembler {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Update metadata fields (role, name, finish_reason, usage) from a DeltaMessage.
+    ///
+    /// 从 DeltaMessage 更新元数据字段 (role, name, finish_reason, usage)。
+    pub fn add_metadata(&mut self, delta: &DeltaMessage) {
+        if let Some(role) = delta.role {
+            self.role = Some(role);
+        }
+        if let Some(name) = delta.name.as_ref() {
+            self.name = Some(name.clone());
+        }
+        if let Some(reason) = delta.finish_reason.as_ref() {
+            self.finish_reason = Some(reason.clone());
+        }
+        if let Some(usage) = delta.usage.as_ref() {
+            if let Some(current) = self.usage.as_mut() {
+                current.input_tokens = current.input_tokens.max(usage.input_tokens);
+                current.output_tokens = current.output_tokens.max(usage.output_tokens);
+                current.total_tokens = current.input_tokens + current.output_tokens;
+            } else {
+                self.usage = Some(usage.clone());
+            }
+        }
+    }
+
+    /// Add a single DeltaContentPart to the assembler.
+    ///
+    /// 添加单个 DeltaContentPart 到组装器。
+    pub fn add_part(&mut self, part: DeltaContentPart) {
+        match part {
+            DeltaContentPart::Text {
+                index,
+                text,
+                signature,
+            } => {
+                let entry = self
+                    .content_parts
+                    .entry(index)
+                    .or_insert(AssembledPart::Text {
+                        text: "".into(),
+                        signature: None,
+                    });
+                if let AssembledPart::Text {
+                    text: current_text,
+                    signature: current_sig,
+                } = entry
+                {
+                    current_text.push_str(&text);
+                    if let Some(sig) = signature {
+                        *current_sig = Some(sig);
+                    }
+                }
+            }
+            DeltaContentPart::Reasoning {
+                index,
+                text,
+                signature,
+            } => {
+                let entry = self
+                    .content_parts
+                    .entry(index)
+                    .or_insert(AssembledPart::Reasoning {
+                        text: "".into(),
+                        signature: None,
+                    });
+                if let AssembledPart::Reasoning {
+                    text: current_text,
+                    signature: current_sig,
+                } = entry
+                {
+                    current_text.push_str(&text);
+                    if let Some(sig) = signature {
+                        *current_sig = Some(sig);
+                    }
+                }
+            }
+            DeltaContentPart::ToolCall(tool_call) => {
+                // Determine Tool ID and cache synthetic ID in active_tool_id for performance
+                let tool_id = if let Some(id) = tool_call.id {
+                    self.active_tool_id.insert(tool_call.index, id.clone());
+                    id
+                } else {
+                    self.active_tool_id
+                        .entry(tool_call.index)
+                        .or_insert_with(|| format!("tool_{}", tool_call.index).into())
+                        .clone()
+                };
+
+                let entry = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
+                    self.tool_call_order
+                        .push((tool_call.index, tool_id.clone()));
+                    AssembledToolCall {
+                        id: tool_id,
+                        r#type: None,
+                        name: None,
+                        arguments: "".into(),
+                        signature: None,
+                    }
+                });
+
+                if let Some(tty) = tool_call.r#type.filter(|t| !t.is_empty()) {
+                    entry.r#type = Some(tty);
+                }
+                if let Some(sig) = tool_call.signature.filter(|s| !s.is_empty()) {
+                    entry.signature = Some(sig);
+                }
+                if let Some(func) = tool_call.function {
+                    if let Some(fname) = func.name.filter(|n| !n.is_empty()) {
+                        entry.name = Some(fname);
+                    }
+                    if let Some(fargs) = func.arguments {
+                        entry.arguments.push_str(&fargs);
+                    }
+                }
+            }
+            DeltaContentPart::Refusal { .. } => {}
+        }
     }
 
     /// Add a delta message.
     ///
     /// 添加一个增量消息。
     pub fn add(&mut self, delta: DeltaMessage) {
-        if let Some(role) = delta.role {
-            self.role = Some(role);
-        }
-        if let Some(name) = delta.name {
-            self.name = Some(name);
-        }
-        if let Some(reason) = delta.finish_reason {
-            self.finish_reason = Some(reason);
-        }
-        if let Some(usage) = delta.usage {
-            if let Some(current) = self.usage.as_mut() {
-                current.input_tokens = current.input_tokens.max(usage.input_tokens);
-                current.output_tokens = current.output_tokens.max(usage.output_tokens);
-                current.total_tokens = current.input_tokens + current.output_tokens;
-            } else {
-                self.usage = Some(usage);
-            }
-        }
-
+        self.add_metadata(&delta);
         if let Some(content) = delta.content {
             for part in content {
-                match part {
-                    DeltaContentPart::Text {
-                        index,
-                        text,
-                        signature,
-                    } => {
-                        let entry =
-                            self.content_parts
-                                .entry(index)
-                                .or_insert(AssembledPart::Text {
-                                    text: "".into(),
-                                    signature: None,
-                                });
-                        if let AssembledPart::Text {
-                            text: current_text,
-                            signature: current_sig,
-                        } = entry
-                        {
-                            current_text.push_str(&text);
-                            if let Some(sig) = signature {
-                                *current_sig = Some(sig);
-                            }
-                        }
-                    }
-                    DeltaContentPart::Reasoning {
-                        index,
-                        text,
-                        signature,
-                    } => {
-                        let entry =
-                            self.content_parts
-                                .entry(index)
-                                .or_insert(AssembledPart::Reasoning {
-                                    text: "".into(),
-                                    signature: None,
-                                });
-                        if let AssembledPart::Reasoning {
-                            text: current_text,
-                            signature: current_sig,
-                        } = entry
-                        {
-                            current_text.push_str(&text);
-                            if let Some(sig) = signature {
-                                *current_sig = Some(sig);
-                            }
-                        }
-                    }
-                    DeltaContentPart::ToolCall(tool_call) => {
-                        // 1. Determine Tool ID
-                        let tool_id = if let Some(id) = tool_call.id {
-                            // Explicit ID provided: update active mapping for this index
-                            self.active_tool_id.insert(tool_call.index, id.clone());
-                            id
-                        } else {
-                            // No ID: lookup active mapping for this index
-                            // Fallback to generating a synthetic ID if not found (should be rare)
-                            self.active_tool_id
-                                .get(&tool_call.index)
-                                .cloned()
-                                .unwrap_or_else(|| format!("tool_{}", tool_call.index).into())
-                        };
-
-                        // 2. Get or create tool call entry
-                        let entry = self.tool_calls.entry(tool_id.clone()).or_insert_with(|| {
-                            // This is a NEW tool call (by ID). Record its order.
-                            self.tool_call_order
-                                .push((tool_call.index, tool_id.clone()));
-                            AssembledToolCall {
-                                id: tool_id.clone(),
-                                r#type: None,
-                                name: None,
-                                arguments: "".into(),
-                                signature: None,
-                            }
-                        });
-
-                        // 3. Update fields
-                        if let Some(tty) = tool_call.r#type.filter(|t| !t.is_empty()) {
-                            entry.r#type = Some(tty);
-                        }
-                        if let Some(sig) = tool_call.signature.filter(|s| !s.is_empty()) {
-                            entry.signature = Some(sig);
-                        }
-                        if let Some(func) = tool_call.function {
-                            if let Some(fname) = func.name.filter(|n| !n.is_empty()) {
-                                entry.name = Some(fname);
-                            }
-                            if let Some(fargs) = func.arguments {
-                                entry.arguments.push_str(&fargs);
-                            }
-                        }
-                    }
-                    DeltaContentPart::Refusal { .. } => {
-                        // Handle refusal if needed
-                    }
-                }
+                self.add_part(part);
             }
         }
     }
@@ -639,27 +741,11 @@ impl MessageAssembler {
         // Add tool calls
         for (index, tool_id) in self.tool_call_order {
             if let Some(tool_call) = self.tool_calls.get(&tool_id) {
-                let args_value: serde_json::Value = if tool_call.arguments.trim().is_empty() {
-                    serde_json::Value::Object(serde_json::Map::new())
-                } else {
-                    serde_json::from_str(&tool_call.arguments)
-                        .unwrap_or_else(|_| serde_json::Value::String(tool_call.arguments.clone()))
-                };
-
-                all_parts.push((
-                    index,
-                    ContentPart::ToolCall(crate::tool::ToolCall {
-                        id: tool_call.id.clone(),
-                        name: tool_call.name.clone().unwrap_or_default(),
-                        arguments: args_value,
-                        signature: tool_call.signature.clone(),
-                    }),
-                ));
+                all_parts.push((index, ContentPart::ToolCall(tool_call.to_tool_call())));
             }
         }
 
-        // Sort by index.
-        // Important: Stable sort is preferred to keep relative order of items with same index (if any).
+        // Sort by index. Stable sort preserves relative order for items sharing the same index.
         all_parts.sort_by_key(|(index, _)| *index);
 
         let content = all_parts.into_iter().map(|(_, part)| part).collect();
@@ -699,19 +785,7 @@ impl MessageAssembler {
     /// 根据 ID 获取特定的工具调用。
     pub fn get_tool_call_by_id(&self, tool_id: &str) -> Option<crate::tool::ToolCall> {
         let tool_call = self.tool_calls.get(tool_id)?;
-        let args_value: serde_json::Value = if tool_call.arguments.trim().is_empty() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            serde_json::from_str(&tool_call.arguments)
-                .unwrap_or_else(|_| serde_json::Value::String(tool_call.arguments.clone()))
-        };
-
-        Some(crate::tool::ToolCall {
-            id: tool_call.id.clone(),
-            name: tool_call.name.clone().unwrap_or_default(),
-            arguments: args_value,
-            signature: tool_call.signature.clone(),
-        })
+        Some(tool_call.to_tool_call())
     }
 
     /// Get all tool call indices.
@@ -734,9 +808,9 @@ pub struct ChatStream<S, E> {
     start_event_emitted: bool,
     finished_event_emitted: bool,
     in_reasoning: bool,
-    emitted_tool_starts: std::collections::HashSet<u32>,
-    emitted_tool_finishes: std::collections::HashSet<u32>,
-    _marker: std::marker::PhantomData<E>,
+    emitted_tool_starts: HashSet<u32>,
+    emitted_tool_finishes: HashSet<u32>,
+    _marker: PhantomData<E>,
 }
 
 impl<S, E> ChatStream<S, E>
@@ -756,7 +830,7 @@ where
             in_reasoning: self.in_reasoning,
             emitted_tool_starts: self.emitted_tool_starts,
             emitted_tool_finishes: self.emitted_tool_finishes,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -774,9 +848,9 @@ where
             start_event_emitted: false,
             finished_event_emitted: false,
             in_reasoning: false,
-            emitted_tool_starts: std::collections::HashSet::new(),
-            emitted_tool_finishes: std::collections::HashSet::new(),
-            _marker: std::marker::PhantomData,
+            emitted_tool_starts: HashSet::new(),
+            emitted_tool_finishes: HashSet::new(),
+            _marker: PhantomData,
         }
     }
 }
@@ -810,8 +884,6 @@ where
                     continue;
                 }
 
-                this.finished_event_emitted = true;
-
                 // Emit all completed tool calls that haven't been emitted yet
                 let tool_indices = this.assembler.get_tool_call_indices();
                 for index in tool_indices {
@@ -823,6 +895,13 @@ where
                         this.emitted_tool_finishes.insert(index);
                     }
                 }
+
+                // Drain pending events before emitting Finished
+                if let Some(event) = this.pending_events.pop_front() {
+                    return Poll::Ready(Some(Ok(event)));
+                }
+
+                this.finished_event_emitted = true;
 
                 let usage = this.assembler.usage();
                 let finish_reason = this.assembler.finish_reason();
@@ -836,10 +915,9 @@ where
             // 4. Poll underlying stream
             match Pin::new(&mut this.stream).poll_next(cx) {
                 Poll::Ready(Some(Ok(mut delta))) => {
-                    // 4.1 Extract content and update Assembler Metadata first
-                    // We take the content out, leaving None in delta, so delta becomes pure metadata container
+                    // 4.1 Extract content and update metadata directly
                     let content = delta.content.take();
-                    this.assembler.add(delta);
+                    this.assembler.add_metadata(&delta);
 
                     // 4.2 Emit Start Event if not yet emitted
                     if !this.start_event_emitted {
@@ -850,56 +928,39 @@ where
                         });
                     }
 
-                    // 4.3 Process Content
-                    let mut assembler_content = Vec::new();
-
+                    // 4.3 Process Content and feed to Assembler directly
                     if let Some(parts) = content {
                         for part in parts {
-                            match part {
-                                DeltaContentPart::Text {
-                                    index,
-                                    text,
-                                    signature,
-                                } => {
+                            match &part {
+                                DeltaContentPart::Text { text, .. } => {
                                     if this.in_reasoning {
                                         this.in_reasoning = false;
-                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::ReasoningEnd);
                                     }
                                     if !text.is_empty() {
                                         this.pending_events.push_back(ChatStreamEvent::Text {
                                             text: text.clone(),
                                         });
                                     }
-                                    assembler_content.push(DeltaContentPart::Text {
-                                        index,
-                                        text,
-                                        signature,
-                                    });
                                 }
-                                DeltaContentPart::Reasoning {
-                                    index,
-                                    text,
-                                    signature,
-                                } => {
+                                DeltaContentPart::Reasoning { text, .. } => {
                                     if !this.in_reasoning {
                                         this.in_reasoning = true;
-                                        this.pending_events.push_back(ChatStreamEvent::ReasoningStart);
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::ReasoningStart);
                                     }
                                     if !text.is_empty() {
                                         this.pending_events.push_back(ChatStreamEvent::Reasoning {
                                             text: text.clone(),
                                         });
                                     }
-                                    assembler_content.push(DeltaContentPart::Reasoning {
-                                        index,
-                                        text,
-                                        signature,
-                                    });
                                 }
                                 DeltaContentPart::ToolCall(tool) => {
                                     if this.in_reasoning {
                                         this.in_reasoning = false;
-                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::ReasoningEnd);
                                     }
                                     if !this.emitted_tool_starts.contains(&tool.index) {
                                         this.emitted_tool_starts.insert(tool.index);
@@ -915,29 +976,17 @@ where
                                             },
                                         );
                                     }
-                                    assembler_content.push(DeltaContentPart::ToolCall(tool));
                                 }
-                                other => {
+                                DeltaContentPart::Refusal { .. } => {
                                     if this.in_reasoning {
                                         this.in_reasoning = false;
-                                        this.pending_events.push_back(ChatStreamEvent::ReasoningEnd);
+                                        this.pending_events
+                                            .push_back(ChatStreamEvent::ReasoningEnd);
                                     }
-                                    assembler_content.push(other);
                                 }
                             }
+                            this.assembler.add_part(part);
                         }
-                    }
-
-                    // 4.4 Feed all content to Assembler (Text, Reasoning, ToolCalls)
-                    if !assembler_content.is_empty() {
-                        let content_delta = DeltaMessage {
-                            role: None,
-                            name: None,
-                            content: Some(assembler_content),
-                            finish_reason: None,
-                            usage: None,
-                        };
-                        this.assembler.add(content_delta);
                     }
                 }
                 Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
@@ -955,6 +1004,173 @@ where
 mod tests {
     use super::*;
     use futures::{executor::block_on, stream};
+
+    #[test]
+    fn test_message_and_history_builder() {
+        let msg1 = Message::user("hello");
+        assert_eq!(msg1.role, Role::User);
+        assert_eq!(
+            msg1.content,
+            vec![ContentPart::Text {
+                text: "hello".into(),
+                signature: None,
+            }]
+        );
+
+        let msg2 = Message::assistant("world");
+        let history = MessageHistory::new()
+            .with_message(msg1)
+            .with_message(msg2);
+        assert_eq!(history.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_message_assembler_interleaved_tool_calls() {
+        let mut assembler = MessageAssembler::new();
+
+        assembler.add(DeltaMessage {
+            role: Some(Role::Assistant),
+            content: Some(vec![
+                DeltaContentPart::Text {
+                    index: 0,
+                    text: "Let me search for that.".into(),
+                    signature: None,
+                },
+                DeltaContentPart::ToolCall(DeltaToolCall {
+                    index: 1,
+                    id: Some("call_abc123".into()),
+                    r#type: Some("function".into()),
+                    function: Some(DeltaFunction {
+                        name: Some("search".into()),
+                        arguments: Some("{\"query\":".into()),
+                    }),
+                    signature: None,
+                }),
+            ]),
+            ..Default::default()
+        });
+
+        // Fragment without tool ID, relying on index -> synthetic/cached tool ID lookup
+        assembler.add(DeltaMessage {
+            content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                index: 1,
+                id: None,
+                r#type: None,
+                function: Some(DeltaFunction {
+                    name: None,
+                    arguments: Some("\"rust\"}".into()),
+                }),
+                signature: None,
+            })]),
+            finish_reason: Some(FinishReason::ToolCalls),
+            usage: Some(Usage {
+                input_tokens: 10,
+                output_tokens: 20,
+                total_tokens: 30,
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(assembler.finish_reason(), Some(FinishReason::ToolCalls));
+        assert_eq!(
+            assembler.usage(),
+            Some(Usage {
+                input_tokens: 10,
+                output_tokens: 20,
+                total_tokens: 30,
+            })
+        );
+
+        let assembled_tool = assembler.get_tool_call(1).unwrap();
+        assert_eq!(assembled_tool.id, "call_abc123");
+        assert_eq!(assembled_tool.name, "search");
+        assert_eq!(
+            assembled_tool.arguments,
+            serde_json::json!({ "query": "rust" })
+        );
+
+        let final_msg = assembler.build();
+        assert_eq!(final_msg.role, Role::Assistant);
+        assert_eq!(final_msg.content.len(), 2);
+        assert_eq!(
+            final_msg.content[0],
+            ContentPart::Text {
+                text: "Let me search for that.".into(),
+                signature: None,
+            }
+        );
+        assert_eq!(final_msg.content[1], ContentPart::ToolCall(assembled_tool));
+    }
+
+    #[test]
+    fn test_chat_stream_tool_call_events() {
+        block_on(async {
+            let deltas = vec![
+                Ok::<_, String>(DeltaMessage {
+                    role: Some(Role::Assistant),
+                    content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                        index: 0,
+                        id: Some("call_xyz".into()),
+                        r#type: Some("function".into()),
+                        function: Some(DeltaFunction {
+                            name: Some("calculator".into()),
+                            arguments: Some("{\"expr\":".into()),
+                        }),
+                        signature: None,
+                    })]),
+                    ..Default::default()
+                }),
+                Ok::<_, String>(DeltaMessage {
+                    content: Some(vec![DeltaContentPart::ToolCall(DeltaToolCall {
+                        index: 0,
+                        id: None,
+                        r#type: None,
+                        function: Some(DeltaFunction {
+                            name: None,
+                            arguments: Some("\"1+1\"}".into()),
+                        }),
+                        signature: None,
+                    })]),
+                    finish_reason: Some(FinishReason::ToolCalls),
+                    ..Default::default()
+                }),
+            ];
+
+            let stream = stream::iter(deltas);
+            let mut chat_stream = ChatStream::new(stream);
+
+            let mut events = Vec::new();
+            while let Some(res) = chat_stream.next().await {
+                events.push(res.unwrap());
+            }
+
+            assert_eq!(
+                events,
+                vec![
+                    ChatStreamEvent::Start {
+                        role: Role::Assistant,
+                        name: None,
+                    },
+                    ChatStreamEvent::ToolCallStart {
+                        index: 0,
+                        id: Some("call_xyz".into()),
+                        r#type: Some("function".into()),
+                        name: Some("calculator".into()),
+                    },
+                    ChatStreamEvent::ToolCallFinished(crate::tool::ToolCall {
+                        id: "call_xyz".into(),
+                        name: "calculator".into(),
+                        arguments: serde_json::json!({ "expr": "1+1" }),
+                        signature: None,
+                    }),
+                    ChatStreamEvent::Finished {
+                        usage: None,
+                        finish_reason: Some(FinishReason::ToolCalls),
+                    }
+                ]
+            );
+        });
+    }
 
     #[test]
     fn test_chat_stream_reasoning_lifecycle() {
