@@ -1,3 +1,4 @@
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -27,10 +28,10 @@ pub enum ToolType {
 /// 函数定义详情。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FunctionDefinition {
-    pub name: String,
+    pub name: StaticRefStr,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<StaticRefStr>,
 
     /// JSON Schema parameters definition.
     ///
@@ -58,19 +59,19 @@ pub struct JSONSchema {
     /// A description of the valid data.
     ///
     /// 数据描述。
-    pub description: Option<String>,
+    pub description: Option<StaticRefStr>,
 
     /// Object properties (if type is object).
     /// Using BTreeMap for deterministic serialization order.
     ///
     /// 对象属性（如果类型是 object）。
     /// 使用 BTreeMap 以保证序列化顺序确定性。
-    pub properties: Option<std::collections::BTreeMap<String, JSONSchema>>,
+    pub properties: Option<std::collections::BTreeMap<StaticRefStr, JSONSchema>>,
 
     /// List of required property names.
     ///
     /// 必须的属性名称列表。
-    pub required: Option<Vec<String>>,
+    pub required: Option<Vec<StaticRefStr>>,
 
     /// Schema for array items (if type is array).
     ///
@@ -80,7 +81,7 @@ pub struct JSONSchema {
     /// Enumeration of allowed values.
     ///
     /// 允许值的枚举。
-    pub enum_values: Option<Vec<String>>,
+    pub enum_values: Option<Vec<StaticRefStr>>,
 
     /// Additional properties allowance.
     /// Important for OpenAI Strict Mode (must be false).
@@ -92,7 +93,7 @@ pub struct JSONSchema {
     /// Format string (e.g., "date-time", "uri").
     ///
     /// 格式字符串。
-    pub format: Option<String>,
+    pub format: Option<StaticRefStr>,
 
     /// Default value.
     ///
@@ -366,19 +367,19 @@ impl JSONSchema {
     }
 
     /// Set the description.
-    pub fn description(mut self, description: impl Into<String>) -> Self {
+    pub fn description(mut self, description: impl Into<StaticRefStr>) -> Self {
         self.description = Some(description.into());
         self
     }
 
     /// Set enum values (for string types mostly).
-    pub fn enum_values(mut self, values: Vec<impl Into<String>>) -> Self {
+    pub fn enum_values(mut self, values: Vec<impl Into<StaticRefStr>>) -> Self {
         self.enum_values = Some(values.into_iter().map(|s| s.into()).collect());
         self
     }
 
     /// Add a property to the object.
-    pub fn property(mut self, name: impl Into<String>, schema: JSONSchema) -> Self {
+    pub fn property(mut self, name: impl Into<StaticRefStr>, schema: JSONSchema) -> Self {
         if let Some(props) = &mut self.properties {
             props.insert(name.into(), schema);
         }
@@ -386,7 +387,7 @@ impl JSONSchema {
     }
 
     /// Add a required property to the object.
-    pub fn required_property(mut self, name: impl Into<String>, schema: JSONSchema) -> Self {
+    pub fn required_property(mut self, name: impl Into<StaticRefStr>, schema: JSONSchema) -> Self {
         let name = name.into();
         if let Some(props) = &mut self.properties {
             props.insert(name.clone(), schema);
@@ -400,14 +401,14 @@ impl JSONSchema {
 
 /// Builder for creating a `Tool`.
 pub struct ToolBuilder {
-    name: String,
-    description: Option<String>,
+    name: StaticRefStr,
+    description: Option<StaticRefStr>,
     parameters: Option<JSONSchema>,
     strict: Option<bool>,
 }
 
 impl ToolBuilder {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<StaticRefStr>) -> Self {
         Self {
             name: name.into(),
             description: None,
@@ -417,7 +418,7 @@ impl ToolBuilder {
     }
 
     /// Set tool description.
-    pub fn description(mut self, description: impl Into<String>) -> Self {
+    pub fn description(mut self, description: impl Into<StaticRefStr>) -> Self {
         self.description = Some(description.into());
         self
     }
@@ -473,7 +474,7 @@ pub enum ToolChoice {
     /// Force execution of a specific function.
     ///
     /// 强制调用特定函数。
-    Function { name: String },
+    Function { name: StaticRefStr },
 }
 
 /// Tool Call Request.
@@ -481,11 +482,11 @@ pub enum ToolChoice {
 /// 工具调用请求。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolCall {
-    pub id: String,
-    pub name: String,
+    pub id: StaticRefStr,
+    pub name: StaticRefStr,
     pub arguments: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
+    pub signature: Option<StaticRefStr>,
 }
 
 /// Tool Execution Result.
@@ -493,19 +494,19 @@ pub struct ToolCall {
 /// 工具执行结果。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolResult {
-    pub tool_call_id: String,
-    pub name: String,
+    pub tool_call_id: StaticRefStr,
+    pub name: StaticRefStr,
     pub content: Vec<ContentPart>,
     #[serde(default)]
     pub is_error: bool,
     /// 思维签密上下文。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
+    pub signature: Option<StaticRefStr>,
 }
 
 impl ToolDefinition {
     /// Create a builder for defining a Tool.
-    pub fn builder(name: impl Into<String>) -> ToolBuilder {
+    pub fn builder(name: impl Into<StaticRefStr>) -> ToolBuilder {
         ToolBuilder::new(name)
     }
 
@@ -513,8 +514,8 @@ impl ToolDefinition {
     ///
     /// 创建一个新的 Function 工具。
     pub fn function(
-        name: impl Into<String>,
-        description: impl Into<String>,
+        name: impl Into<StaticRefStr>,
+        description: impl Into<StaticRefStr>,
         parameters: JSONSchema,
     ) -> Self {
         Self {

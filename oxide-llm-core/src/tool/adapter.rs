@@ -65,7 +65,7 @@ impl ToolAdapter for ToolDefinition {
             .and_then(|p| serde_json::to_value(p).ok());
 
         OpenAITool {
-            r#type: "function".to_string(),
+            r#type: "function".into(),
             function: OpenAIFunctionDefinition {
                 name: self.function.name.clone(),
                 description: self.function.description.clone(),
@@ -80,7 +80,7 @@ impl ToolAdapter for ToolDefinition {
             .function
             .parameters
             .as_ref()
-            .and_then(|v| json_schema_to_gemini_schema(v));
+            .and_then(json_schema_to_gemini_schema);
 
         GeminiFunctionDeclaration {
             name: self.function.name.clone(),
@@ -102,7 +102,7 @@ impl ToolAdapter for ToolDefinition {
             description: self.function.description.clone(),
             input_schema,
             cache_control: None, // Core doesn't support cache control yet
-            r#type: Some("custom".to_string()),
+            r#type: Some("custom".into()),
             strict: self.function.strict,
         })
     }
@@ -111,11 +111,11 @@ impl ToolAdapter for ToolDefinition {
 impl ToolChoiceAdapter for ToolChoice {
     fn to_openai(&self) -> OpenAIToolChoice {
         match self {
-            ToolChoice::None => OpenAIToolChoice::String("none".to_string()),
-            ToolChoice::Auto => OpenAIToolChoice::String("auto".to_string()),
-            ToolChoice::Required => OpenAIToolChoice::String("required".to_string()),
+            ToolChoice::None => OpenAIToolChoice::String("none".into()),
+            ToolChoice::Auto => OpenAIToolChoice::String("auto".into()),
+            ToolChoice::Required => OpenAIToolChoice::String("required".into()),
             ToolChoice::Function { name } => OpenAIToolChoice::Named(OpenAIToolChoiceNamed {
-                r#type: "function".to_string(),
+                r#type: "function".into(),
                 function: OpenAIToolChoiceFunction { name: name.clone() },
             }),
         }
@@ -190,7 +190,7 @@ impl TryFrom<OpenAITool> for ToolDefinition {
 impl From<OpenAIToolChoice> for ToolChoice {
     fn from(value: OpenAIToolChoice) -> Self {
         match value {
-            OpenAIToolChoice::String(s) => match s.as_str() {
+            OpenAIToolChoice::String(s) => match s.as_ref() {
                 "none" => ToolChoice::None,
                 "required" => ToolChoice::Required,
                 _ => ToolChoice::Auto, // Default to Auto for "auto" or unknowns

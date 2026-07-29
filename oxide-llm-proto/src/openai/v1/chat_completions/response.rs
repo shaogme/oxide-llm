@@ -1,4 +1,5 @@
 use crate::openai::v1::{LogProbs, ToolCall};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +34,7 @@ pub struct ChatCompletionResponseMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<String>,
+    pub refusal: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,7 +45,7 @@ pub struct ChatCompletionResponseMessage {
 pub struct AudioResponse {
     pub id: String,
     pub expires_at: i64,
-    pub data: String,
+    pub data: StaticRefStr,
     pub transcript: String,
 }
 

@@ -10,6 +10,7 @@ use oxide_llm_proto::openai::v1::chat_completions::request::{
 };
 use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
 use oxide_llm_proto::openai::v1::{FunctionDefinition, Tool, ToolChoice};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::ChatAgent;
@@ -20,8 +21,8 @@ use crate::error::{AgentError, Result};
 /// OpenAI Chat Completions 代理配置 (必须)。
 #[derive(Debug, Clone)]
 pub struct ChatCompletionsRequiredConfig {
-    pub model: String,
-    pub endpoint: String,
+    pub model: Cow<'static, str>,
+    pub endpoint: Cow<'static, str>,
 }
 
 /// Configuration for OpenAI Chat Completions Agent (Optional).
@@ -31,30 +32,30 @@ pub struct ChatCompletionsRequiredConfig {
 #[derive(Debug, Clone, Default)]
 pub struct ChatCompletionsOptionalConfig {
     pub frequency_penalty: Option<f32>,
-    pub logit_bias: Option<HashMap<String, f32>>,
+    pub logit_bias: Option<HashMap<Cow<'static, str>, f32>>,
     pub logprobs: Option<bool>,
     pub top_logprobs: Option<u8>,
     pub max_tokens: Option<u32>,
     pub max_completion_tokens: Option<u32>,
     pub n: Option<u8>,
-    pub modalities: Option<Vec<String>>,
+    pub modalities: Option<Vec<Cow<'static, str>>>,
     pub prediction: Option<PredictionContent>,
     pub audio: Option<AudioOptions>,
     pub presence_penalty: Option<f32>,
     pub response_format: Option<ResponseFormat>,
     pub seed: Option<i64>,
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Cow<'static, str>>,
     pub stop: Option<Stop>,
     pub store: Option<bool>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub parallel_tool_calls: Option<bool>,
-    pub user: Option<String>,
+    pub user: Option<Cow<'static, str>>,
     pub function_call: Option<serde_json::Value>,
     pub functions: Option<Vec<FunctionDefinition>>,
     pub web_search_options: Option<WebSearchOptions>,
-    pub verbosity: Option<String>,
-    pub reasoning_effort: Option<String>,
+    pub verbosity: Option<Cow<'static, str>>,
+    pub reasoning_effort: Option<Cow<'static, str>>,
 }
 
 /// Configuration for OpenAI Chat Completions Agent.
@@ -282,7 +283,10 @@ impl crate::stream::SseProcessor for OpenAIProcessor {
 
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     type Stream = crate::stream::MessageStream<T::Stream, OpenAIProcessor>;
-    type ChatStreamFuture<'a> = crate::stream::AgentChatStreamFuture<T::StreamFuture, OpenAIProcessor> where Self: 'a;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<T::StreamFuture, OpenAIProcessor>
+    where
+        Self: 'a;
 
     /// Send a chat request to OpenAI.
     ///
@@ -292,7 +296,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
 
         // Send Request
         let transport_req =
-            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+            TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
         let response: ChatCompletionResponse = self
             .transport
             .send(transport_req)
@@ -309,14 +313,11 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI and receive a stream of chunks.
     ///
     /// 发送聊天请求到 OpenAI 并接收流式响应。
-    fn chat_stream<'a>(
-        &'a self,
-        state: ConversationState,
-    ) -> Self::ChatStreamFuture<'a> {
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
             let transport_req =
-                TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+                TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, OpenAIProcessor::new())

@@ -7,6 +7,7 @@ use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContent
 use oxide_llm_proto::gemini::v1beta::generate_content::{
     Blob, Content as GeminiContent, FileData, FunctionCall, FunctionResponse, Part as GeminiPart,
 };
+use ref_str::StaticRefStr;
 
 /// Mapper for Gemini protocol.
 ///
@@ -26,7 +27,7 @@ impl GeminiMapper {
 
         Ok(GeminiContent {
             parts,
-            role: Some(role.to_string()),
+            role: Some(role.into()),
         })
     }
 
@@ -85,7 +86,7 @@ impl GeminiMapper {
                 ContentPart::Audio(audio) => {
                     gemini_parts.push(GeminiPart {
                         inline_data: Some(Blob {
-                            mime_type: format!("audio/{}", audio.format), // e.g. audio/mp3
+                            mime_type: format!("audio/{}", audio.format).into(), // e.g. audio/mp3
                             data: audio.data,
                         }),
                         ..Default::default()
@@ -142,7 +143,7 @@ impl GeminiMapper {
                 ContentPart::Json(value) => {
                     let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
                     gemini_parts.push(GeminiPart {
-                        text: Some(text),
+                        text: Some(text.into()),
                         ..Default::default()
                     });
                 }
@@ -207,7 +208,7 @@ impl GeminiMapper {
 ///
 /// 用于 Gemini 流式响应的有状态映射器。
 pub struct GeminiStreamMapper {
-    last_signature: Option<String>,
+    last_signature: Option<StaticRefStr>,
 }
 
 impl Default for GeminiStreamMapper {
@@ -262,9 +263,9 @@ impl GeminiStreamMapper {
                 crate::message::FinishReason::ContentFilter
             }
             oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Other => {
-                crate::message::FinishReason::Other("Other".to_string())
+                crate::message::FinishReason::Other("Other".into())
             }
-            _ => crate::message::FinishReason::Other(format!("{:?}", r)),
+            _ => crate::message::FinishReason::Other(format!("{:?}", r).into()),
         });
 
         let mut content_parts = Vec::new();
@@ -295,11 +296,13 @@ impl GeminiStreamMapper {
                 content_parts.push(DeltaContentPart::ToolCall(DeltaToolCall {
                     index: i as u32,
                     id: Some(fc.id.clone().unwrap_or_else(|| fc.name.clone())),
-                    r#type: Some("function".to_string()),
+                    r#type: Some("function".into()),
                     function: Some(DeltaFunction {
                         name: Some(fc.name.clone()),
                         arguments: Some(
-                            serde_json::to_string(&fc.args).map_err(MapperError::JsonError)?,
+                            serde_json::to_string(&fc.args)
+                                .map_err(MapperError::JsonError)?
+                                .into(),
                         ),
                     }),
                     signature: sig,

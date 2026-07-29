@@ -1,3 +1,4 @@
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -15,7 +16,7 @@ pub enum Role {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Content {
-    Text(String),
+    Text(StaticRefStr),
     Blocks(Vec<ContentBlock>),
 }
 
@@ -59,21 +60,21 @@ pub struct ImageBlock {
 pub enum ImageSource {
     Base64 {
         #[serde(rename = "type")]
-        r#type: String, // "base64"
-        media_type: String,
-        data: String,
+        r#type: StaticRefStr, // "base64"
+        media_type: StaticRefStr,
+        data: StaticRefStr,
     },
     Url {
         #[serde(rename = "type")]
-        r#type: String, // "url"
-        url: String,
+        r#type: StaticRefStr, // "url"
+        url: StaticRefStr,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolUseBlock {
-    pub id: String,
-    pub name: String,
+    pub id: StaticRefStr,
+    pub name: StaticRefStr,
     pub input: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
@@ -81,7 +82,7 @@ pub struct ToolUseBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResultBlock {
-    pub tool_use_id: String,
+    pub tool_use_id: StaticRefStr,
     pub content: ToolResultContent, // string or blocks
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
@@ -102,9 +103,9 @@ pub struct DocumentBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    pub title: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>,
+    pub context: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub citations: Option<CitationsConfig>,
 }
@@ -114,45 +115,45 @@ pub struct DocumentBlock {
 pub enum DocumentSource {
     Base64 {
         #[serde(rename = "type")]
-        r#type: String, // "base64"
-        media_type: String, // "application/pdf"
-        data: String,
+        r#type: StaticRefStr, // "base64"
+        media_type: StaticRefStr, // "application/pdf"
+        data: StaticRefStr,
     },
     Url {
         #[serde(rename = "type")]
-        r#type: String, // "url"
-        url: String,
+        r#type: StaticRefStr, // "url"
+        url: StaticRefStr,
     },
     Text {
         #[serde(rename = "type")]
-        r#type: String, // "text"
-        media_type: String, // "text/plain"
-        data: String,
+        r#type: StaticRefStr, // "text"
+        media_type: StaticRefStr, // "text/plain"
+        data: StaticRefStr,
     },
     Content {
         #[serde(rename = "type")]
-        r#type: String, // "content"
+        r#type: StaticRefStr, // "content"
         content: Content, // string or blocks
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThinkingBlock {
-    pub signature: String,
+    pub signature: StaticRefStr,
     pub thinking: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RedactedThinkingBlock {
-    pub data: String,
+    pub data: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheControl {
     #[serde(rename = "type")]
-    pub r#type: String, // "ephemeral"
+    pub r#type: StaticRefStr, // "ephemeral"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ttl: Option<String>, // "5m" or "1h"
+    pub ttl: Option<StaticRefStr>, // "5m" or "1h"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,7 +175,7 @@ pub enum Citation {
 pub struct CharLocationCitation {
     pub cited_text: String,
     pub document_index: u32,
-    pub document_title: Option<String>,
+    pub document_title: Option<StaticRefStr>,
     pub start_char_index: u32,
     pub end_char_index: u32,
 }
@@ -183,7 +184,7 @@ pub struct CharLocationCitation {
 pub struct PageLocationCitation {
     pub cited_text: String,
     pub document_index: u32,
-    pub document_title: Option<String>,
+    pub document_title: Option<StaticRefStr>,
     pub start_page_number: u32,
     pub end_page_number: u32,
 }
@@ -192,7 +193,7 @@ pub struct PageLocationCitation {
 pub struct ContentBlockLocationCitation {
     pub cited_text: String,
     pub document_index: u32,
-    pub document_title: Option<String>,
+    pub document_title: Option<StaticRefStr>,
     pub start_block_index: u32,
     pub end_block_index: u32,
 }
@@ -200,9 +201,9 @@ pub struct ContentBlockLocationCitation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchResultLocationCitation {
     pub cited_text: String,
-    pub encrypted_index: String,
-    pub title: String,
-    pub url: String,
+    pub encrypted_index: StaticRefStr,
+    pub title: StaticRefStr,
+    pub url: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,16 +211,16 @@ pub struct SearchResultLocationCitation {
     pub cited_text: String,
     pub end_block_index: u32,
     pub search_result_index: u32,
-    pub source: String,
+    pub source: StaticRefStr,
     pub start_block_index: u32,
-    pub title: String,
+    pub title: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResultBlock {
     pub content: Vec<TextBlock>,
-    pub source: String,
-    pub title: String,
+    pub source: StaticRefStr,
+    pub title: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,8 +229,8 @@ pub struct SearchResultBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerToolUseBlock {
-    pub id: String,
-    pub name: String, // "web_search"
+    pub id: StaticRefStr,
+    pub name: StaticRefStr, // "web_search"
     pub input: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
@@ -237,7 +238,7 @@ pub struct ServerToolUseBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchToolResultBlock {
-    pub tool_use_id: String,
+    pub tool_use_id: StaticRefStr,
     pub content: Vec<WebSearchResultItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
@@ -252,14 +253,14 @@ pub enum WebSearchResultItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchResult {
-    pub encrypted_content: String,
-    pub title: String,
-    pub url: String,
+    pub encrypted_content: StaticRefStr,
+    pub title: StaticRefStr,
+    pub url: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub page_age: Option<String>,
+    pub page_age: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchToolResultError {
-    pub error_code: String,
+    pub error_code: StaticRefStr,
 }

@@ -62,12 +62,12 @@ impl ClaudeMapper {
                 ContentPart::Image(image) => {
                     let source = match image.source {
                         ImageSource::Base64 { data } => ClaudeImageSource::Base64 {
-                            r#type: "base64".to_string(),
+                            r#type: "base64".into(),
                             media_type: image.media_type.ok_or(MapperError::InvalidMediaType)?,
                             data,
                         },
                         ImageSource::Url { url } => ClaudeImageSource::Url {
-                            r#type: "url".to_string(),
+                            r#type: "url".into(),
                             url,
                         },
                     };
@@ -93,7 +93,7 @@ impl ClaudeMapper {
                             ContentPart::Json(value) => {
                                 let text =
                                     serde_json::to_string(value).map_err(MapperError::JsonError)?;
-                                ToolResultContent::Text(text)
+                                ToolResultContent::Text(text.into())
                             }
                             _ => ToolResultContent::Blocks(Self::convert_content_to_claude_blocks(
                                 tr.content,
@@ -115,7 +115,7 @@ impl ClaudeMapper {
                 ContentPart::Json(value) => {
                     let text = serde_json::to_string(&value).map_err(MapperError::JsonError)?;
                     blocks.push(ContentBlock::Text(TextBlock {
-                        text,
+                        text: text.into(),
                         cache_control: None,
                         citations: None,
                     }));
@@ -218,7 +218,7 @@ impl ClaudeStreamMapper {
                         Some(DeltaContentPart::ToolCall(DeltaToolCall {
                             index,
                             id: Some(tool_use.id),
-                            r#type: Some("function".to_string()),
+                            r#type: Some("function".into()),
                             function: Some(DeltaFunction {
                                 name: Some(tool_use.name),
                                 arguments: None, // Arguments come in Delta
@@ -237,7 +237,7 @@ impl ClaudeStreamMapper {
                     ChunkContentBlock::RedactedThinking(t) => {
                         Some(DeltaContentPart::Reasoning {
                             index,
-                            text: String::new(),
+                            text: "".into(),
                             signature: Some(t.data), // Encrypted/Redacted data as signature
                         })
                     }
@@ -245,10 +245,10 @@ impl ClaudeStreamMapper {
                         Some(DeltaContentPart::ToolCall(DeltaToolCall {
                             index,
                             id: Some(stu.id),
-                            r#type: Some("server_function".to_string()),
+                            r#type: Some("server_function".into()),
                             function: Some(DeltaFunction {
                                 name: Some(stu.name),
-                                arguments: Some(stu.input.to_string()),
+                                arguments: Some(stu.input.to_string().into()),
                             }),
                             signature: None,
                         }))
@@ -261,7 +261,7 @@ impl ClaudeStreamMapper {
                         }
                         Some(DeltaContentPart::Text {
                             index,
-                            text,
+                            text: text.into(),
                             signature: None,
                         })
                     }
@@ -275,7 +275,7 @@ impl ClaudeStreamMapper {
                         }
                         Some(DeltaContentPart::Text {
                             index,
-                            text,
+                            text: text.into(),
                             signature: None,
                         })
                     }
@@ -334,7 +334,7 @@ impl ClaudeStreamMapper {
                     ChunkContentBlockDelta::SignatureDelta { signature } => {
                         Some(DeltaContentPart::Reasoning {
                             index,
-                            text: String::new(),
+                            text: "".into(),
                             signature: Some(signature),
                         })
                     }
@@ -360,7 +360,7 @@ impl ClaudeStreamMapper {
                     StopReason::MaxTokens => crate::message::FinishReason::Length,
                     StopReason::StopSequence => crate::message::FinishReason::Stop, // or Other
                     StopReason::ToolUse => crate::message::FinishReason::ToolCalls,
-                    _ => crate::message::FinishReason::Other(format!("{:?}", r)),
+                    _ => crate::message::FinishReason::Other(format!("{:?}", r).into()),
                 });
 
                 let usage = crate::message::Usage {

@@ -240,8 +240,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_base_url(c.base_url.clone());
 
             let agent_config = ChatCompletionsRequiredConfig {
-                model: c.model.clone(),
-                endpoint: c.endpoint.clone(),
+                model: c.model.clone().into(),
+                endpoint: c.endpoint.clone().into(),
             };
             Box::new(ChatCompletionsAgent::new(transport, agent_config))
         }
@@ -252,8 +252,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_base_url(c.base_url.clone());
 
             let agent_config = MessagesRequiredConfig {
-                model: c.model.clone(),
-                endpoint: c.endpoint.clone(),
+                model: c.model.clone().into(),
+                endpoint: c.endpoint.clone().into(),
                 max_tokens: c.max_tokens,
             };
             Box::new(MessagesAgent::new(transport, agent_config))
@@ -265,29 +265,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_base_url(c.base_url.clone());
 
             let agent_config = GenerateContentRequiredConfig {
-                model: c.model.clone(),
-                endpoint: c.endpoint.clone(),
+                model: c.model.clone().into(),
+                endpoint: c.endpoint.clone().into(),
             };
             Box::new(GenerateContentAgent::new(transport, agent_config))
         }
     };
 
-    // 4. Prepare Conversation State
-    let mut state = ConversationState::new(None);
-
-    // 5. Register Tools (Stateful)
-    let mut registry = oxide_llm::tool::ToolRegistry::new();
-
-    // Instantiate tools with state
+    // 4. Create Runner and Register Tools
     let weather_tool = WeatherTool {
         api_key: "dummy_weather_api_key".to_string(),
     };
     let stock_tool = StockTool;
 
-    registry.register(weather_tool);
-    registry.register(stock_tool);
+    let runner = oxide_llm::Runner::new(agent)
+        .with_tool(weather_tool)
+        .with_tool(stock_tool)
+        .with_max_turns(5);
 
-    state.add_tools(registry.definitions());
+    // 5. Prepare Conversation State
+    let mut state = ConversationState::new(None);
+    runner.sync_tools(&mut state);
 
     // 6. Interaction Loop
     let user_input = "What is the weather in Tokyo and what is the stock price of AAPL?";
@@ -295,10 +293,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     state.add_message(Message::user(user_input));
 
-    let mut runner = oxide_llm::runner::RunnerStream::new(&*agent, &registry, &mut state, 5);
+    let mut stream = runner.run_stream(&mut state);
 
     let mut in_reasoning = false;
-    while let Some(event_result) = runner.next().await {
+    while let Some(event_result) = stream.next().await {
         match event_result {
             Ok(event) => {
                 match &event {

@@ -21,13 +21,13 @@ impl OpenAIMapper {
     pub fn from_core_message(msg: Message) -> Result<ChatCompletionMessage, MapperError> {
         match msg.role {
             Role::User => {
-                if msg.content.len() == 1 {
-                    if let ContentPart::Text { text, signature: _ } = &msg.content[0] {
-                        return Ok(ChatCompletionMessage::User {
-                            content: UserContent::Text(text.clone()),
-                            name: msg.name,
-                        });
-                    }
+                if msg.content.len() == 1
+                    && let ContentPart::Text { text, signature: _ } = &msg.content[0]
+                {
+                    return Ok(ChatCompletionMessage::User {
+                        content: UserContent::Text(text.clone()),
+                        name: msg.name,
+                    });
                 }
 
                 let mut parts = Vec::new();
@@ -49,7 +49,7 @@ impl OpenAIMapper {
                         ContentPart::Json(value) => {
                             let text =
                                 serde_json::to_string(&value).map_err(MapperError::JsonError)?;
-                            parts.push(OpenAIContentPart::Text { text });
+                            parts.push(OpenAIContentPart::Text { text: text.into() });
                         }
                         _ => {
                             return Err(MapperError::UnsupportedContent {
@@ -92,15 +92,15 @@ impl OpenAIMapper {
                                 c.push_str("\n\n");
                                 c.push_str(&text);
                             }
-                            None => content = Some(text),
+                            None => content = Some(text.into()),
                         },
                         ContentPart::ToolCall(tc) => {
                             tool_calls.push(OpenAIToolCall {
                                 id: tc.id,
-                                r#type: "function".to_string(),
+                                r#type: "function".into(),
                                 function: ToolCallFunction {
                                     name: tc.name,
-                                    arguments: tc.arguments.to_string(),
+                                    arguments: tc.arguments.to_string().into(),
                                 },
                             });
                         }
@@ -123,7 +123,7 @@ impl OpenAIMapper {
                 };
 
                 Ok(ChatCompletionMessage::Assistant {
-                    content,
+                    content: content.map(Into::into),
                     name: msg.name,
                     tool_calls,
                     refusal,
@@ -139,13 +139,13 @@ impl OpenAIMapper {
                         let content_str = if res.content.len() == 1 {
                             match &res.content[0] {
                                 ContentPart::Text { text, signature: _ } => text.clone(),
-                                ContentPart::Json(value) => {
-                                    serde_json::to_string(value).map_err(MapperError::JsonError)?
-                                }
-                                _ => serde_json::to_string(&res.content)?,
+                                ContentPart::Json(value) => serde_json::to_string(value)
+                                    .map_err(MapperError::JsonError)?
+                                    .into(),
+                                _ => serde_json::to_string(&res.content)?.into(),
                             }
                         } else {
-                            serde_json::to_string(&res.content)?
+                            serde_json::to_string(&res.content)?.into()
                         };
 
                         Ok(ChatCompletionMessage::Tool {
@@ -164,7 +164,7 @@ impl OpenAIMapper {
             ImageSource::Url { url } => url,
             ImageSource::Base64 { data } => {
                 if let Some(media_type) = image.media_type {
-                    format!("data:{};base64,{}", media_type, data)
+                    format!("data:{};base64,{}", media_type, data).into()
                 } else {
                     return Err(MapperError::InvalidMediaType);
                 }
@@ -225,7 +225,7 @@ impl OpenAIMapper {
         if let Some(audio) = &msg.audio {
             content_parts.push(ContentPart::Audio(crate::message::Audio {
                 data: audio.data.clone(),
-                format: "wav".to_string(), // OpenAI typically uses wav/pcm, defaulting here.
+                format: "wav".into(), // OpenAI typically uses wav/pcm, defaulting here.
             }));
         }
 
@@ -280,7 +280,7 @@ impl OpenAIStreamMapper {
             _ => None,
         };
 
-        let finish_reason = choice.finish_reason.as_ref().map(|r| match r.as_str() {
+        let finish_reason = choice.finish_reason.as_ref().map(|r| match r.as_ref() {
             "stop" => crate::message::FinishReason::Stop,
             "length" => crate::message::FinishReason::Length,
             "tool_calls" | "function_call" => crate::message::FinishReason::ToolCalls,

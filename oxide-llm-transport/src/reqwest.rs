@@ -1,9 +1,9 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use futures::{Stream, StreamExt, stream::BoxStream};
 use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
 use reqwest::{Client, RequestBuilder};
 use serde::{Serialize, de::DeserializeOwned};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// Transport implementation based on `reqwest`.
 ///
@@ -44,10 +44,10 @@ impl ReqwestTransport {
             Method::Options => reqwest::Method::OPTIONS,
         };
 
-        let mut builder = self.client.request(method, &req.endpoint);
+        let mut builder = self.client.request(method, req.endpoint.as_ref());
 
         for (k, v) in req.headers {
-            builder = builder.header(k, v);
+            builder = builder.header(k.as_ref(), v.as_ref());
         }
 
         builder = builder.json(&req.body);

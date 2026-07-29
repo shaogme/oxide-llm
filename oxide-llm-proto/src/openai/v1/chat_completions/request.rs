@@ -1,6 +1,7 @@
 use crate::openai::v1::{FunctionDefinition, Tool, ToolCall, ToolChoice};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -8,7 +9,7 @@ pub struct ChatCompletionRequest {
     pub messages: Vec<ChatCompletionMessage>,
 
     /// ID of the model to use.
-    pub model: String,
+    pub model: Cow<'static, str>,
 
     /// Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far, decreasing the model's likelihood to repeat the same line verbatim.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -16,7 +17,7 @@ pub struct ChatCompletionRequest {
 
     /// Modify the likelihood of specified tokens appearing in the completion.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub logit_bias: Option<HashMap<String, f32>>,
+    pub logit_bias: Option<HashMap<Cow<'static, str>, f32>>,
 
     /// Whether to return log probabilities of the output tokens or not.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,7 +42,7 @@ pub struct ChatCompletionRequest {
 
     /// Output types that you would like the model to generate for this request.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modalities: Option<Vec<String>>,
+    pub modalities: Option<Vec<Cow<'static, str>>>,
 
     /// Configuration for a Predicted Output, which can greatly improve response times when large parts of the model response are known ahead of time.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +66,7 @@ pub struct ChatCompletionRequest {
 
     /// Specifies the latency tier to use for processing the request. This argument is currently available to standard tier customers.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Cow<'static, str>>,
 
     /// Up to 4 sequences where the API will stop generating further tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,7 +106,7 @@ pub struct ChatCompletionRequest {
 
     /// A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
+    pub user: Option<Cow<'static, str>>,
 
     /// Deprecated in favor of `tool_choice`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,43 +121,43 @@ pub struct ChatCompletionRequest {
     pub web_search_options: Option<WebSearchOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verbosity: Option<String>,
+    pub verbosity: Option<Cow<'static, str>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_effort: Option<String>,
+    pub reasoning_effort: Option<Cow<'static, str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "lowercase")]
 pub enum ChatCompletionMessage {
     System {
-        content: String,
+        content: Cow<'static, str>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
+        name: Option<StaticRefStr>,
     },
     User {
         content: UserContent,
         #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
+        name: Option<StaticRefStr>,
     },
     Assistant {
         #[serde(skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
+        content: Option<StaticRefStr>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
+        name: Option<StaticRefStr>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_calls: Option<Vec<ToolCall>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        refusal: Option<String>,
+        refusal: Option<StaticRefStr>,
     },
     Tool {
         content: String,
-        tool_call_id: String,
+        tool_call_id: StaticRefStr,
     },
     Developer {
-        content: String,
+        content: StaticRefStr,
         #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
+        name: Option<StaticRefStr>,
     },
 }
 
@@ -177,27 +178,27 @@ pub enum ContentPart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageUrl {
-    pub url: String,
+    pub url: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
+    pub detail: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputAudio {
-    pub data: String,
-    pub format: String,
+    pub data: StaticRefStr,
+    pub format: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioOptions {
-    pub voice: String,
-    pub format: String,
+    pub voice: StaticRefStr,
+    pub format: StaticRefStr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PredictionContent {
-    pub r#type: String,
-    pub content: String, // Simplified, check spec if needed
+    pub r#type: StaticRefStr,
+    pub content: StaticRefStr, // Simplified, check spec if needed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,9 +211,9 @@ pub enum ResponseFormat {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonSchemaDefinition {
-    pub name: String,
+    pub name: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<StaticRefStr>,
     pub schema: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
@@ -221,8 +222,8 @@ pub struct JsonSchemaDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Stop {
-    String(String),
-    Array(Vec<String>),
+    String(StaticRefStr),
+    Array(Vec<StaticRefStr>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +244,6 @@ pub struct WebSearchOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchUserLocation {
-    pub r#type: String,
-    pub approximate: String, // Or struct
+    pub r#type: StaticRefStr,
+    pub approximate: StaticRefStr, // Or struct
 }

@@ -1,4 +1,7 @@
+use std::borrow::Cow;
+
 use super::{Content, HarmBlockThreshold, HarmCategory, Schema, Tool, ToolConfig};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
 /// Generates a model response given an input `GenerateContentRequest`.
@@ -40,7 +43,7 @@ pub struct GenerateContentRequest {
     ///
     /// 可选。缓存内容的名称，用作提供预测的上下文。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cached_content: Option<String>,
+    pub cached_content: Option<Cow<'static, str>>,
 }
 
 /// Safety setting, affecting the safety-blocking behavior.
@@ -68,12 +71,12 @@ pub struct GenerationConfig {
     ///
     /// 可选。将停止输出生成的字符序列集（最多 5 个）。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequences: Option<Vec<String>>,
+    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
     /// Optional. MIME type of the generated candidate text.
     ///
     /// 可选。生成的候选项文本的 MIME 类型。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_mime_type: Option<String>,
+    pub response_mime_type: Option<Cow<'static, str>>,
     /// Optional. Output schema of the generated candidate text.
     ///
     /// 可选。生成的候选项文本的输出模式。
@@ -202,7 +205,7 @@ pub struct PrebuiltVoiceConfig {
     ///
     /// 要使用的预设语音的名称。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub voice_name: Option<String>,
+    pub voice_name: Option<StaticRefStr>,
 }
 
 /// The configuration for the multi-speaker setup.
@@ -226,7 +229,7 @@ pub struct SpeakerVoiceConfig {
     /// Required. The name of the speaker to use.
     ///
     /// 必填。要使用的扬声器的名称。
-    pub speaker: String,
+    pub speaker: StaticRefStr,
     /// Required. The configuration for the voice to use.
     ///
     /// 必填。要使用的语音的配置。
@@ -279,12 +282,12 @@ pub struct ImageConfig {
     ///
     /// 可选。要生成的图像的长宽比。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<String>,
+    pub aspect_ratio: Option<StaticRefStr>,
     /// Optional. Specifies the size of generated images.
     ///
     /// 可选。指定生成的图像的大小。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_size: Option<String>,
+    pub image_size: Option<StaticRefStr>,
 }
 
 /// Media resolution for the input media.

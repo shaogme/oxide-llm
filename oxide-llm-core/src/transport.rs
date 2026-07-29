@@ -1,6 +1,6 @@
 use diagweave::set;
 use serde::{Serialize, de::DeserializeOwned};
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 set! {
     pub TransportError = {
@@ -36,13 +36,13 @@ pub enum Method {
 #[derive(Debug, Clone)]
 pub struct TransportRequest<B> {
     pub method: Method,
-    pub endpoint: String,
-    pub headers: HashMap<String, String>,
+    pub endpoint: Cow<'static, str>,
+    pub headers: HashMap<Cow<'static, str>, Cow<'static, str>>,
     pub body: B,
 }
 
 impl<B> TransportRequest<B> {
-    pub fn new(method: Method, endpoint: impl Into<String>, body: B) -> Self {
+    pub fn new(method: Method, endpoint: impl Into<Cow<'static, str>>, body: B) -> Self {
         Self {
             method,
             endpoint: endpoint.into(),
@@ -51,7 +51,11 @@ impl<B> TransportRequest<B> {
         }
     }
 
-    pub fn header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn header(
+        mut self,
+        key: impl Into<Cow<'static, str>>,
+        value: impl Into<Cow<'static, str>>,
+    ) -> Self {
         self.headers.insert(key.into(), value.into());
         self
     }
@@ -122,11 +126,11 @@ pub trait Transport: Send + Sync + Clone + 'static {
 #[derive(Clone, Debug)]
 pub struct AuthorizationLayer<T> {
     inner: T,
-    api_key: String,
+    api_key: Cow<'static, str>,
 }
 
 impl<T> AuthorizationLayer<T> {
-    pub fn new(inner: T, api_key: impl Into<String>) -> Self {
+    pub fn new(inner: T, api_key: impl Into<Cow<'static, str>>) -> Self {
         Self {
             inner,
             api_key: api_key.into(),
@@ -144,8 +148,8 @@ impl<T: Transport> Transport for AuthorizationLayer<T> {
         Res: DeserializeOwned + Send + Sync,
     {
         req.headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {}", self.api_key),
+            "Authorization".into(),
+            format!("Bearer {}", self.api_key).into(),
         );
         self.inner.send(req).await
     }
@@ -155,8 +159,8 @@ impl<T: Transport> Transport for AuthorizationLayer<T> {
         Req: Serialize + Send + Sync + 'static,
     {
         req.headers.insert(
-            "Authorization".to_string(),
-            format!("Bearer {}", self.api_key),
+            "Authorization".into(),
+            format!("Bearer {}", self.api_key).into(),
         );
         self.inner.stream(req)
     }
@@ -190,7 +194,7 @@ impl<T: Transport> Transport for BaseUrlLayer<T> {
     {
         if !req.endpoint.starts_with("http") {
             let endpoint = req.endpoint.trim_start_matches('/');
-            req.endpoint = format!("{}/{}", self.base_url, endpoint);
+            req.endpoint = format!("{}/{}", self.base_url, endpoint).into();
         }
         self.inner.send(req).await
     }
@@ -201,7 +205,7 @@ impl<T: Transport> Transport for BaseUrlLayer<T> {
     {
         if !req.endpoint.starts_with("http") {
             let endpoint = req.endpoint.trim_start_matches('/');
-            req.endpoint = format!("{}/{}", self.base_url, endpoint);
+            req.endpoint = format!("{}/{}", self.base_url, endpoint).into();
         }
         self.inner.stream(req)
     }
@@ -214,7 +218,7 @@ pub trait TransportExt: Transport + Sized {
     /// Adds an authorization layer to the transport.
     ///
     /// 为传输层添加认证层。
-    fn with_authorization(self, api_key: impl Into<String>) -> AuthorizationLayer<Self> {
+    fn with_authorization(self, api_key: impl Into<Cow<'static, str>>) -> AuthorizationLayer<Self> {
         AuthorizationLayer::new(self, api_key)
     }
 

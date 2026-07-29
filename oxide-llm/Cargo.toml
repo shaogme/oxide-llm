@@ -20,6 +20,7 @@ oxide-llm-core.workspace = true
 oxide-llm-proto.workspace = true
 oxide-llm-macros.workspace = true
 diagweave.workspace = true
+ref_str.workspace = true
 
 futures.workspace = true
 bytes.workspace = true

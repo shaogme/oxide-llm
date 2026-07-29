@@ -51,11 +51,11 @@ impl<T: Tool> ToolRunnable for T {
         ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
-                name: Self::NAME.to_string(),
+                name: Self::NAME.into(),
                 description: if Self::DESCRIPTION.is_empty() {
                     None
                 } else {
-                    Some(Self::DESCRIPTION.to_string())
+                    Some(Self::DESCRIPTION.into())
                 },
                 parameters: Some(parameters),
                 strict: None,
@@ -81,7 +81,7 @@ impl<T: Tool> ToolRunnable for T {
                             }
                         };
                         Ok(vec![ContentPart::Text {
-                            text,
+                            text: text.into(),
                             signature: None,
                         }])
                     }

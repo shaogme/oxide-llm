@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -19,8 +21,8 @@ use crate::error::{AgentError, Result};
 /// Gemini 代理配置 (必须)。
 #[derive(Debug, Clone)]
 pub struct GenerateContentRequiredConfig {
-    pub model: String,
-    pub endpoint: String,
+    pub model: Cow<'static, str>,
+    pub endpoint: Cow<'static, str>,
 }
 
 /// Configuration for Gemini Agent (Optional).
@@ -31,11 +33,11 @@ pub struct GenerateContentOptionalConfig {
     pub safety_settings: Option<Vec<SafetySetting>>,
     pub system_instruction: Option<Content>,
     pub tool_config: Option<ToolConfig>,
-    pub cached_content: Option<String>,
+    pub cached_content: Option<Cow<'static, str>>,
 
     // Generation Config fields
-    pub stop_sequences: Option<Vec<String>>,
-    pub response_mime_type: Option<String>,
+    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
+    pub response_mime_type: Option<Cow<'static, str>>,
     pub max_output_tokens: Option<i32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -261,7 +263,10 @@ impl crate::stream::SseProcessor for GeminiProcessor {
 
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     type Stream = crate::stream::MessageStream<T::Stream, GeminiProcessor>;
-    type ChatStreamFuture<'a> = crate::stream::AgentChatStreamFuture<T::StreamFuture, GeminiProcessor> where Self: 'a;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<T::StreamFuture, GeminiProcessor>
+    where
+        Self: 'a;
 
     /// Send a chat request to Gemini.
     ///
@@ -271,7 +276,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
 
         // Send Request
         let endpoint = format!("{}:generateContent", self.config.required.endpoint);
-        let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
+        let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
         let response: GenerateContentResponse = self
             .transport
             .send(transport_req)
@@ -288,14 +293,14 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     /// Send a chat request to Gemini and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Gemini 并接收流式响应。
-    fn chat_stream<'a>(
-        &'a self,
-        state: ConversationState,
-    ) -> Self::ChatStreamFuture<'a> {
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         let request_res = self.build_request(state);
         let fut = request_res.map(|request| {
-            let endpoint = format!("{}:streamGenerateContent?alt=sse", self.config.required.endpoint);
-            let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
+            let endpoint = format!(
+                "{}:streamGenerateContent?alt=sse",
+                self.config.required.endpoint
+            );
+            let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, GeminiProcessor::new())

@@ -16,6 +16,8 @@ pub mod runner;
 pub mod stream;
 pub mod tool;
 
+pub use runner::Runner;
+
 pub mod macros {
     pub use oxide_llm_macros::*;
 }
@@ -41,7 +43,9 @@ pub trait ChatAgent: Send + Sync {
     /// The future type returned by `chat_stream`.
     ///
     /// `chat_stream` 返回的 Future 类型。
-    type ChatStreamFuture<'a>: std::future::Future<Output = Result<ChatStream<Self::Stream, AgentError>>> + Send + 'a
+    type ChatStreamFuture<'a>: std::future::Future<Output = Result<ChatStream<Self::Stream, AgentError>>>
+        + Send
+        + 'a
     where
         Self: 'a;
 
@@ -53,10 +57,55 @@ pub trait ChatAgent: Send + Sync {
     /// Send a chat request and receive a stream of chunks.
     ///
     /// 发送聊天请求并接收流式响应。
-    fn chat_stream<'a>(
-        &'a self,
-        state: ConversationState,
-    ) -> Self::ChatStreamFuture<'a>;
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a>;
+}
+
+impl<T: ChatAgent + ?Sized> ChatAgent for &T {
+    type Stream = T::Stream;
+    type ChatStreamFuture<'a>
+        = T::ChatStreamFuture<'a>
+    where
+        Self: 'a;
+
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        (**self).chat(state).await
+    }
+
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
+        (**self).chat_stream(state)
+    }
+}
+
+impl<T: ChatAgent + ?Sized> ChatAgent for Box<T> {
+    type Stream = T::Stream;
+    type ChatStreamFuture<'a>
+        = T::ChatStreamFuture<'a>
+    where
+        Self: 'a;
+
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        (**self).chat(state).await
+    }
+
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
+        (**self).chat_stream(state)
+    }
+}
+
+impl<T: ChatAgent + ?Sized> ChatAgent for std::sync::Arc<T> {
+    type Stream = T::Stream;
+    type ChatStreamFuture<'a>
+        = T::ChatStreamFuture<'a>
+    where
+        Self: 'a;
+
+    async fn chat(&self, state: ConversationState) -> Result<Message> {
+        (**self).chat(state).await
+    }
+
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
+        (**self).chat_stream(state)
+    }
 }
 
 /// Trait for chat agents (Dynamic Dispatch Version).
@@ -96,16 +145,16 @@ impl<T: ChatAgent> DynChatAgent for T {
 
 impl ChatAgent for dyn DynChatAgent + '_ {
     type Stream = BoxStream<'static, Result<DeltaMessage>>;
-    type ChatStreamFuture<'a> = BoxFuture<'a, Result<ChatStream<Self::Stream, AgentError>>> where Self: 'a;
+    type ChatStreamFuture<'a>
+        = BoxFuture<'a, Result<ChatStream<Self::Stream, AgentError>>>
+    where
+        Self: 'a;
 
     async fn chat(&self, state: ConversationState) -> Result<Message> {
         DynChatAgent::chat(self, state).await
     }
 
-    fn chat_stream<'a>(
-        &'a self,
-        state: ConversationState,
-    ) -> Self::ChatStreamFuture<'a> {
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         DynChatAgent::chat_stream(self, state)
     }
 }

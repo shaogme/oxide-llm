@@ -824,6 +824,7 @@ dependencies = [
  "oxide-llm-core",
  "oxide-llm-macros",
  "oxide-llm-proto",
+ "ref_str",
  "serde",
  "serde_json",
  "trait-morph",
@@ -837,6 +838,7 @@ dependencies = [
  "diagweave",
  "futures",
  "oxide-llm-proto",
+ "ref_str",
  "serde",
  "serde_json",
  "trait-morph",
@@ -855,6 +857,7 @@ dependencies = [
 name = "oxide-llm-proto"
 version = "0.1.0"
 dependencies = [
+ "ref_str",
  "serde",
  "serde_json",
 ]
@@ -866,6 +869,7 @@ dependencies = [
  "bytes",
  "futures",
  "oxide-llm-core",
+ "ref_str",
  "reqwest",
  "serde",
 ]

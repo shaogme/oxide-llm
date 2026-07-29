@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use oxide_llm_core::tool::ToolRunnable;
+use ref_str::StaticRefStr;
 use serde_json::Value;
 
 /// A registry for managing and executing tools.
 #[derive(Default, Clone)]
 pub struct ToolRegistry {
-    tools: HashMap<String, Arc<dyn ToolRunnable>>,
+    tools: HashMap<StaticRefStr, Arc<dyn ToolRunnable>>,
 }
 
 impl ToolRegistry {

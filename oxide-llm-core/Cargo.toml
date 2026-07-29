@@ -9,6 +9,7 @@ serde_json.workspace = true
 
 oxide-llm-proto.workspace = true
 diagweave.workspace = true
+ref_str.workspace = true
 
 bytes.workspace = true
 futures.workspace = true

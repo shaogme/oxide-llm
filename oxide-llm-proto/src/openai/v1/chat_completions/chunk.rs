@@ -1,15 +1,16 @@
 use crate::openai::v1::LogProbs;
 use crate::openai::v1::chat_completions::response::CompletionUsage;
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunk {
-    pub id: String,
-    pub object: String,
+    pub id: StaticRefStr,
+    pub object: StaticRefStr,
     pub created: i64,
-    pub model: String,
+    pub model: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_fingerprint: Option<String>,
+    pub system_fingerprint: Option<StaticRefStr>,
     pub choices: Vec<ChatCompletionChunkChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<CompletionUsage>,
@@ -22,13 +23,13 @@ pub struct ChatCompletionChunkChoice {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<LogProbs>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub finish_reason: Option<String>,
+    pub finish_reason: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunkDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub role: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,16 +37,16 @@ pub struct ChatCompletionChunkDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ChatCompletionChunkToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub refusal: Option<String>,
+    pub refusal: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunkToolCall {
     pub index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
+    pub r#type: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<ChatCompletionChunkFunction>,
 }
@@ -53,7 +54,7 @@ pub struct ChatCompletionChunkToolCall {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunkFunction {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<String>,
+    pub arguments: Option<StaticRefStr>,
 }

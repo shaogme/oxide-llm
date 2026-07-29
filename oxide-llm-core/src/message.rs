@@ -1,4 +1,5 @@
 use futures::{Stream, StreamExt};
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -26,7 +27,7 @@ pub struct Message {
     ///
     /// 发送者名称 (OpenAI 支持)。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<StaticRefStr>,
 }
 
 /// Message Role.
@@ -61,7 +62,7 @@ pub enum ContentPart {
     Text {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
 
     /// Image content.
@@ -87,7 +88,7 @@ pub enum ContentPart {
     /// Content refused by the model (OpenAI specific).
     ///
     /// 模型拒绝执行的内容 (OpenAI 特有)。
-    Refusal { refusal: String },
+    Refusal { refusal: StaticRefStr },
 
     /// JSON content.
     ///
@@ -100,7 +101,7 @@ pub enum ContentPart {
     Reasoning {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
 }
 
@@ -117,12 +118,12 @@ pub struct Image {
     ///
     /// MIME 类型 (如 image/jpeg)，对于 Base64 数据通常是必须的。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub media_type: Option<String>,
+    pub media_type: Option<StaticRefStr>,
     /// Image detail level (OpenAI: low, high, auto).
     ///
     /// 图片细节水平 (OpenAI: low, high, auto)。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
+    pub detail: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -131,11 +132,11 @@ pub enum ImageSource {
     /// Remote URL.
     ///
     /// 远程 URL。
-    Url { url: String },
+    Url { url: StaticRefStr },
     /// Base64 encoded data.
     ///
     /// Base64 编码数据。
-    Base64 { data: String },
+    Base64 { data: StaticRefStr },
 }
 
 /// Unified Audio structure.
@@ -146,11 +147,11 @@ pub struct Audio {
     /// Base64 encoded audio data.
     ///
     /// Base64 编码的音频数据。
-    pub data: String,
+    pub data: StaticRefStr,
     /// Format (e.g., wav, mp3).
     ///
     /// 格式 (如 wav, mp3)。
-    pub format: String,
+    pub format: StaticRefStr,
 }
 
 impl Message {
@@ -225,7 +226,7 @@ pub struct DeltaMessage {
 
     /// 发送者名称。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<StaticRefStr>,
 
     /// 结束原因 (通常在流的最后出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,7 +246,7 @@ pub enum DeltaContentPart {
         index: u32,
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
 
     /// 推理/思维链内容增量 (对应 Claude Thinking Block)。
@@ -254,14 +255,14 @@ pub enum DeltaContentPart {
         text: String,
         /// 可选：思维块的签名/验签数据。
         #[serde(skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
 
     /// 工具调用增量。
     ToolCall(DeltaToolCall),
 
     /// 拒绝内容增量 (OpenAI)。
-    Refusal { refusal: String },
+    Refusal { refusal: StaticRefStr },
 }
 
 /// 增量工具调用。
@@ -272,11 +273,11 @@ pub struct DeltaToolCall {
 
     /// 工具 ID (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<StaticRefStr>,
 
     /// 工具类型 (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
+    pub r#type: Option<StaticRefStr>,
 
     /// 函数信息增量。
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -284,7 +285,7 @@ pub struct DeltaToolCall {
 
     /// Thinking 签名。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature: Option<String>,
+    pub signature: Option<StaticRefStr>,
 }
 
 /// 增量函数信息。
@@ -292,11 +293,11 @@ pub struct DeltaToolCall {
 pub struct DeltaFunction {
     /// 函数名 (通常只在第一个包出现)。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub name: Option<StaticRefStr>,
 
     /// 参数片段。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<String>,
+    pub arguments: Option<StaticRefStr>,
 }
 
 /// 结束原因。
@@ -312,7 +313,7 @@ pub enum FinishReason {
     /// 内容被安全过滤器拦截。
     ContentFilter,
     /// 其他原因。
-    Other(String),
+    Other(StaticRefStr),
 }
 
 /// Token 使用量统计。
@@ -336,7 +337,10 @@ pub enum ChatStreamEvent {
     /// Conversation start.
     ///
     /// 对话开始。
-    Start { role: Role, name: Option<String> },
+    Start {
+        role: Role,
+        name: Option<StaticRefStr>,
+    },
 
     /// Text stream chunk.
     ///
@@ -353,10 +357,10 @@ pub enum ChatStreamEvent {
     /// 工具调用开始。
     ToolCallStart {
         index: u32,
-        id: Option<String>,
+        id: Option<StaticRefStr>,
         #[serde(rename = "tool_type")]
-        r#type: Option<String>,
-        name: Option<String>,
+        r#type: Option<StaticRefStr>,
+        name: Option<StaticRefStr>,
     },
 
     /// Tool call complete.
@@ -420,7 +424,7 @@ impl FromIterator<ChatStreamEvent> for Message {
         Message {
             role,
             content,
-            name,
+            name: name.map(Into::into),
         }
     }
 }
@@ -431,20 +435,20 @@ impl FromIterator<ChatStreamEvent> for Message {
 #[derive(Debug, Clone, Default)]
 pub struct MessageAssembler {
     role: Option<Role>,
-    name: Option<String>,
+    name: Option<StaticRefStr>,
 
     // Text and Reasoning parts: indexed
     content_parts: std::collections::BTreeMap<u32, AssembledPart>,
 
     // Tool calls: keyed by ID
-    tool_calls: std::collections::HashMap<String, AssembledToolCall>,
+    tool_calls: std::collections::HashMap<StaticRefStr, AssembledToolCall>,
 
     // Optimization: Map index to the current active tool ID
     // This allows O(1) lookup for incoming tool call deltas that lack an ID.
-    active_tool_id: std::collections::HashMap<u32, String>,
+    active_tool_id: std::collections::HashMap<u32, StaticRefStr>,
 
     // Record appearance order: (index, id)
-    tool_call_order: Vec<(u32, String)>,
+    tool_call_order: Vec<(u32, StaticRefStr)>,
 
     usage: Option<Usage>,
     finish_reason: Option<FinishReason>,
@@ -455,11 +459,11 @@ pub struct MessageAssembler {
 enum AssembledPart {
     Text {
         text: String,
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
     Reasoning {
         text: String,
-        signature: Option<String>,
+        signature: Option<StaticRefStr>,
     },
 }
 
@@ -468,11 +472,11 @@ enum AssembledPart {
 /// 已组装的工具调用
 #[derive(Debug, Clone)]
 struct AssembledToolCall {
-    id: String,
-    r#type: Option<String>,
-    name: Option<String>,
+    id: StaticRefStr,
+    r#type: Option<StaticRefStr>,
+    name: Option<StaticRefStr>,
     arguments: String,
-    signature: Option<String>,
+    signature: Option<StaticRefStr>,
 }
 
 impl MessageAssembler {
@@ -511,10 +515,13 @@ impl MessageAssembler {
                         text,
                         signature,
                     } => {
-                        let entry = self.content_parts.entry(index).or_insert(AssembledPart::Text {
-                            text: String::new(),
-                            signature: None,
-                        });
+                        let entry =
+                            self.content_parts
+                                .entry(index)
+                                .or_insert(AssembledPart::Text {
+                                    text: "".into(),
+                                    signature: None,
+                                });
                         if let AssembledPart::Text {
                             text: current_text,
                             signature: current_sig,
@@ -535,7 +542,7 @@ impl MessageAssembler {
                             self.content_parts
                                 .entry(index)
                                 .or_insert(AssembledPart::Reasoning {
-                                    text: String::new(),
+                                    text: "".into(),
                                     signature: None,
                                 });
                         if let AssembledPart::Reasoning {
@@ -561,7 +568,7 @@ impl MessageAssembler {
                             self.active_tool_id
                                 .get(&tool_call.index)
                                 .cloned()
-                                .unwrap_or_else(|| format!("tool_{}", tool_call.index))
+                                .unwrap_or_else(|| format!("tool_{}", tool_call.index).into())
                         };
 
                         // 2. Get or create tool call entry
@@ -573,7 +580,7 @@ impl MessageAssembler {
                                 id: tool_id.clone(),
                                 r#type: None,
                                 name: None,
-                                arguments: String::new(),
+                                arguments: "".into(),
                                 signature: None,
                             }
                         });
@@ -623,7 +630,7 @@ impl MessageAssembler {
         for (index, tool_id) in self.tool_call_order {
             if let Some(tool_call) = self.tool_calls.get(&tool_id) {
                 let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-                    .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
+                    .unwrap_or(serde_json::Value::String(tool_call.arguments.to_string()));
 
                 all_parts.push((
                     index,
@@ -668,7 +675,7 @@ impl MessageAssembler {
             .iter()
             .rev()
             .find(|(idx, _)| *idx == index)
-            .map(|(_, id)| id.as_str())?;
+            .map(|(_, id)| id)?;
 
         self.get_tool_call_by_id(tool_id)
     }
@@ -679,7 +686,7 @@ impl MessageAssembler {
     pub fn get_tool_call_by_id(&self, tool_id: &str) -> Option<crate::tool::ToolCall> {
         let tool_call = self.tool_calls.get(tool_id)?;
         let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-            .unwrap_or(serde_json::Value::String(tool_call.arguments.clone()));
+            .unwrap_or(serde_json::Value::String(tool_call.arguments.to_string()));
 
         Some(crate::tool::ToolCall {
             id: tool_call.id.clone(),
@@ -781,12 +788,12 @@ where
                 // Emit all completed tool calls that haven't been emitted yet
                 let tool_indices = this.assembler.get_tool_call_indices();
                 for index in tool_indices {
-                    if !this.emitted_tool_finishes.contains(&index) {
-                        if let Some(tool_call) = this.assembler.get_tool_call(index) {
-                            this.pending_events
-                                .push_back(ChatStreamEvent::ToolCallFinished(tool_call));
-                            this.emitted_tool_finishes.insert(index);
-                        }
+                    if !this.emitted_tool_finishes.contains(&index)
+                        && let Some(tool_call) = this.assembler.get_tool_call(index)
+                    {
+                        this.pending_events
+                            .push_back(ChatStreamEvent::ToolCallFinished(tool_call));
+                        this.emitted_tool_finishes.insert(index);
                     }
                 }
 

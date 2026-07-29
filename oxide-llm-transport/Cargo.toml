@@ -18,6 +18,7 @@ reqwest = ["dep:reqwest"]
 
 [dependencies]
 serde.workspace = true
+ref_str.workspace = true
 
 oxide-llm-core.workspace = true
 

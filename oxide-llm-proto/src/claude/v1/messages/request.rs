@@ -1,3 +1,6 @@
+use std::borrow::Cow;
+
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -6,7 +9,7 @@ use super::{CacheControl, Content, ContentBlock, Role};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessagesRequest {
     /// The model that will complete your prompt.
-    pub model: String,
+    pub model: StaticRefStr,
 
     /// Input messages.
     pub messages: Vec<Message>,
@@ -25,7 +28,7 @@ pub struct MessagesRequest {
 
     /// Custom text sequences that will cause the model to stop generating.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequences: Option<Vec<String>>,
+    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
 
     /// Whether to incrementally stream the response using server-sent events.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,7 +64,7 @@ pub struct MessagesRequest {
 
     /// The service tier to use (e.g. "auto", "standard_only").
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Cow<'static, str>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,14 +76,14 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SystemPrompt {
-    Text(String),
+    Text(Cow<'static, str>),
     Blocks(Vec<ContentBlock>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
+    pub user_id: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +98,7 @@ pub enum ToolChoice {
         disable_parallel_tool_use: Option<bool>,
     },
     Tool {
-        name: String,
+        name: StaticRefStr,
         #[serde(skip_serializing_if = "Option::is_none")]
         disable_parallel_tool_use: Option<bool>,
     },
@@ -114,23 +117,23 @@ pub enum Tool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomTool {
-    pub name: String,
+    pub name: StaticRefStr,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub description: Option<StaticRefStr>,
     pub input_schema: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
-    pub r#type: Option<String>, // "custom"
+    pub r#type: Option<StaticRefStr>, // "custom"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BashTool {
-    pub name: String, // "bash"
+    pub name: StaticRefStr, // "bash"
     #[serde(rename = "type")]
-    pub r#type: String, // "bash_20250124"
+    pub r#type: StaticRefStr, // "bash_20250124"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,9 +142,9 @@ pub struct BashTool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextEditorTool {
-    pub name: String, // "str_replace_editor" or "str_replace_based_edit_tool"
+    pub name: StaticRefStr, // "str_replace_editor" or "str_replace_based_edit_tool"
     #[serde(rename = "type")]
-    pub r#type: String, // "text_editor_20250124", "text_editor_20250429", "text_editor_20250728"
+    pub r#type: StaticRefStr, // "text_editor_20250124", "text_editor_20250429", "text_editor_20250728"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,13 +156,13 @@ pub struct TextEditorTool {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchTool {
-    pub name: String, // "web_search"
+    pub name: StaticRefStr, // "web_search"
     #[serde(rename = "type")]
-    pub r#type: String, // "web_search_20250305"
+    pub r#type: StaticRefStr, // "web_search_20250305"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub allowed_domains: Option<Vec<String>>,
+    pub allowed_domains: Option<Vec<StaticRefStr>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub blocked_domains: Option<Vec<String>>,
+    pub blocked_domains: Option<Vec<StaticRefStr>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<CacheControl>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,15 +176,15 @@ pub struct WebSearchTool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSearchUserLocation {
     #[serde(rename = "type")]
-    pub r#type: String, // "approximate"
+    pub r#type: StaticRefStr, // "approximate"
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub city: Option<String>,
+    pub city: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub country: Option<String>,
+    pub country: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub region: Option<String>,
+    pub region: Option<StaticRefStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timezone: Option<String>,
+    pub timezone: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,13 +196,13 @@ pub struct OutputConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputFormat {
     #[serde(rename = "type")]
-    pub r#type: String, // "json_schema"
+    pub r#type: StaticRefStr, // "json_schema"
     pub schema: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThinkingConfig {
     #[serde(rename = "type")]
-    pub r#type: String, // "enabled"
+    pub r#type: StaticRefStr, // "enabled"
     pub budget_tokens: u32,
 }

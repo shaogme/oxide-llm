@@ -1,3 +1,4 @@
+use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
 use super::response::{MessagesResponse, StopReason};
@@ -59,9 +60,9 @@ pub struct ChunkThinkingBlock {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChunkContentBlockDelta {
     TextDelta { text: String },
-    InputJsonDelta { partial_json: String },
+    InputJsonDelta { partial_json: StaticRefStr },
     ThinkingDelta { thinking: String },
-    SignatureDelta { signature: String },
+    SignatureDelta { signature: StaticRefStr },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,7 +70,7 @@ pub struct ChunkMessageDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<StopReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_sequence: Option<String>,
+    pub stop_sequence: Option<StaticRefStr>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +82,6 @@ pub struct ChunkMessageDeltaUsage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkError {
     #[serde(rename = "type")]
-    pub r#type: String,
-    pub message: String,
+    pub r#type: StaticRefStr,
+    pub message: StaticRefStr,
 }

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -18,12 +20,12 @@ use crate::error::{AgentError, Result};
 /// Claude Messages 代理配置 (必须)。
 #[derive(Debug, Clone)]
 pub struct MessagesRequiredConfig {
-    pub model: String,
+    pub model: Cow<'static, str>,
     /// The maximum number of tokens to generate.
     ///
     /// 最大生成 token 数。
     pub max_tokens: u32,
-    pub endpoint: String,
+    pub endpoint: Cow<'static, str>,
 }
 
 /// Configuration for Claude Messages Agent (Optional).
@@ -32,14 +34,14 @@ pub struct MessagesRequiredConfig {
 #[derive(Debug, Clone, Default)]
 pub struct MessagesOptionalConfig {
     pub metadata: Option<oxide_llm_proto::claude::v1::messages::request::Metadata>,
-    pub stop_sequences: Option<Vec<String>>,
+    pub stop_sequences: Option<Vec<Cow<'static, str>>>,
     pub temperature: Option<f32>,
     pub tool_choice: Option<ToolChoice>,
     pub top_k: Option<u32>,
     pub top_p: Option<f32>,
     pub thinking: Option<ThinkingConfig>,
     pub output_config: Option<OutputConfig>,
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Cow<'static, str>>,
 }
 
 /// Configuration for Claude Messages Agent.
@@ -64,7 +66,7 @@ impl MessagesConfig {
         stream: bool,
     ) -> MessagesRequest {
         MessagesRequest {
-            model: self.required.model,
+            model: self.required.model.into(),
             messages,
             max_tokens: Some(self.required.max_tokens),
             system,
@@ -237,7 +239,10 @@ impl crate::stream::SseProcessor for ClaudeProcessor {
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
     type Stream = crate::stream::MessageStream<T::Stream, ClaudeProcessor>;
-    type ChatStreamFuture<'a> = crate::stream::AgentChatStreamFuture<T::StreamFuture, ClaudeProcessor> where Self: 'a;
+    type ChatStreamFuture<'a>
+        = crate::stream::AgentChatStreamFuture<T::StreamFuture, ClaudeProcessor>
+    where
+        Self: 'a;
 
     /// Send a chat request to Claude.
     ///
@@ -247,7 +252,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
 
         // Send Request
         let transport_req =
-            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+            TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
         let response: MessagesResponse = self
             .transport
             .send(transport_req)
@@ -264,14 +269,11 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// Send a chat request to Claude and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Claude 并接收流式响应。
-    fn chat_stream<'a>(
-        &'a self,
-        state: ConversationState,
-    ) -> Self::ChatStreamFuture<'a> {
+    fn chat_stream<'a>(&'a self, state: ConversationState) -> Self::ChatStreamFuture<'a> {
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
             let transport_req =
-                TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+                TransportRequest::new(Method::Post, self.config.required.endpoint.clone(), request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamFuture::new(fut, ClaudeProcessor::new())
