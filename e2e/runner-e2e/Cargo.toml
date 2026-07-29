@@ -1,0 +1,17 @@
+[package]
+name = "runner-e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+oxide-llm = { workspace = true, features = ["transport-reqwest"] }
+futures = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+reqwest = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

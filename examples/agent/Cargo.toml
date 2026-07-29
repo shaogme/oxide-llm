@@ -14,8 +14,7 @@ categories.workspace = true
 publish = false
 
 [dependencies]
-oxide-llm.workspace = true
-oxide-llm-transport.workspace = true
+oxide-llm = { workspace = true, features = ["transport-reqwest"] }
 
 toml = "0.8"
 tokio = { version = "1", features = ["full"] }

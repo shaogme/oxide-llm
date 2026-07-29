@@ -470,10 +470,11 @@ impl ClaudeStreamMapper {
                     _ => crate::message::FinishReason::Other(format!("{:?}", r).into()),
                 });
 
+                let input_tokens = usage.input_tokens.unwrap_or(0);
                 let usage = crate::message::Usage {
-                    input_tokens: usage.input_tokens,
+                    input_tokens,
                     output_tokens: usage.output_tokens,
-                    total_tokens: usage.input_tokens + usage.output_tokens,
+                    total_tokens: input_tokens + usage.output_tokens,
                 };
 
                 Ok(DeltaMessage {

@@ -10,7 +10,6 @@ dependencies = [
  "diagweave",
  "futures",
  "oxide-llm",
- "oxide-llm-transport",
  "serde",
  "tokio",
  "toml",
@@ -824,6 +823,7 @@ dependencies = [
  "oxide-llm-core",
  "oxide-llm-macros",
  "oxide-llm-proto",
+ "oxide-llm-transport",
  "ref_str",
  "serde",
  "serde_json",
@@ -1036,6 +1036,18 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "runner-e2e"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "oxide-llm",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

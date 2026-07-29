@@ -1,0 +1,17 @@
+{
+  "name": "oxide-llm-mock-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@copilotkit/aimock": "^1.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^7.0.2"
+  }
+}

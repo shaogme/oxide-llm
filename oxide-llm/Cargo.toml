@@ -26,5 +26,12 @@ futures.workspace = true
 bytes.workspace = true
 trait-morph.workspace = true
 
+oxide-llm-transport = { workspace = true, optional = true }
+
+[features]
+default = []
+transport = ["oxide-llm-transport"]
+transport-reqwest = ["transport", "oxide-llm-transport/reqwest"]
+
 [lints]
 workspace = true

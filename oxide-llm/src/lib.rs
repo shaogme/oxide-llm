@@ -21,6 +21,12 @@ pub mod macros {
     pub use oxide_llm_macros::*;
 }
 
+#[cfg(feature = "transport")]
+pub mod transport {
+    #[cfg(feature = "transport-reqwest")]
+    pub use oxide_llm_transport::reqwest;
+}
+
 pub mod core {
     pub use oxide_llm_core::*;
 }

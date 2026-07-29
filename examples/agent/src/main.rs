@@ -17,8 +17,8 @@ use oxide_llm::{
         transport::TransportExt,
     },
     macros::Schema,
+    transport::reqwest::ReqwestTransport,
 };
-use oxide_llm_transport::reqwest::ReqwestTransport;
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,

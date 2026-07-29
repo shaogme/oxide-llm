@@ -123,6 +123,7 @@ pub enum FinishReason {
     Blocklist,
     ProhibitedContent,
     Spii,
+    FunctionCall,
     MalformedFunctionCall,
     ImageSafety,
     ImageProhibitedContent,
