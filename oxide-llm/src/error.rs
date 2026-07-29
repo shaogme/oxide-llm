@@ -14,6 +14,8 @@ set! {
         Utf8(std::str::Utf8Error),
         #[display("Stream already polled: {0}")]
         AlreadyPolled(String),
+        #[display("Tool execution error: {0}")]
+        ToolExecution(String),
     }
 }
 

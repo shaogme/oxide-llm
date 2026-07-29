@@ -1,7 +1,9 @@
 use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
-use crate::core::tool::{ToolCall, ToolGroup, ToolResult, ToolRunnable, ToolSet};
+use crate::core::tool::{
+    ToolCall, ToolExecutionError, ToolGroup, ToolResult, ToolRunnable, ToolSet,
+};
 use crate::error::AgentError;
 use crate::tool::ToolRegistry;
 use futures::Stream;
@@ -155,7 +157,7 @@ impl<G: ToolGroup> ExecuteToolsFuture<G> {
 impl<G: ToolGroup> Unpin for ExecuteToolsFuture<G> {}
 
 impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
-    type Output = Vec<ToolResult>;
+    type Output = Result<Vec<ToolResult>, AgentError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = &mut *self;
@@ -165,26 +167,32 @@ impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
                 match pinned_fut.poll(cx) {
                     Poll::Ready(res) => {
                         let (tool_call, _) = this.current_exec.take().unwrap();
-                        let result = match res {
-                            Ok(content) => ToolResult {
-                                tool_call_id: tool_call.id.clone(),
-                                name: tool_call.name.clone(),
-                                content,
-                                is_error: false,
-                                signature: tool_call.signature.clone(),
-                            },
-                            Err(err) => ToolResult {
-                                tool_call_id: tool_call.id.clone(),
-                                name: tool_call.name.clone(),
-                                content: vec![ContentPart::Text {
-                                    text: format!("Error executing tool: {}", err),
-                                    signature: None,
-                                }],
-                                is_error: true,
-                                signature: tool_call.signature.clone(),
-                            },
-                        };
-                        this.results.push(result);
+                        match res {
+                            Ok(content) => {
+                                this.results.push(ToolResult {
+                                    tool_call_id: tool_call.id.clone(),
+                                    name: tool_call.name.clone(),
+                                    content,
+                                    is_error: false,
+                                    signature: tool_call.signature.clone(),
+                                });
+                            }
+                            Err(ToolExecutionError::Handled(content)) => {
+                                this.results.push(ToolResult {
+                                    tool_call_id: tool_call.id.clone(),
+                                    name: tool_call.name.clone(),
+                                    content,
+                                    is_error: true,
+                                    signature: tool_call.signature.clone(),
+                                });
+                            }
+                            Err(ToolExecutionError::Fatal(fatal_err)) => {
+                                return Poll::Ready(Err(AgentError::ToolExecution(format!(
+                                    "Fatal error executing tool '{}': {}",
+                                    tool_call.name, fatal_err
+                                ))));
+                            }
+                        }
                     }
                     Poll::Pending => return Poll::Pending,
                 }
@@ -209,7 +217,7 @@ impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
                     this.results.push(result);
                 }
             } else {
-                return Poll::Ready(std::mem::take(&mut this.results));
+                return Poll::Ready(Ok(std::mem::take(&mut this.results)));
             }
         }
     }
@@ -327,7 +335,7 @@ where
                     Poll::Pending => return Poll::Pending,
                 },
                 Phase::ExecutingTools(fut) => match Pin::new(fut).poll(cx) {
-                    Poll::Ready(results) => {
+                    Poll::Ready(Ok(results)) => {
                         this.state.add_message(Message {
                             role: Role::Tool,
                             content: results.into_iter().map(ContentPart::ToolResult).collect(),
@@ -335,6 +343,10 @@ where
                         });
 
                         this.phase = Phase::Start;
+                    }
+                    Poll::Ready(Err(err)) => {
+                        this.phase = Phase::Done;
+                        return Poll::Ready(Some(Err(err)));
                     }
                     Poll::Pending => return Poll::Pending,
                 },
@@ -354,6 +366,7 @@ mod tests {
     struct DummyTool;
 
     impl ToolRunnable for DummyTool {
+        type Error = String;
         type Future = std::future::Ready<Result<Vec<ContentPart>, String>>;
 
         fn definition(&self) -> ToolDefinition {
@@ -439,5 +452,53 @@ mod tests {
 
         runner.sync_tools(&mut state);
         assert_eq!(state.tools.len(), 1);
+    }
+
+    #[derive(Clone)]
+    struct FatalTool;
+
+    impl ToolRunnable for FatalTool {
+        type Error = String;
+        type Future = std::future::Ready<Result<Vec<ContentPart>, String>>;
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                r#type: oxide_llm_core::tool::ToolType::Function,
+                function: oxide_llm_core::tool::FunctionDefinition {
+                    name: "fatal_tool".into(),
+                    description: Some("A fatal tool for testing".into()),
+                    parameters: None,
+                    strict: None,
+                },
+            }
+        }
+
+        fn run(&self, _args: serde_json::Value) -> Self::Future {
+            std::future::ready(Err("database unreachable".to_string()))
+        }
+
+        fn handle_error(&self, err: Self::Error) -> Result<Vec<ContentPart>, Self::Error> {
+            Err(err)
+        }
+    }
+
+    #[test]
+    fn test_fatal_tool_execution_error_exits_runner() {
+        let registry = ToolRegistry::new().register(FatalTool);
+        let tool_call = ToolCall {
+            id: "call_1".into(),
+            name: "fatal_tool".into(),
+            arguments: serde_json::json!({}),
+            signature: None,
+        };
+
+        let exec_fut = ExecuteToolsFuture::new(registry, vec![tool_call]);
+        let res = futures::executor::block_on(exec_fut);
+        assert!(res.is_err());
+        if let Err(AgentError::ToolExecution(msg)) = res {
+            assert!(msg.contains("database unreachable"));
+        } else {
+            panic!("Expected AgentError::ToolExecution");
+        }
     }
 }

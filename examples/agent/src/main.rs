@@ -24,8 +24,10 @@ use std::{
     error::Error,
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     fs,
+    future::Future,
     io::{Write, stdout},
     path::{Path, PathBuf},
+    pin::Pin,
     time::Duration,
 };
 use tokio::time::sleep;
@@ -142,22 +144,24 @@ impl Tool for WeatherTool {
 
     type Args = WeatherArgs;
     type Output = WeatherOutput;
+    type Error = String;
+    type Future = std::future::Ready<Result<Self::Output, Self::Error>>;
 
-    async fn run(&self, args: Self::Args) -> Result<Self::Output, String> {
+    fn run(&self, args: Self::Args) -> Self::Future {
         // Simulate using state (api_key)
         if self.api_key.is_empty() {
-            return Err("Missing API Key for Weather Service".to_string());
+            return std::future::ready(Err("Missing API Key for Weather Service".to_string()));
         }
 
         let unit = args.unit.unwrap_or_else(|| "celsius".to_string());
 
         // Mock response
-        Ok(WeatherOutput {
+        std::future::ready(Ok(WeatherOutput {
             location: args.location,
             temperature: 25,
             unit,
             condition: "sunny".to_string(),
-        })
+        }))
     }
 }
 
@@ -188,22 +192,26 @@ impl Tool for StockTool {
 
     type Args = StockArgs;
     type Output = StockOutput;
+    type Error = String;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Output, Self::Error>> + Send>>;
 
-    async fn run(&self, args: Self::Args) -> Result<Self::Output, String> {
-        let symbol = args.symbol.to_uppercase();
+    fn run(&self, args: Self::Args) -> Self::Future {
+        Box::pin(async move {
+            let symbol = args.symbol.to_uppercase();
 
-        // Simulate network delay
-        sleep(Duration::from_millis(500)).await;
+            // Simulate network delay
+            sleep(Duration::from_millis(500)).await;
 
-        if symbol == "AAPL" {
-            Ok(StockOutput {
-                symbol,
-                price: 150.00,
-                currency: "USD".to_string(),
-            })
-        } else {
-            Err(format!("Stock symbol {} not found", symbol))
-        }
+            if symbol == "AAPL" {
+                Ok(StockOutput {
+                    symbol,
+                    price: 150.00,
+                    currency: "USD".to_string(),
+                })
+            } else {
+                Err(format!("Stock symbol {} not found", symbol))
+            }
+        })
     }
 }
 
