@@ -209,42 +209,42 @@ pub enum StepDeltaData {
     /// Text delta.
     ///
     /// 文本增量。
-    #[serde(rename = "text")]
+    #[serde(rename = "text", alias = "text_delta")]
     Text(TextDelta),
     /// Thought summary delta.
     ///
     /// 思考摘要增量。
-    #[serde(rename = "thought_summary")]
+    #[serde(rename = "thought_summary", alias = "thought_summary_delta")]
     ThoughtSummary(ThoughtSummaryDelta),
     /// Thought signature delta.
     ///
     /// 思考签名增量。
-    #[serde(rename = "thought_signature")]
+    #[serde(rename = "thought_signature", alias = "thought_signature_delta")]
     ThoughtSignature(ThoughtSignatureDelta),
     /// Audio delta.
     ///
     /// 音频增量。
-    #[serde(rename = "audio")]
+    #[serde(rename = "audio", alias = "audio_delta")]
     Audio(AudioDelta),
     /// Image delta.
     ///
     /// 图像增量。
-    #[serde(rename = "image")]
+    #[serde(rename = "image", alias = "image_delta")]
     Image(ImageDelta),
     /// Video delta.
     ///
     /// 视频增量。
-    #[serde(rename = "video")]
+    #[serde(rename = "video", alias = "video_delta")]
     Video(VideoDelta),
     /// Document delta.
     ///
     /// 文档增量。
-    #[serde(rename = "document")]
+    #[serde(rename = "document", alias = "document_delta")]
     Document(DocumentDelta),
     /// Arguments delta.
     ///
     /// 参数增量。
-    #[serde(rename = "arguments")]
+    #[serde(rename = "arguments", alias = "arguments_delta")]
     Arguments(ArgumentsDelta),
 }
 

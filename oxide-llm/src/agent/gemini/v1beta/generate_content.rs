@@ -1,4 +1,6 @@
-use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
+use oxide_llm_core::mapper::gemini::v1beta::{
+    GeminiGenerateContentMapper, GeminiGenerateContentStreamMapper,
+};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
@@ -72,7 +74,7 @@ impl<T: Transport> GenerateContentAgent<T> {
         } else {
             let function_declarations: Vec<_> = tools
                 .iter()
-                .map(GeminiMapper::tool_to_gemini_function_declaration)
+                .map(GeminiGenerateContentMapper::tool_to_gemini_function_declaration)
                 .collect();
 
             Some(vec![GeminiTool {
@@ -90,14 +92,14 @@ impl<T: Transport> GenerateContentAgent<T> {
         // Messages Conversion
         let contents: Vec<Content> = messages
             .into_iter()
-            .map(GeminiMapper::from_core_message)
+            .map(GeminiGenerateContentMapper::from_core_message)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(AgentError::Mapper)?;
 
         // Tool Choice Conversion
         let tool_config_override = tool_choice
             .as_ref()
-            .and_then(GeminiMapper::tool_choice_to_gemini);
+            .and_then(GeminiGenerateContentMapper::tool_choice_to_gemini);
 
         Ok(self.config.clone().to_request(
             contents,
@@ -116,7 +118,7 @@ impl<T: Transport> GenerateContentAgent<T> {
 ///
 /// Gemini GenerateContent 流事件的 SSE 处理器。
 pub struct GeminiProcessor {
-    mapper: GeminiStreamMapper,
+    mapper: GeminiGenerateContentStreamMapper,
 }
 
 impl GeminiProcessor {
@@ -125,7 +127,7 @@ impl GeminiProcessor {
     /// 创建一个新的 `GeminiProcessor`。
     pub fn new() -> Self {
         Self {
-            mapper: GeminiStreamMapper::new(),
+            mapper: GeminiGenerateContentStreamMapper::new(),
         }
     }
 }
@@ -197,7 +199,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
 
         // Convert Response back to Core Message
         let core_message: Message =
-            GeminiMapper::to_core_message(response).map_err(AgentError::Mapper)?;
+            GeminiGenerateContentMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }

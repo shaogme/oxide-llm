@@ -73,6 +73,16 @@ pub enum ContentPart {
     /// 音频内容。
     Audio(Audio),
 
+    /// Video content.
+    ///
+    /// 视频内容。
+    Video(Video),
+
+    /// Document content.
+    ///
+    /// 文档内容。
+    Document(Document),
+
     /// Tool call request (Usually appears in Assistant messages).
     ///
     /// 工具调用请求 (通常出现在 Assistant 消息中)。
@@ -153,6 +163,38 @@ pub struct Audio {
     ///
     /// 格式 (如 wav, mp3)。
     pub format: StaticRefStr,
+}
+
+/// Unified Video structure.
+///
+/// 统一的视频结构。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Video {
+    /// Video data source (Url or Base64).
+    ///
+    /// 视频数据源 (Url 或 Base64)。
+    pub source: ImageSource,
+    /// MIME type (e.g., video/mp4).
+    ///
+    /// MIME 类型 (如 video/mp4)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<StaticRefStr>,
+}
+
+/// Unified Document structure.
+///
+/// 统一的文档结构。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Document {
+    /// Document data source (Url or Base64).
+    ///
+    /// 文档数据源 (Url 或 Base64)。
+    pub source: ImageSource,
+    /// MIME type (e.g., application/pdf).
+    ///
+    /// MIME 类型 (如 application/pdf)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<StaticRefStr>,
 }
 
 impl Message {

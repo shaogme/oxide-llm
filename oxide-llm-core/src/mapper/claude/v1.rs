@@ -2,8 +2,8 @@ use serde_json::Value;
 
 use crate::mapper::MapperError;
 use crate::message::{
-    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
-    Role,
+    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource,
+    Message, Role,
 };
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::claude::v1::messages::{
@@ -306,6 +306,13 @@ impl ClaudeStreamMapper {
                     input_tokens: message.usage.input_tokens,
                     output_tokens: message.usage.output_tokens,
                     total_tokens: message.usage.input_tokens + message.usage.output_tokens,
+                    reasoning_tokens: message
+                        .usage
+                        .output_tokens_details
+                        .and_then(|v| v.thinking_tokens),
+                    cached_input_tokens: message.usage.cache_read_input_tokens,
+                    cached_output_tokens: None,
+                    tool_use_tokens: None,
                 };
 
                 Ok(DeltaMessage {
@@ -475,6 +482,7 @@ impl ClaudeStreamMapper {
                     input_tokens,
                     output_tokens: usage.output_tokens,
                     total_tokens: input_tokens + usage.output_tokens,
+                    ..Default::default()
                 };
 
                 Ok(DeltaMessage {

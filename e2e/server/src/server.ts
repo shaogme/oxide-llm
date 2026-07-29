@@ -56,6 +56,19 @@ export function createMockServer(port?: number): LLMock {
     }
   );
 
+  mock.on(
+    { userMessage: /weather in Shanghai/i },
+    {
+      toolCalls: [
+        {
+          name: 'get_weather',
+          arguments: JSON.stringify({ location: 'Shanghai', unit: 'celsius' }),
+          id: 'call_weather_shanghai',
+        },
+      ],
+    }
+  );
+
   // 2. Multi-turn tool execution loop match (Beijing)
   // Step 1: user asks for weather without tool result -> returns tool call
   mock.on(
@@ -97,6 +110,14 @@ export function createMockServer(port?: number): LLMock {
   });
 
   // 5. Gemini Stream & Non-stream matches
+  mock.onMessage(/Hello Gemini Interactions Non-Stream/i, {
+    content: 'Hello from Gemini Interactions Non-Stream Mock!',
+  });
+
+  mock.onMessage(/Hello Gemini Interactions Stream/i, {
+    content: 'Hello from Gemini Interactions Stream Mock!',
+  });
+
   mock.onMessage(/Hello Gemini Stream/i, {
     content: 'Hello from Gemini Stream Mock!',
   });

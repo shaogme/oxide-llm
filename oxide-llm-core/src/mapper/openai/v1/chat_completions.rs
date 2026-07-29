@@ -389,6 +389,16 @@ impl OpenAIStreamMapper {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            reasoning_tokens: u
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|d| d.reasoning_tokens),
+            cached_input_tokens: u
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|d| d.cached_tokens),
+            cached_output_tokens: None,
+            tool_use_tokens: None,
         });
 
         let choice = match chunk.choices.into_iter().next() {
@@ -585,6 +595,38 @@ mod tests {
 
         let err = OpenAIChatCompletionMapper::from_core_message(msg).unwrap_err();
         assert!(matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name"));
+    }
+
+    #[test]
+    fn test_openai_chat_completion_stream_usage() {
+        let mut mapper = OpenAIStreamMapper::new();
+        let chunk_json = serde_json::json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion.chunk",
+            "created": 1677652288,
+            "model": "gpt-4o",
+            "choices": [],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150,
+                "completion_tokens_details": {
+                    "reasoning_tokens": 30
+                },
+                "prompt_tokens_details": {
+                    "cached_tokens": 20
+                }
+            }
+        });
+
+        let chunk: OpenAIStreamChunk = serde_json::from_value(chunk_json).unwrap();
+        let delta = mapper.map_response(chunk).unwrap();
+        let usage = delta.usage.expect("Usage should be present");
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 50);
+        assert_eq!(usage.total_tokens, 150);
+        assert_eq!(usage.reasoning_tokens, Some(30));
+        assert_eq!(usage.cached_input_tokens, Some(20));
     }
 }
 

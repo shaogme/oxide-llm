@@ -394,6 +394,16 @@ impl OpenAIResponseStreamMapper {
                     input_tokens: u.input_tokens,
                     output_tokens: u.output_tokens,
                     total_tokens: u.total_tokens,
+                    reasoning_tokens: u
+                        .output_token_details
+                        .as_ref()
+                        .and_then(|d| d.reasoning_tokens),
+                    cached_input_tokens: u
+                        .input_token_details
+                        .as_ref()
+                        .and_then(|d| d.cached_tokens),
+                    cached_output_tokens: None,
+                    tool_use_tokens: None,
                 });
                 let has_function_call = response
                     .output

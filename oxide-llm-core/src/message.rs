@@ -7,7 +7,7 @@ pub use assembler::MessageAssembler;
 pub use delta::{
     DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason, Usage,
 };
-pub use model::{Audio, ContentPart, Image, ImageSource, Message, MessageHistory, Role};
+pub use model::{Audio, ContentPart, Document, Image, ImageSource, Message, MessageHistory, Role, Video};
 pub use stream::{ChatStream, ChatStreamEvent};
 
 #[cfg(test)]
@@ -77,6 +77,7 @@ mod tests {
                 input_tokens: 10,
                 output_tokens: 20,
                 total_tokens: 30,
+                ..Default::default()
             }),
             ..Default::default()
         });
@@ -88,6 +89,7 @@ mod tests {
                 input_tokens: 10,
                 output_tokens: 20,
                 total_tokens: 30,
+                ..Default::default()
             })
         );
 

@@ -9,8 +9,9 @@ mod tests {
         Runner,
         agent::{
             claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
-            gemini::v1beta::generate_content::{
-                GenerateContentAgent, GenerateContentRequiredConfig,
+            gemini::v1beta::{
+                generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
+                interactions::{InteractionsAgent, InteractionsRequiredConfig},
             },
             openai::v1::{
                 chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
@@ -105,10 +106,10 @@ mod tests {
 
         while let Some(event_res) = stream.next().await {
             let event = event_res.expect("Event should be Ok");
-            if let ChatStreamEvent::ToolCallFinished(tc) = event {
-                if tc.name == "get_weather" {
-                    tool_called = true;
-                }
+            if let ChatStreamEvent::ToolCallFinished(tc) = event
+                && tc.name == "get_weather"
+            {
+                tool_called = true;
             }
         }
 
@@ -169,10 +170,10 @@ mod tests {
 
         while let Some(event_res) = stream.next().await {
             let event = event_res.expect("Event should be Ok");
-            if let ChatStreamEvent::ToolCallFinished(tc) = event {
-                if tc.name == "get_weather" {
-                    tool_called = true;
-                }
+            if let ChatStreamEvent::ToolCallFinished(tc) = event
+                && tc.name == "get_weather"
+            {
+                tool_called = true;
             }
         }
 
@@ -233,16 +234,80 @@ mod tests {
 
         while let Some(event_res) = stream.next().await {
             let event = event_res.expect("Event should be Ok");
-            if let ChatStreamEvent::ToolCallFinished(tc) = event {
-                if tc.name == "get_weather" {
-                    tool_called = true;
-                }
+            if let ChatStreamEvent::ToolCallFinished(tc) = event
+                && tc.name == "get_weather"
+            {
+                tool_called = true;
             }
         }
 
         assert!(
             tool_called,
             "Tool 'get_weather' should be triggered for Gemini stream"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gemini_interactions_stream_e2e() {
+        let guard = MockServerGuard::start(3023);
+
+        let transport = ReqwestTransport::new()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone());
+
+        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
+            .with_model("gemini-3.6-flash");
+        let agent = InteractionsAgent::new(transport, agent_config);
+
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new(None);
+        state.add_message(Message::user("Hello Gemini Interactions Stream!"));
+
+        let mut stream = runner.run_stream(&mut state);
+        let mut received_text = String::new();
+
+        while let Some(event_res) = stream.next().await {
+            let event = event_res.expect("Event should be Ok");
+            if let ChatStreamEvent::Text { text } = event {
+                received_text.push_str(&text);
+            }
+        }
+
+        assert_eq!(received_text, "Hello from Gemini Interactions Stream Mock!");
+    }
+
+    #[tokio::test]
+    async fn test_gemini_interactions_tool_call_stream_e2e() {
+        let guard = MockServerGuard::start(3024);
+
+        let transport = ReqwestTransport::new()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone());
+
+        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
+            .with_model("gemini-3.6-flash");
+        let agent = InteractionsAgent::new(transport, agent_config);
+
+        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let mut state = ConversationState::new(None);
+        runner.sync_tools(&mut state);
+        state.add_message(Message::user("What is the weather in Shanghai?"));
+
+        let mut stream = runner.run_stream(&mut state);
+        let mut tool_called = false;
+
+        while let Some(event_res) = stream.next().await {
+            let event = event_res.expect("Event should be Ok");
+            if let ChatStreamEvent::ToolCallFinished(tc) = event
+                && tc.name == "get_weather"
+            {
+                tool_called = true;
+            }
+        }
+
+        assert!(
+            tool_called,
+            "Tool 'get_weather' should be triggered for Gemini Interactions stream"
         );
     }
 }

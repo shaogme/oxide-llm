@@ -8,8 +8,9 @@ mod tests {
         ChatAgent, Runner,
         agent::{
             claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
-            gemini::v1beta::generate_content::{
-                GenerateContentAgent, GenerateContentRequiredConfig,
+            gemini::v1beta::{
+                generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
+                interactions::{InteractionsAgent, InteractionsRequiredConfig},
             },
             openai::v1::{
                 chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
@@ -303,6 +304,66 @@ mod tests {
         assert!(
             result.is_err(),
             "500 Internal Error response should trigger error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gemini_interactions_non_stream_e2e() {
+        let guard = MockServerGuard::start(3021);
+
+        let transport = ReqwestTransport::new()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone());
+
+        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
+            .with_model("gemini-3.6-flash");
+        let agent = InteractionsAgent::new(transport, agent_config);
+
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new(None);
+        state.add_message(Message::user("Hello Gemini Interactions Non-Stream!"));
+
+        let res_msg = runner.run(&mut state).await.expect("Run should succeed");
+
+        let text = res_msg
+            .content
+            .iter()
+            .find_map(|part| match part {
+                ContentPart::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        assert_eq!(text, "Hello from Gemini Interactions Non-Stream Mock!");
+    }
+
+    #[tokio::test]
+    async fn test_gemini_interactions_tool_call_non_stream_e2e() {
+        let guard = MockServerGuard::start(3022);
+
+        let transport = ReqwestTransport::new()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone());
+
+        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
+            .with_model("gemini-3.6-flash");
+        let agent = InteractionsAgent::new(transport, agent_config);
+
+        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let mut state = ConversationState::new(None);
+        runner.sync_tools(&mut state);
+        state.add_message(Message::user("What is the weather in Shanghai?"));
+
+        let res_msg = runner.agent().chat(state).await.expect("Chat should succeed");
+
+        let tool_call_found = res_msg.content.iter().any(|part| match part {
+            ContentPart::ToolCall(tc) => tc.name == "get_weather",
+            _ => false,
+        });
+
+        assert!(
+            tool_call_found,
+            "Should return get_weather tool call for Gemini Interactions in non-stream mode"
         );
     }
 }

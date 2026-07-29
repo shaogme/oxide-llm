@@ -303,7 +303,11 @@ where
                                         );
                                     }
                                 }
-                                DeltaContentPart::Refusal { .. } => {
+                                DeltaContentPart::Refusal { .. }
+                                | DeltaContentPart::Audio { .. }
+                                | DeltaContentPart::Image { .. }
+                                | DeltaContentPart::Video { .. }
+                                | DeltaContentPart::Document { .. } => {
                                     if this.in_reasoning {
                                         this.in_reasoning = false;
                                         this.pending_events

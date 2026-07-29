@@ -96,6 +96,18 @@ impl MessageAssembler {
                 current.input_tokens = current.input_tokens.max(usage.input_tokens);
                 current.output_tokens = current.output_tokens.max(usage.output_tokens);
                 current.total_tokens = current.input_tokens + current.output_tokens;
+                if usage.reasoning_tokens.is_some() {
+                    current.reasoning_tokens = usage.reasoning_tokens;
+                }
+                if usage.cached_input_tokens.is_some() {
+                    current.cached_input_tokens = usage.cached_input_tokens;
+                }
+                if usage.cached_output_tokens.is_some() {
+                    current.cached_output_tokens = usage.cached_output_tokens;
+                }
+                if usage.tool_use_tokens.is_some() {
+                    current.tool_use_tokens = usage.tool_use_tokens;
+                }
             } else {
                 self.usage = Some(usage.clone());
             }
@@ -192,7 +204,11 @@ impl MessageAssembler {
                     }
                 }
             }
-            DeltaContentPart::Refusal { .. } => {}
+            DeltaContentPart::Refusal { .. }
+            | DeltaContentPart::Audio { .. }
+            | DeltaContentPart::Image { .. }
+            | DeltaContentPart::Video { .. }
+            | DeltaContentPart::Document { .. } => {}
         }
     }
 
