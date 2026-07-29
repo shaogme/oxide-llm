@@ -1,9 +1,9 @@
-use error_set::error_set;
+use diagweave::set;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 
-error_set! {
-    TransportError := {
+set! {
+    pub TransportError = {
         #[display("Codec error: {message}")]
         Codec { message: String },
         #[display("Network error: {message}")]
@@ -72,6 +72,7 @@ pub trait Transport: Send + Sync + Clone + 'static {
         + Send
         + 'static
         + Unpin;
+    type StreamFuture: std::future::Future<Output = Result<Self::Stream, TransportError>> + Send;
 
     /// Sends a request and retrieval a response.
     ///
@@ -112,9 +113,9 @@ pub trait Transport: Send + Sync + Clone + 'static {
     /// # 返回
     /// - 成功时返回产生 `Bytes` 的 `Stream`。
     /// - 失败时返回 `TransportError`。
-    async fn stream<Req>(&self, req: TransportRequest<Req>) -> Result<Self::Stream, TransportError>
+    fn stream<Req>(&self, req: TransportRequest<Req>) -> Self::StreamFuture
     where
-        Req: Serialize + Send + Sync;
+        Req: Serialize + Send + Sync + 'static;
 }
 
 // Authorization Middleware
@@ -135,6 +136,7 @@ impl<T> AuthorizationLayer<T> {
 
 impl<T: Transport> Transport for AuthorizationLayer<T> {
     type Stream = T::Stream;
+    type StreamFuture = T::StreamFuture;
 
     async fn send<Req, Res>(&self, mut req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
@@ -148,18 +150,15 @@ impl<T: Transport> Transport for AuthorizationLayer<T> {
         self.inner.send(req).await
     }
 
-    async fn stream<Req>(
-        &self,
-        mut req: TransportRequest<Req>,
-    ) -> Result<Self::Stream, TransportError>
+    fn stream<Req>(&self, mut req: TransportRequest<Req>) -> Self::StreamFuture
     where
-        Req: Serialize + Send + Sync,
+        Req: Serialize + Send + Sync + 'static,
     {
         req.headers.insert(
             "Authorization".to_string(),
             format!("Bearer {}", self.api_key),
         );
-        self.inner.stream(req).await
+        self.inner.stream(req)
     }
 }
 
@@ -182,6 +181,7 @@ impl<T> BaseUrlLayer<T> {
 
 impl<T: Transport> Transport for BaseUrlLayer<T> {
     type Stream = T::Stream;
+    type StreamFuture = T::StreamFuture;
 
     async fn send<Req, Res>(&self, mut req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
@@ -195,18 +195,15 @@ impl<T: Transport> Transport for BaseUrlLayer<T> {
         self.inner.send(req).await
     }
 
-    async fn stream<Req>(
-        &self,
-        mut req: TransportRequest<Req>,
-    ) -> Result<Self::Stream, TransportError>
+    fn stream<Req>(&self, mut req: TransportRequest<Req>) -> Self::StreamFuture
     where
-        Req: Serialize + Send + Sync,
+        Req: Serialize + Send + Sync + 'static,
     {
         if !req.endpoint.starts_with("http") {
             let endpoint = req.endpoint.trim_start_matches('/');
             req.endpoint = format!("{}/{}", self.base_url, endpoint);
         }
-        self.inner.stream(req).await
+        self.inner.stream(req)
     }
 }
 

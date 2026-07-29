@@ -28,3 +28,6 @@ futures.workspace = true
 version = "0.12.12"
 features = ["json", "stream"]
 optional = true
+
+[lints]
+workspace = true

@@ -38,6 +38,13 @@ pub trait ChatAgent: Send + Sync {
     /// `chat_stream` 返回的流类型。
     type Stream: futures::Stream<Item = Result<DeltaMessage>> + Send + 'static;
 
+    /// The future type returned by `chat_stream`.
+    ///
+    /// `chat_stream` 返回的 Future 类型。
+    type ChatStreamFuture<'a>: std::future::Future<Output = Result<ChatStream<Self::Stream, AgentError>>> + Send + 'a
+    where
+        Self: 'a;
+
     /// Send a chat request.
     ///
     /// 发送聊天请求。
@@ -46,10 +53,10 @@ pub trait ChatAgent: Send + Sync {
     /// Send a chat request and receive a stream of chunks.
     ///
     /// 发送聊天请求并接收流式响应。
-    async fn chat_stream(
-        &self,
+    fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStream<Self::Stream, AgentError>>;
+    ) -> Self::ChatStreamFuture<'a>;
 }
 
 /// Trait for chat agents (Dynamic Dispatch Version).
@@ -89,16 +96,17 @@ impl<T: ChatAgent> DynChatAgent for T {
 
 impl ChatAgent for dyn DynChatAgent + '_ {
     type Stream = BoxStream<'static, Result<DeltaMessage>>;
+    type ChatStreamFuture<'a> = BoxFuture<'a, Result<ChatStream<Self::Stream, AgentError>>> where Self: 'a;
 
     async fn chat(&self, state: ConversationState) -> Result<Message> {
         DynChatAgent::chat(self, state).await
     }
 
-    async fn chat_stream(
-        &self,
+    fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStream<Self::Stream, AgentError>> {
-        DynChatAgent::chat_stream(self, state).await
+    ) -> Self::ChatStreamFuture<'a> {
+        DynChatAgent::chat_stream(self, state)
     }
 }
 

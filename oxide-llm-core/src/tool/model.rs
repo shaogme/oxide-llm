@@ -541,7 +541,7 @@ impl ToolDefinition {
 ///
 /// For most use cases, you should use the `#[derive(Schema)]` macro from `oxide-llm-macros`:
 ///
-/// ```rust
+/// ```rust,ignore
 /// use oxide_llm::macros::Schema;
 /// use serde::Deserialize;
 ///

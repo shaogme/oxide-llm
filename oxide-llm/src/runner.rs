@@ -9,42 +9,120 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+/// Future that executes a series of tool calls sequentially.
+///
+/// 顺序执行一系列工具调用的 Future。
+pub struct ExecuteToolsFuture {
+    registry: ToolRegistry,
+    tool_calls: std::vec::IntoIter<ToolCall>,
+    current_exec: Option<(ToolCall, oxide_llm_core::tool::ToolFuture)>,
+    results: Vec<ToolResult>,
+}
+
+impl ExecuteToolsFuture {
+    /// Creates a new `ExecuteToolsFuture`.
+    ///
+    /// 创建一个新的 `ExecuteToolsFuture`。
+    pub fn new(registry: ToolRegistry, tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            registry,
+            tool_calls: tool_calls.into_iter(),
+            current_exec: None,
+            results: Vec::new(),
+        }
+    }
+}
+
+impl Unpin for ExecuteToolsFuture {}
+
+impl Future for ExecuteToolsFuture {
+    type Output = Vec<ToolResult>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = &mut *self;
+        loop {
+            if let Some((_, ref mut fut)) = this.current_exec {
+                match fut.as_mut().poll(cx) {
+                    Poll::Ready(res_bucket) => {
+                        let (tool_call, _) = this.current_exec.take().unwrap();
+                        let result = match res_bucket {
+                            Ok(content) => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                content,
+                                is_error: false,
+                                signature: tool_call.signature.clone(),
+                            },
+                            Err(err) => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                content: vec![ContentPart::Text {
+                                    text: format!("Error executing tool: {}", err),
+                                    signature: None,
+                                }],
+                                is_error: true,
+                                signature: tool_call.signature.clone(),
+                            },
+                        };
+                        this.results.push(result);
+                    }
+                    Poll::Pending => return Poll::Pending,
+                }
+            }
+
+            if let Some(tool_call) = this.tool_calls.next() {
+                if let Some(fut) =
+                    this.registry.execute_future(&tool_call.name, tool_call.arguments.clone())
+                {
+                    this.current_exec = Some((tool_call, fut));
+                } else {
+                    let result = ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        content: vec![ContentPart::Text {
+                            text: format!("Error: Unknown tool '{}'", tool_call.name),
+                            signature: None,
+                        }],
+                        is_error: true,
+                        signature: tool_call.signature.clone(),
+                    };
+                    this.results.push(result);
+                }
+            } else {
+                return Poll::Ready(std::mem::take(&mut this.results));
+            }
+        }
+    }
+}
+
 /// A stream that manages the agent interaction loop, including tool execution.
-pub struct RunnerStream<'a, A: ChatAgent + ?Sized> {
+pub struct RunnerStream<'a, A: ChatAgent + ?Sized + 'a> {
     agent: &'a A,
     registry: &'a ToolRegistry,
     state: &'a mut ConversationState,
     max_turns: usize,
 
-    phase: Phase<'a, A::Stream>,
+    phase: Phase<'a, A>,
     current_turn: usize,
     collected_events: Vec<ChatStreamEvent>,
 }
 
-enum Phase<'a, S> {
+enum Phase<'a, A: ChatAgent + ?Sized + 'a> {
     Start,
-    Initializing(
-        futures::future::BoxFuture<
-            'a,
-            Result<
-                ChatStream<S, AgentError>,
-                AgentError,
-            >,
-        >,
-    ),
-    Streaming(ChatStream<S, AgentError>),
-    ExecutingTools(Pin<Box<dyn Future<Output = Vec<ToolResult>> + Send + 'a>>),
+    Initializing(A::ChatStreamFuture<'a>),
+    Streaming(ChatStream<A::Stream, AgentError>),
+    ExecutingTools(ExecuteToolsFuture),
     Done,
 }
 
-impl<'a, A: ChatAgent + ?Sized> RunnerStream<'a, A> {
+impl<'a, A: ChatAgent + ?Sized + 'a> RunnerStream<'a, A> {
     pub fn new(
         agent: &'a A,
         registry: &'a ToolRegistry,
         state: &'a mut ConversationState,
         max_turns: usize,
     ) -> Self {
-        Self {
+        RunnerStream {
             agent,
             registry,
             state,
@@ -56,41 +134,38 @@ impl<'a, A: ChatAgent + ?Sized> RunnerStream<'a, A> {
     }
 }
 
-impl<'a, A: ChatAgent + ?Sized> Stream for RunnerStream<'a, A>
+impl<'a, A> Stream for RunnerStream<'a, A>
 where
+    A: ChatAgent + ?Sized + 'a,
     A::Stream: Unpin,
+    A::ChatStreamFuture<'a>: Unpin,
 {
     type Item = Result<ChatStreamEvent, AgentError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = &mut *self;
         loop {
-            match &mut self.phase {
+            match &mut this.phase {
                 Phase::Start => {
-                    if self.current_turn >= self.max_turns {
-                        self.phase = Phase::Done;
+                    if this.current_turn >= this.max_turns {
+                        this.phase = Phase::Done;
                         return Poll::Ready(None);
                     }
 
-                    self.current_turn += 1;
-                    self.collected_events.clear();
+                    this.current_turn += 1;
+                    this.collected_events.clear();
 
-                    // Start the chat stream
-                    // We need to clone the state because chat_stream consumes it,
-                    // but we need to keep our mutable reference for updates.
-                    let state_clone = self.state.clone();
-
-                    // Create a future that resolves to the stream and put it in Phase::Initializing
-                    let agent = self.agent;
-                    let fut = Box::pin(async move { agent.chat_stream(state_clone).await });
-                    self.phase = Phase::Initializing(fut);
+                    let state_clone = this.state.clone();
+                    let fut = this.agent.chat_stream(state_clone);
+                    this.phase = Phase::Initializing(fut);
                 }
                 Phase::Initializing(fut) => {
-                    match fut.as_mut().poll(cx) {
+                    match Pin::new(fut).poll(cx) {
                         Poll::Ready(Ok(stream)) => {
-                            self.phase = Phase::Streaming(stream);
+                            this.phase = Phase::Streaming(stream);
                         }
                         Poll::Ready(Err(e)) => {
-                            self.phase = Phase::Done;
+                            this.phase = Phase::Done;
                             return Poll::Ready(Some(Err(e)));
                         }
                         Poll::Pending => return Poll::Pending,
@@ -99,17 +174,15 @@ where
                 Phase::Streaming(stream) => {
                     match Pin::new(stream).poll_next(cx) {
                         Poll::Ready(Some(Ok(event))) => {
-                            self.collected_events.push(event.clone());
+                            this.collected_events.push(event.clone());
                             return Poll::Ready(Some(Ok(event)));
                         }
                         Poll::Ready(Some(Err(e))) => {
-                            // On error, expose it? Or stop?
                             return Poll::Ready(Some(Err(e)));
                         }
                         Poll::Ready(None) => {
-                            // Stream finished. Reconstruct message and check for tools.
-                            let message: Message = self.collected_events.drain(..).collect();
-                            self.state.add_message(message.clone());
+                            let message: Message = this.collected_events.drain(..).collect();
+                            this.state.add_message(message.clone());
 
                             let tool_calls: Vec<ToolCall> = message
                                 .content
@@ -121,75 +194,26 @@ where
                                 .collect();
 
                             if tool_calls.is_empty() {
-                                self.phase = Phase::Done;
+                                this.phase = Phase::Done;
                                 return Poll::Ready(None);
                             }
 
-                            // Prepare tool execution
-                            let registry = self.registry.clone();
-                            let fut = async move {
-                                let mut results = Vec::new();
-                                for tool_call in tool_calls {
-                                    let result = if let Some(res_bucket) = registry
-                                        .execute(&tool_call.name, tool_call.arguments.clone())
-                                        .await
-                                    {
-                                        match res_bucket {
-                                            Ok(content) => ToolResult {
-                                                tool_call_id: tool_call.id.clone(),
-                                                name: tool_call.name.clone(),
-                                                content,
-                                                is_error: false,
-                                                signature: tool_call.signature.clone(),
-                                            },
-                                            Err(err) => ToolResult {
-                                                tool_call_id: tool_call.id.clone(),
-                                                name: tool_call.name.clone(),
-                                                content: vec![ContentPart::Text {
-                                                    text: format!("Error executing tool: {}", err),
-                                                    signature: None,
-                                                }],
-                                                is_error: true,
-                                                signature: tool_call.signature.clone(),
-                                            },
-                                        }
-                                    } else {
-                                        ToolResult {
-                                            tool_call_id: tool_call.id.clone(),
-                                            name: tool_call.name.clone(),
-                                            content: vec![ContentPart::Text {
-                                                text: format!(
-                                                    "Error: Unknown tool '{}'",
-                                                    tool_call.name
-                                                ),
-                                                signature: None,
-                                            }],
-                                            is_error: true,
-                                            signature: tool_call.signature.clone(),
-                                        }
-                                    };
-                                    results.push(result);
-                                }
-                                results
-                            };
-
-                            self.phase = Phase::ExecutingTools(Box::pin(fut));
+                            let exec_fut = ExecuteToolsFuture::new(this.registry.clone(), tool_calls);
+                            this.phase = Phase::ExecutingTools(exec_fut);
                         }
                         Poll::Pending => return Poll::Pending,
                     }
                 }
                 Phase::ExecutingTools(fut) => {
-                    match fut.as_mut().poll(cx) {
+                    match Pin::new(fut).poll(cx) {
                         Poll::Ready(results) => {
-                            // Add tool results to state
-                            self.state.add_message(Message {
+                            this.state.add_message(Message {
                                 role: Role::Tool,
                                 content: results.into_iter().map(ContentPart::ToolResult).collect(),
                                 name: None,
                             });
 
-                            // Loop back to Start for next turn
-                            self.phase = Phase::Start;
+                            this.phase = Phase::Start;
                         }
                         Poll::Pending => return Poll::Pending,
                     }

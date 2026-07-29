@@ -1,12 +1,70 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::BytesMut;
 use futures::{Stream, ready};
-use oxide_llm_core::message::DeltaMessage;
+use oxide_llm_core::message::{ChatStream, DeltaMessage};
 use oxide_llm_core::transport::TransportError;
 
 use crate::error::{AgentError, Result};
+
+/// A named concrete Future that maps a transport stream future into a `ChatStream`.
+///
+/// 将传输流 Future 映射为 `ChatStream` 的具名 Future 结构体。
+pub struct AgentChatStreamFuture<Fut, P> {
+    fut: std::result::Result<Fut, AgentError>,
+    processor: Option<P>,
+}
+
+impl<Fut, P> AgentChatStreamFuture<Fut, P> {
+    /// Creates a new `AgentChatStreamFuture`.
+    ///
+    /// 创建一个新的 `AgentChatStreamFuture`。
+    pub fn new(fut: Result<Fut>, processor: P) -> Self {
+        Self {
+            fut,
+            processor: Some(processor),
+        }
+    }
+}
+
+impl<Fut, S, P> Future for AgentChatStreamFuture<Fut, P>
+where
+    Fut: Future<Output = std::result::Result<S, TransportError>>,
+    S: Stream<Item = std::result::Result<bytes::Bytes, TransportError>> + Unpin,
+    P: SseProcessor,
+{
+    type Output = Result<ChatStream<MessageStream<S, P>, AgentError>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        match this.fut.as_mut() {
+            Ok(fut) => {
+                let fut_pin = unsafe { Pin::new_unchecked(fut) };
+                match fut_pin.poll(cx) {
+                    Poll::Ready(Ok(stream)) => {
+                        let processor = this
+                            .processor
+                            .take()
+                            .expect("processor polled after completion");
+                        let message_stream = MessageStream::new(stream, processor);
+                        Poll::Ready(Ok(ChatStream::new(message_stream)))
+                    }
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(AgentError::Transport(e))),
+                    Poll::Pending => Poll::Pending,
+                }
+            }
+            Err(e) => {
+                let err = AgentError::AlreadyPolled(
+                    "AgentChatStreamFuture polled after completion or with initial error"
+                        .to_string(),
+                );
+                Poll::Ready(Err(std::mem::replace(e, err)))
+            }
+        }
+    }
+}
 
 /// Trait for processing SSE data blocks into delta messages.
 ///

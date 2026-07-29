@@ -115,8 +115,24 @@ impl Stream for ReqwestStream {
     }
 }
 
+/// Future implementation for `ReqwestTransport::stream`.
+///
+/// `ReqwestTransport::stream` 的 Future 实现。
+pub struct ReqwestStreamFuture {
+    inner: futures::future::BoxFuture<'static, Result<ReqwestStream, TransportError>>,
+}
+
+impl std::future::Future for ReqwestStreamFuture {
+    type Output = Result<ReqwestStream, TransportError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.inner).poll(cx)
+    }
+}
+
 impl Transport for ReqwestTransport {
     type Stream = ReqwestStream;
+    type StreamFuture = ReqwestStreamFuture;
 
     async fn send<Req, Res>(&self, req: TransportRequest<Req>) -> Result<Res, TransportError>
     where
@@ -141,25 +157,30 @@ impl Transport for ReqwestTransport {
         resp.json::<Res>().await.map_err(map_reqwest_error)
     }
 
-    async fn stream<Req>(&self, req: TransportRequest<Req>) -> Result<Self::Stream, TransportError>
+    fn stream<Req>(&self, req: TransportRequest<Req>) -> Self::StreamFuture
     where
-        Req: Serialize + Send + Sync,
+        Req: Serialize + Send + Sync + 'static,
     {
-        let builder = self.prepare_request(req)?;
-        let resp = builder.send().await.map_err(map_reqwest_error)?;
+        let this = self.clone();
+        ReqwestStreamFuture {
+            inner: Box::pin(async move {
+                let builder = this.prepare_request(req)?;
+                let resp = builder.send().await.map_err(map_reqwest_error)?;
 
-        let status = resp.status();
-        if !status.is_success() {
-            let message = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(TransportError::Api {
-                status: status.as_u16(),
-                message,
-            });
+                let status = resp.status();
+                if !status.is_success() {
+                    let message = resp
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(TransportError::Api {
+                        status: status.as_u16(),
+                        message,
+                    });
+                }
+
+                Ok(ReqwestStream::new(resp.bytes_stream()))
+            }),
         }
-
-        Ok(ReqwestStream::new(resp.bytes_stream()))
     }
 }

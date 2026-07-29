@@ -1,5 +1,5 @@
 use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
-use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
+use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
@@ -261,6 +261,7 @@ impl crate::stream::SseProcessor for GeminiProcessor {
 
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     type Stream = crate::stream::MessageStream<T::Stream, GeminiProcessor>;
+    type ChatStreamFuture<'a> = crate::stream::AgentChatStreamFuture<T::StreamFuture, GeminiProcessor> where Self: 'a;
 
     /// Send a chat request to Gemini.
     ///
@@ -269,9 +270,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         let request = self.build_request(state)?;
 
         // Send Request
-        let transport_req =
-            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
-
+        let endpoint = format!("{}:generateContent", self.config.required.endpoint);
+        let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
         let response: GenerateContentResponse = self
             .transport
             .send(transport_req)
@@ -288,32 +288,16 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     /// Send a chat request to Gemini and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Gemini 并接收流式响应。
-    async fn chat_stream(
-        &self,
+    fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStream<Self::Stream, AgentError>> {
-        let request = self.build_request(state)?;
-
-        // Send Stream Request.
-        // We use the endpoint as is, assuming it's the correct stream endpoint.
-        // We append "?alt=sse" to enable Server-Sent Events streaming.
-        let mut endpoint = self.config.required.endpoint.clone();
-        if endpoint.contains('?') {
-            endpoint.push_str("&alt=sse");
-        } else {
-            endpoint.push_str("?alt=sse");
-        }
-
-        let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
-
-        let stream = self
-            .transport
-            .stream(transport_req)
-            .await
-            .map_err(AgentError::Transport)?;
-
-        let message_stream = crate::stream::MessageStream::new(stream, GeminiProcessor::new());
-
-        Ok(ChatStream::new(message_stream))
+    ) -> Self::ChatStreamFuture<'a> {
+        let request_res = self.build_request(state);
+        let fut = request_res.map(|request| {
+            let endpoint = format!("{}:streamGenerateContent?alt=sse", self.config.required.endpoint);
+            let transport_req = TransportRequest::new(Method::Post, &endpoint, request);
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamFuture::new(fut, GeminiProcessor::new())
     }
 }

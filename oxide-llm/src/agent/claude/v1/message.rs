@@ -1,5 +1,5 @@
 use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
-use oxide_llm_core::message::{ChatStream, DeltaMessage, Message};
+use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
@@ -237,6 +237,7 @@ impl crate::stream::SseProcessor for ClaudeProcessor {
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
     type Stream = crate::stream::MessageStream<T::Stream, ClaudeProcessor>;
+    type ChatStreamFuture<'a> = crate::stream::AgentChatStreamFuture<T::StreamFuture, ClaudeProcessor> where Self: 'a;
 
     /// Send a chat request to Claude.
     ///
@@ -263,23 +264,16 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// Send a chat request to Claude and receive a stream of chunks.
     ///
     /// 发送聊天请求到 Claude 并接收流式响应。
-    async fn chat_stream(
-        &self,
+    fn chat_stream<'a>(
+        &'a self,
         state: ConversationState,
-    ) -> Result<ChatStream<Self::Stream, AgentError>> {
-        let request = self.build_request(state, true)?;
-
-        // Send Stream Request
-        let transport_req =
-            TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
-        let stream = self
-            .transport
-            .stream(transport_req)
-            .await
-            .map_err(AgentError::Transport)?;
-
-        let message_stream = crate::stream::MessageStream::new(stream, ClaudeProcessor::new());
-
-        Ok(ChatStream::new(message_stream))
+    ) -> Self::ChatStreamFuture<'a> {
+        let request_res = self.build_request(state, true);
+        let fut = request_res.map(|request| {
+            let transport_req =
+                TransportRequest::new(Method::Post, &self.config.required.endpoint, request);
+            self.transport.stream(transport_req)
+        });
+        crate::stream::AgentChatStreamFuture::new(fut, ClaudeProcessor::new())
     }
 }

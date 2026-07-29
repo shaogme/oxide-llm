@@ -8,8 +8,11 @@ serde.workspace = true
 serde_json.workspace = true
 
 oxide-llm-proto.workspace = true
-error_set.workspace = true
+diagweave.workspace = true
 
 bytes.workspace = true
 futures.workspace = true
 trait-morph.workspace = true
+
+[lints]
+workspace = true

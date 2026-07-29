@@ -1,7 +1,7 @@
-use error_set::error_set;
+use diagweave::set;
 
-error_set! {
-    MapperError := {
+set! {
+    pub MapperError = {
         #[display("Unsupported content part for role {role} in {protocol}")]
         UnsupportedContent {
             role: String,
@@ -12,7 +12,7 @@ error_set! {
             field: String
         },
         #[display("JSON serialization error: {0}")]
-        JsonError(serde_json::Error),
+        JsonError(#[from] serde_json::Error),
         #[display("Invalid media type")]
         InvalidMediaType,
         #[display("OpenAI Tool messages must correspond to exactly one ToolResult")]

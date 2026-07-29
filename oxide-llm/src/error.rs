@@ -1,9 +1,9 @@
-use error_set::error_set;
+use diagweave::set;
 use oxide_llm_core::mapper::MapperError;
 use oxide_llm_core::transport::TransportError;
 
-error_set! {
-    AgentError := {
+set! {
+    pub AgentError = {
         #[display("Transport error: {0}")]
         Transport(TransportError),
         #[display("Mapper conversion error: {0}")]
@@ -12,6 +12,8 @@ error_set! {
         Json(serde_json::Error),
         #[display("UTF-8 error: {0}")]
         Utf8(std::str::Utf8Error),
+        #[display("Stream already polled: {0}")]
+        AlreadyPolled(String),
     }
 }
 

@@ -7,22 +7,13 @@ name = "agent"
 version = "0.1.0"
 dependencies = [
  "clap",
- "error_set",
+ "diagweave",
  "futures",
  "oxide-llm",
  "oxide-llm-transport",
  "serde",
  "tokio",
  "toml",
-]
-
-[[package]]
-name = "aho-corasick"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
-dependencies = [
- "memchr",
 ]
 
 [[package]]
@@ -184,6 +175,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "diagweave"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c22d21466c4f0b2243fb7a93221a6a7bf13020226601d3227266cd020cf69ac"
+dependencies = [
+ "diagweave-macros",
+ "ref_str",
+ "tracing",
+]
+
+[[package]]
+name = "diagweave-macros"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be0240b3d25aaa5764202826f47d81ffbfc598c1dd08f491d5326adfaf27b6bc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -217,27 +230,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "error_set"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "769f9f87d305e0d64bcb6a8459021e9be27e145c14b8287abcc328954f92e552"
-dependencies = [
- "error_set_impl",
-]
-
-[[package]]
-name = "error_set_impl"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31799fcd4d4ee7ad6af27ca9ec307733d57cce0e137e38dec7e196b2ae75dd2c"
-dependencies = [
- "proc-macro2",
- "quote",
- "regex",
- "syn",
 ]
 
 [[package]]
@@ -827,7 +819,7 @@ name = "oxide-llm"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "error_set",
+ "diagweave",
  "futures",
  "oxide-llm-core",
  "oxide-llm-macros",
@@ -842,7 +834,7 @@ name = "oxide-llm-core"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "error_set",
+ "diagweave",
  "futures",
  "oxide-llm-proto",
  "serde",
@@ -968,33 +960,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "regex"
-version = "1.12.2"
+name = "ref_str"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
+checksum = "89139ceea9b891d4992981a77dc13ae3a9810a410feb2509b52889fef808eff4"
 dependencies = [
- "aho-corasick",
- "memchr",
- "regex-automata",
- "regex-syntax",
+ "serde",
 ]
-
-[[package]]
-name = "regex-automata"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-syntax",
-]
-
-[[package]]
-name = "regex-syntax"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "reqwest"
