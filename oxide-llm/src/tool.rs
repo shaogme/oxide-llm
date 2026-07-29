@@ -52,16 +52,4 @@ impl ToolRegistry {
             None
         }
     }
-
-    /// Execute a tool by name returning its `ToolFuture`.
-    ///
-    /// 如果找不到工具则返回 `None`。
-    pub fn execute_future(
-        &self,
-        name: &str,
-        args: Value,
-    ) -> Option<oxide_llm_core::tool::ToolFuture> {
-        let tool = self.tools.get(name).cloned()?;
-        Some(tool.run(args))
-    }
 }

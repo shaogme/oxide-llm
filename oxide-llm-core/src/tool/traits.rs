@@ -6,10 +6,6 @@ use crate::tool::model::Schema;
 use crate::tool::model::{FunctionDefinition, ToolDefinition, ToolType};
 use serde::{Serialize, de::DeserializeOwned};
 
-/// A type alias for a boxed future returning a tool execution result.
-pub type ToolFuture =
-    Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send + 'static>>;
-
 /// A trait representing a runnable tool (Type-Erased).
 ///
 /// This is the low-level trait used by the registry.
@@ -18,7 +14,10 @@ pub trait ToolRunnable: Send + Sync {
     fn definition(&self) -> ToolDefinition;
 
     /// Executes the tool with the provided arguments (JSON Value).
-    fn run(&self, args: serde_json::Value) -> ToolFuture;
+    fn run(
+        &self,
+        args: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send>>;
 }
 
 /// A high-level, strongly-typed trait for defining tools with state.
@@ -63,7 +62,10 @@ impl<T: Tool> ToolRunnable for T {
         }
     }
 
-    fn run(&self, args: serde_json::Value) -> ToolFuture {
+    fn run(
+        &self,
+        args: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send>> {
         // Deserialize arguments
         let args_parsed: Result<T::Args, _> = serde_json::from_value(args);
 

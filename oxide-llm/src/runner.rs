@@ -1,7 +1,7 @@
 use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
-use crate::core::tool::{ToolCall, ToolFuture, ToolResult, ToolRunnable};
+use crate::core::tool::{ToolCall, ToolResult, ToolRunnable};
 use crate::error::AgentError;
 use crate::tool::ToolRegistry;
 use futures::Stream;
@@ -118,13 +118,16 @@ impl<A: ChatAgent> Runner<A> {
     }
 }
 
+type ToolExecutionFuture =
+    Pin<Box<dyn Future<Output = Option<Result<Vec<ContentPart>, String>>> + Send>>;
+
 /// Future that executes a series of tool calls sequentially.
 ///
 /// 顺序执行一系列工具调用的 Future。
 pub struct ExecuteToolsFuture {
     registry: ToolRegistry,
     tool_calls: std::vec::IntoIter<ToolCall>,
-    current_exec: Option<(ToolCall, ToolFuture)>,
+    current_exec: Option<(ToolCall, ToolExecutionFuture)>,
     results: Vec<ToolResult>,
 }
 
@@ -152,21 +155,31 @@ impl Future for ExecuteToolsFuture {
         loop {
             if let Some((_, ref mut fut)) = this.current_exec {
                 match fut.as_mut().poll(cx) {
-                    Poll::Ready(res_bucket) => {
+                    Poll::Ready(res_opt) => {
                         let (tool_call, _) = this.current_exec.take().unwrap();
-                        let result = match res_bucket {
-                            Ok(content) => ToolResult {
+                        let result = match res_opt {
+                            Some(Ok(content)) => ToolResult {
                                 tool_call_id: tool_call.id.clone(),
                                 name: tool_call.name.clone(),
                                 content,
                                 is_error: false,
                                 signature: tool_call.signature.clone(),
                             },
-                            Err(err) => ToolResult {
+                            Some(Err(err)) => ToolResult {
                                 tool_call_id: tool_call.id.clone(),
                                 name: tool_call.name.clone(),
                                 content: vec![ContentPart::Text {
                                     text: format!("Error executing tool: {}", err).into(),
+                                    signature: None,
+                                }],
+                                is_error: true,
+                                signature: tool_call.signature.clone(),
+                            },
+                            None => ToolResult {
+                                tool_call_id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                content: vec![ContentPart::Text {
+                                    text: format!("Error: Unknown tool '{}'", tool_call.name).into(),
                                     signature: None,
                                 }],
                                 is_error: true,
@@ -180,24 +193,11 @@ impl Future for ExecuteToolsFuture {
             }
 
             if let Some(tool_call) = this.tool_calls.next() {
-                if let Some(fut) = this
-                    .registry
-                    .execute_future(&tool_call.name, tool_call.arguments.clone())
-                {
-                    this.current_exec = Some((tool_call, fut));
-                } else {
-                    let result = ToolResult {
-                        tool_call_id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
-                        content: vec![ContentPart::Text {
-                            text: format!("Error: Unknown tool '{}'", tool_call.name).into(),
-                            signature: None,
-                        }],
-                        is_error: true,
-                        signature: tool_call.signature.clone(),
-                    };
-                    this.results.push(result);
-                }
+                let registry = this.registry.clone();
+                let name = tool_call.name.clone();
+                let args = tool_call.arguments.clone();
+                let fut = Box::pin(async move { registry.execute(&name, args).await });
+                this.current_exec = Some((tool_call, fut));
             } else {
                 return Poll::Ready(std::mem::take(&mut this.results));
             }
@@ -354,7 +354,10 @@ mod tests {
             }
         }
 
-        fn run(&self, _args: serde_json::Value) -> oxide_llm_core::tool::ToolFuture {
+        fn run(
+            &self,
+            _args: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send>> {
             Box::pin(async { Ok(vec![]) })
         }
     }
