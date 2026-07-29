@@ -147,6 +147,62 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
 }
 
 impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
+    /// Runs the agent interaction loop synchronously/non-streamingly until completion or max turns reached.
+    ///
+    /// 非流式运行 Agent 交互循环和工具执行，直到完成或达到最大轮次数。
+    pub async fn run(&self, state: &mut ConversationState) -> Result<Message, AgentError> {
+        if self.auto_sync_tools {
+            self.sync_tools(state);
+        }
+
+        let mut current_turn = 0;
+
+        loop {
+            if current_turn >= self.max_turns {
+                let last_message = state
+                    .messages
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| Message::assistant(""));
+                return Ok(last_message);
+            }
+
+            current_turn += 1;
+
+            let msg = self.agent.chat(state.clone()).await?;
+            state.add_message(msg.clone());
+
+            let tool_calls: Vec<ToolCall> = msg
+                .content
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolCall(tc) => Some(tc.clone()),
+                    _ => None,
+                })
+                .collect();
+
+            if tool_calls.is_empty() {
+                return Ok(msg);
+            }
+
+            match self.executor.execute(&self.registry, tool_calls).await {
+                Ok(results) => {
+                    state.add_message(Message {
+                        role: Role::Tool,
+                        content: results.into_iter().map(ContentPart::ToolResult).collect(),
+                        name: None,
+                    });
+                }
+                Err(err) => {
+                    return Err(AgentError::ToolExecution(format!(
+                        "Fatal error executing tool: {}",
+                        err
+                    )));
+                }
+            }
+        }
+    }
+
     /// Creates a stream that manages the agent interaction loop and tool execution.
     ///
     /// 创建管理 Agent 交互循环和工具执行的流。
@@ -395,6 +451,21 @@ mod tests {
         // Opted-in auto sync fills state.tools during run_stream
         let _stream = runner.run_stream(&mut state);
         assert_eq!(state.tools.len(), 1);
+    }
+
+    #[test]
+    fn test_runner_run_method() {
+        let agent = DummyAgent;
+        let runner = Runner::new(agent)
+            .with_tool(DummyTool)
+            .with_auto_sync_tools(true);
+
+        let mut state = ConversationState::new(None);
+        let res = futures::executor::block_on(runner.run(&mut state));
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Message::user("dummy"));
+        assert_eq!(state.tools.len(), 1);
+        assert_eq!(state.messages.len(), 1);
     }
 
     #[test]
