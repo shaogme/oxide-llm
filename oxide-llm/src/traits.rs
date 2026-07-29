@@ -5,7 +5,7 @@ use crate::{
 use futures::{future::BoxFuture, stream::BoxStream};
 use oxide_llm_core::{
     message::{ChatStream, DeltaMessage, Message},
-    state::ConversationState,
+    state::{ConversationState, RawConversationState},
 };
 
 /// Trait for chat agents.
@@ -13,6 +13,21 @@ use oxide_llm_core::{
 /// 聊天代理 Trait。
 #[trait_morph::morph(Send)]
 pub trait ChatAgent: Send + Sync {
+    /// The raw input message type used in `RawConversationState`.
+    ///
+    /// `RawConversationState` 中使用的底层原始输入消息类型。
+    type RawInputMessage: Send + 'static;
+
+    /// The raw tool definition type used in `RawConversationState`.
+    ///
+    /// `RawConversationState` 中使用的底层原始工具类型。
+    type RawTool: Send + 'static;
+
+    /// The raw tool choice type used in `RawConversationState`.
+    ///
+    /// `RawConversationState` 中使用的底层原始工具选择类型。
+    type RawToolChoice: Send + 'static;
+
     /// The raw message type returned by `chat_raw`.
     ///
     /// `chat_raw` 返回的底层裸消息类型。
@@ -54,21 +69,27 @@ pub trait ChatAgent: Send + Sync {
     /// Send a chat request and return the raw response message.
     ///
     /// 发送聊天请求并返回底层原始响应消息。
-    async fn chat_raw(&self, state: ConversationState) -> Result<Self::RawMessage>;
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Self::RawMessage>;
 
     /// Send a chat request and receive a stream of raw chunks with configuration.
     ///
     /// 发送聊天请求并接收带有配置的底层原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         config: ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a>;
 
     /// Send a chat request and receive a stream of raw chunks.
     ///
     /// 发送聊天请求并接收底层原始块的流式响应。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         self.chat_stream_raw_with(state, ChatStreamRawConfig::default())
     }
 
@@ -95,6 +116,9 @@ pub trait ChatAgent: Send + Sync {
 }
 
 impl<T: ChatAgent + ?Sized> ChatAgent for &T {
+    type RawInputMessage = T::RawInputMessage;
+    type RawTool = T::RawTool;
+    type RawToolChoice = T::RawToolChoice;
     type RawMessage = T::RawMessage;
     type RawDelta = T::RawDelta;
     type RawStream = T::RawStream;
@@ -108,19 +132,25 @@ impl<T: ChatAgent + ?Sized> ChatAgent for &T {
     where
         Self: 'a;
 
-    async fn chat_raw(&self, state: ConversationState) -> Result<Self::RawMessage> {
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         config: ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw_with(state, config)
     }
 
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw(state)
     }
 
@@ -142,6 +172,9 @@ impl<T: ChatAgent + ?Sized> ChatAgent for &T {
 }
 
 impl<T: ChatAgent + ?Sized> ChatAgent for Box<T> {
+    type RawInputMessage = T::RawInputMessage;
+    type RawTool = T::RawTool;
+    type RawToolChoice = T::RawToolChoice;
     type RawMessage = T::RawMessage;
     type RawDelta = T::RawDelta;
     type RawStream = T::RawStream;
@@ -155,19 +188,25 @@ impl<T: ChatAgent + ?Sized> ChatAgent for Box<T> {
     where
         Self: 'a;
 
-    async fn chat_raw(&self, state: ConversationState) -> Result<Self::RawMessage> {
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         config: ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw_with(state, config)
     }
 
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw(state)
     }
 
@@ -189,6 +228,9 @@ impl<T: ChatAgent + ?Sized> ChatAgent for Box<T> {
 }
 
 impl<T: ChatAgent + ?Sized> ChatAgent for std::sync::Arc<T> {
+    type RawInputMessage = T::RawInputMessage;
+    type RawTool = T::RawTool;
+    type RawToolChoice = T::RawToolChoice;
     type RawMessage = T::RawMessage;
     type RawDelta = T::RawDelta;
     type RawStream = T::RawStream;
@@ -202,19 +244,25 @@ impl<T: ChatAgent + ?Sized> ChatAgent for std::sync::Arc<T> {
     where
         Self: 'a;
 
-    async fn chat_raw(&self, state: ConversationState) -> Result<Self::RawMessage> {
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         config: ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw_with(state, config)
     }
 
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         (**self).chat_stream_raw(state)
     }
 
@@ -271,6 +319,9 @@ impl<T: ChatAgent> DynChatAgent for T {
 }
 
 impl ChatAgent for dyn DynChatAgent + '_ {
+    type RawInputMessage = Message;
+    type RawTool = oxide_llm_core::tool::ToolDefinition;
+    type RawToolChoice = oxide_llm_core::tool::ToolChoice;
     type RawMessage = Message;
     type RawDelta = DeltaMessage;
     type RawStream = BoxStream<'static, Result<DeltaMessage>>;
@@ -284,24 +335,48 @@ impl ChatAgent for dyn DynChatAgent + '_ {
     where
         Self: 'a;
 
-    async fn chat_raw(&self, state: ConversationState) -> Result<Self::RawMessage> {
-        DynChatAgent::chat(self, state).await
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Self::RawMessage> {
+        let core_state = ConversationState {
+            system_prompt: state.system_prompt,
+            messages: state.messages,
+            tools: state.tools,
+            tool_choice: state.tool_choice,
+        };
+        DynChatAgent::chat(self, core_state).await
     }
 
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         _config: ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         Box::pin(async move {
-            let stream = DynChatAgent::chat_stream(self, state).await?;
+            let core_state = ConversationState {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: state.tools,
+                tool_choice: state.tool_choice,
+            };
+            let stream = DynChatAgent::chat_stream(self, core_state).await?;
             Ok(stream.into_inner())
         })
     }
 
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         Box::pin(async move {
-            let stream = DynChatAgent::chat_stream(self, state).await?;
+            let core_state = ConversationState {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: state.tools,
+                tool_choice: state.tool_choice,
+            };
+            let stream = DynChatAgent::chat_stream(self, core_state).await?;
             Ok(stream.into_inner())
         })
     }
@@ -341,6 +416,9 @@ mod tests {
 
         struct TestAgent;
         impl ChatAgent for TestAgent {
+            type RawInputMessage = Message;
+            type RawTool = oxide_llm_core::tool::ToolDefinition;
+            type RawToolChoice = oxide_llm_core::tool::ToolChoice;
             type RawMessage = Message;
             type RawDelta = String;
             type RawStream = crate::stream::RawHookStream<
@@ -355,13 +433,16 @@ mod tests {
             >;
             type ChatStreamFuture<'a> = std::future::Ready<Result<ChatStream<Self::Stream, AgentError>>>;
 
-            async fn chat_raw(&self, _state: ConversationState) -> Result<Self::RawMessage> {
+            async fn chat_raw(
+                &self,
+                _state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+            ) -> Result<Self::RawMessage> {
                 Ok(Message::user("test"))
             }
 
             fn chat_stream_raw_with<'a>(
                 &'a self,
-                _state: ConversationState,
+                _state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
                 mut config: ChatStreamRawConfig<Self::RawDelta>,
             ) -> Self::ChatStreamRawFuture<'a> {
                 let raw_stream = futures::stream::iter(vec![Ok("chunk1".to_string()), Ok("chunk2".to_string())]);
@@ -415,7 +496,7 @@ mod tests {
             });
 
             use futures::StreamExt;
-            let mut raw_stream = agent.chat_stream_raw_with(ConversationState::new(None), raw_config).await.unwrap();
+            let mut raw_stream = agent.chat_stream_raw_with(RawConversationState::new(None), raw_config).await.unwrap();
             while let Some(_) = raw_stream.next().await {}
             assert_eq!(raw_count_1.load(Ordering::SeqCst), 2);
 

@@ -3,10 +3,12 @@ use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason,
     ImageSource, Message, Role, Usage,
 };
+use crate::state::{ConversationState, RawConversationState};
 use crate::tool::{ToolCall, ToolChoice, ToolDefinition};
 use oxide_llm_proto::openai::v1::response::{
     Tool as OpenAIResponseTool, ToolChoice as OpenAIResponseToolChoice,
     chunk::ResponseStreamEvent,
+    request::InputItem,
     response::{OutputItem, ResponseStatus},
 };
 
@@ -256,17 +258,70 @@ impl OpenAIResponseMapper {
     }
 }
 
-impl From<&ToolDefinition> for OpenAIResponseTool {
-    fn from(tool: &ToolDefinition) -> Self {
-        OpenAIResponseMapper::tool_to_openai_response(tool)
+impl TryFrom<Message> for Vec<oxide_llm_proto::openai::v1::response::request::InputItem> {
+    type Error = MapperError;
+
+    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+        OpenAIResponseMapper::from_core_message(msg)
     }
 }
 
-impl From<&ToolChoice> for OpenAIResponseToolChoice {
-    fn from(choice: &ToolChoice) -> Self {
-        OpenAIResponseMapper::tool_choice_to_openai_response(choice)
+impl TryFrom<oxide_llm_proto::openai::v1::response::response::Response> for Message {
+    type Error = MapperError;
+
+    fn try_from(
+        resp: oxide_llm_proto::openai::v1::response::response::Response,
+    ) -> Result<Self, Self::Error> {
+        OpenAIResponseMapper::to_core_message(resp)
     }
 }
+
+impl TryFrom<&ToolDefinition> for OpenAIResponseTool {
+    type Error = MapperError;
+
+    fn try_from(tool: &ToolDefinition) -> Result<Self, Self::Error> {
+        Ok(OpenAIResponseMapper::tool_to_openai_response(tool))
+    }
+}
+
+impl TryFrom<&ToolChoice> for OpenAIResponseToolChoice {
+    type Error = MapperError;
+
+    fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
+        Ok(OpenAIResponseMapper::tool_choice_to_openai_response(choice))
+    }
+}
+
+impl TryFrom<ConversationState>
+    for RawConversationState<InputItem, OpenAIResponseTool, OpenAIResponseToolChoice>
+{
+    type Error = MapperError;
+
+    fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let mut messages = Vec::new();
+        for msg in state.messages {
+            messages.extend(OpenAIResponseMapper::from_core_message(msg)?);
+        }
+        let tools = state
+            .tools
+            .iter()
+            .map(OpenAIResponseMapper::tool_to_openai_response)
+            .collect();
+        let tool_choice = state
+            .tool_choice
+            .as_ref()
+            .map(OpenAIResponseMapper::tool_choice_to_openai_response);
+
+        Ok(RawConversationState {
+            system_prompt: state.system_prompt,
+            messages,
+            tools,
+            tool_choice,
+        })
+    }
+}
+
+
 
 /// Stateful mapper for OpenAI Response API streaming events.
 ///

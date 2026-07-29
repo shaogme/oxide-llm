@@ -1,11 +1,14 @@
 use oxide_llm_core::{
-    mapper::gemini::v1beta::{GeminiInteractionsMapper, GeminiInteractionsStreamMapper},
+    mapper::gemini::v1beta::GeminiInteractionsStreamMapper,
     message::{DeltaMessage, Message},
-    state::ConversationState,
+    state::{ConversationState, RawConversationState},
     transport::{Method, Transport, TransportRequest},
 };
 use oxide_llm_proto::gemini::v1beta::interactions::{
-    request::CreateInteractionRequest, sse::InteractionSseEvent,
+    request::{CreateInteractionRequest, InteractionsInput, ToolChoice as GeminiRequestToolChoice},
+    sse::InteractionSseEvent,
+    step::Step,
+    tool::Tool,
 };
 
 use crate::{
@@ -15,9 +18,7 @@ use crate::{
 
 pub mod config;
 
-pub use config::{
-    InteractionsConfig, InteractionsOptionalConfig, InteractionsRequiredConfig,
-};
+pub use config::{InteractionsConfig, InteractionsOptionalConfig, InteractionsRequiredConfig};
 
 /// Gemini Interactions Agent.
 ///
@@ -54,38 +55,33 @@ impl<T: Transport> InteractionsAgent<T> {
         self
     }
 
-    /// Build a CreateInteractionRequest from the conversation state.
+    /// Build a CreateInteractionRequest from the raw conversation state.
     ///
-    /// 根据对话状态构建 CreateInteractionRequest。
+    /// 根据底层原始对话状态构建 CreateInteractionRequest。
     fn build_request(
         &self,
-        state: ConversationState,
+        state: RawConversationState<Step, Tool, GeminiRequestToolChoice>,
         stream_override: Option<bool>,
     ) -> Result<CreateInteractionRequest> {
-        let sys_prompt = state.system_prompt;
-        let messages = state.messages;
-        let tools = if state.tools.is_empty() {
-            None
-        } else {
-            Some(state.tools)
-        };
-        let tool_choice = state.tool_choice;
-
-        let base_req = GeminiInteractionsMapper::from_core_messages(
+        let RawConversationState {
+            system_prompt,
             messages,
-            self.config.required().model_static(),
             tools,
             tool_choice,
-        )
-        .map_err(AgentError::Mapper)?;
+        } = state;
 
-        let final_req = self.config.apply_to_request(
-            base_req,
+        let input = InteractionsInput::Steps(messages);
+        let mapped_tools = if tools.is_empty() { None } else { Some(tools) };
+
+        let request = self.config.to_request(
+            input,
+            mapped_tools,
+            tool_choice,
             stream_override,
-            sys_prompt.as_deref(),
+            system_prompt.as_deref(),
         );
 
-        Ok(final_req)
+        Ok(request)
     }
 }
 
@@ -153,33 +149,43 @@ impl crate::stream::StreamMapper<InteractionSseEvent> for GeminiInteractionsStre
 }
 
 impl<T: Transport> ChatAgent for InteractionsAgent<T> {
+    type RawInputMessage = Step;
+    type RawTool = Tool;
+    type RawToolChoice = GeminiRequestToolChoice;
     type RawMessage = Vec<InteractionSseEvent>;
     type RawDelta = InteractionSseEvent;
     type RawStream =
         crate::stream::MessageStream<T::Stream, RawInteractionsProcessor, InteractionSseEvent>;
     type ChatStreamRawFuture<'a>
         = crate::stream::AgentChatStreamRawFuture<
-            T::StreamFuture,
-            RawInteractionsProcessor,
-            InteractionSseEvent,
-        >
+        T::StreamFuture,
+        RawInteractionsProcessor,
+        InteractionSseEvent,
+    >
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiInteractionsStreamMapper, Self::RawDelta>;
+    type Stream = crate::stream::MappedStream<
+        Self::RawStream,
+        GeminiInteractionsStreamMapper,
+        Self::RawDelta,
+    >;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
-            Self::ChatStreamRawFuture<'a>,
-            GeminiInteractionsStreamMapper,
-            Self::RawDelta,
-        >
+        Self::ChatStreamRawFuture<'a>,
+        GeminiInteractionsStreamMapper,
+        Self::RawDelta,
+    >
     where
         Self: 'a;
 
     /// Send a chat request to Gemini Interactions API and return raw SSE events.
     ///
     /// 发送聊天请求到 Gemini Interactions API 并返回原始 SSE 事件。
-    async fn chat_raw(&self, state: ConversationState) -> Result<Vec<InteractionSseEvent>> {
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<Vec<InteractionSseEvent>> {
         let request = self.build_request(state, Some(true))?;
 
         let endpoint = self.config.required().endpoint().to_string();
@@ -208,7 +214,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     /// 发送聊天请求到 Gemini Interactions API 并接收带有配置的原始 SSE 事件的流。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -228,7 +234,10 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     /// Send a chat request to Gemini Interactions API and receive a stream of raw SSE events.
     ///
     /// 发送聊天请求到 Gemini Interactions API 并接收原始 SSE 事件的流。
-    fn chat_stream_raw<'a>(&'a self, state: ConversationState) -> Self::ChatStreamRawFuture<'a> {
+    fn chat_stream_raw<'a>(
+        &'a self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Self::ChatStreamRawFuture<'a> {
         self.chat_stream_raw_with(state, crate::ChatStreamRawConfig::default())
     }
 
@@ -236,7 +245,8 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ///
     /// 发送聊天请求到 Gemini Interactions API。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let events = self.chat_raw(state).await?;
+        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let events = self.chat_raw(raw_state).await?;
         let mut mapper = GeminiInteractionsStreamMapper::new();
         let mut assembler = oxide_llm_core::message::MessageAssembler::new();
 
@@ -258,8 +268,17 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
+        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_stream_fut = match raw_state_res {
+            Ok(raw_state) => self.chat_stream_raw(raw_state),
+            Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(
+                Err(e),
+                RawInteractionsProcessor::new(),
+                None,
+            ),
+        };
         crate::stream::AgentChatStreamFuture::with_hooks(
-            self.chat_stream_raw(state),
+            raw_stream_fut,
             GeminiInteractionsStreamMapper::new(),
             on_raw_delta,
             on_delta,
@@ -299,20 +318,16 @@ mod tests {
             name: None,
         });
 
-        let messages = state.messages.clone();
-        let sys_prompt = state.system_prompt.clone();
-        let base_req = GeminiInteractionsMapper::from_core_messages(
-            messages,
-            config.required().model_static(),
-            None,
-            None,
-        )
-        .unwrap();
+        let input = InteractionsInput::String("Hello".into());
+        let sys_prompt = Some("System prompt test");
 
-        let req = config.apply_to_request(base_req, Some(true), sys_prompt.as_deref());
+        let req = config.to_request(input, None, None, Some(true), sys_prompt);
 
         assert_eq!(req.model.as_deref(), Some("gemini-3.6-flash"));
-        assert_eq!(req.system_instruction.as_deref(), Some("System prompt test"));
+        assert_eq!(
+            req.system_instruction.as_deref(),
+            Some("System prompt test")
+        );
         assert_eq!(req.stream, Some(true));
     }
 

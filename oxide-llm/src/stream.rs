@@ -8,6 +8,7 @@ use futures::{ready, Stream};
 use oxide_llm_core::message::{ChatStream, DeltaMessage};
 use oxide_llm_core::transport::TransportError;
 
+use crate::config::{DeltaHook, RawDeltaHook};
 use crate::error::{AgentError, Result};
 
 /// Trait for processing SSE data blocks into raw stream items.
@@ -37,7 +38,7 @@ pub struct MessageStream<S, P, Item = DeltaMessage> {
     buffer: BytesMut,
     stopped: bool,
     processor: P,
-    on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<Item>>,
     _phantom: PhantomData<fn() -> Item>,
 }
 
@@ -56,7 +57,7 @@ impl<S, P, Item> MessageStream<S, P, Item> {
     pub fn with_hook(
         stream: S,
         processor: P,
-        on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+        on_raw_delta: Option<RawDeltaHook<Item>>,
     ) -> Self {
         Self {
             stream,
@@ -86,10 +87,10 @@ where
                 if stop {
                     self.stopped = true;
                     if let Some(item) = item {
-                        if let Ok(ref val) = item {
-                            if let Some(hook) = self.on_raw_delta.as_mut() {
-                                hook(val);
-                            }
+                        if let Ok(ref val) = item
+                            && let Some(hook) = self.on_raw_delta.as_mut()
+                        {
+                            hook(val);
                         }
                         return Poll::Ready(Some(item));
                     }
@@ -97,10 +98,10 @@ where
                 }
 
                 if let Some(item) = item {
-                    if let Ok(ref val) = item {
-                        if let Some(hook) = self.on_raw_delta.as_mut() {
-                            hook(val);
-                        }
+                    if let Ok(ref val) = item
+                        && let Some(hook) = self.on_raw_delta.as_mut()
+                    {
+                        hook(val);
                     }
                     return Poll::Ready(Some(item));
                 }
@@ -131,7 +132,7 @@ where
 pub struct AgentChatStreamRawFuture<Fut, P, Item = DeltaMessage> {
     fut: std::result::Result<Fut, AgentError>,
     processor: Option<P>,
-    on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<Item>>,
     _phantom: PhantomData<fn() -> Item>,
 }
 
@@ -154,7 +155,7 @@ impl<Fut, P, Item> AgentChatStreamRawFuture<Fut, P, Item> {
     pub fn with_hook(
         fut: Result<Fut>,
         processor: P,
-        on_raw_delta: Option<Box<dyn FnMut(&Item) + Send + 'static>>,
+        on_raw_delta: Option<RawDeltaHook<Item>>,
     ) -> Self {
         Self {
             fut,
@@ -208,14 +209,14 @@ where
 /// 触发 `on_raw_delta` Hook 的流包装器。
 pub struct RawHookStream<S, RawDelta> {
     stream: S,
-    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<RawDelta>>,
 }
 
 impl<S, RawDelta> RawHookStream<S, RawDelta> {
     /// Creates a new `RawHookStream`.
     pub fn new(
         stream: S,
-        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+        on_raw_delta: Option<RawDeltaHook<RawDelta>>,
     ) -> Self {
         Self { stream, on_raw_delta }
     }
@@ -257,8 +258,8 @@ pub trait StreamMapper<RawDelta>: Unpin {
 pub struct MappedStream<S, M, RawDelta = ()> {
     stream: S,
     mapper: M,
-    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
-    on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<RawDelta>>,
+    on_delta: Option<DeltaHook>,
 }
 
 impl<S, M, RawDelta> MappedStream<S, M, RawDelta> {
@@ -280,8 +281,8 @@ impl<S, M, RawDelta> MappedStream<S, M, RawDelta> {
     pub fn with_hooks(
         stream: S,
         mapper: M,
-        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
-        on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+        on_raw_delta: Option<RawDeltaHook<RawDelta>>,
+        on_delta: Option<DeltaHook>,
     ) -> Self {
         Self {
             stream,
@@ -331,8 +332,8 @@ where
 pub struct AgentChatStreamFuture<Fut, M, RawDelta = ()> {
     fut: Fut,
     mapper: Option<M>,
-    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
-    on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<RawDelta>>,
+    on_delta: Option<DeltaHook>,
 }
 
 impl<Fut, M, RawDelta> AgentChatStreamFuture<Fut, M, RawDelta> {
@@ -354,8 +355,8 @@ impl<Fut, M, RawDelta> AgentChatStreamFuture<Fut, M, RawDelta> {
     pub fn with_hooks(
         fut: Fut,
         mapper: M,
-        on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
-        on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+        on_raw_delta: Option<RawDeltaHook<RawDelta>>,
+        on_delta: Option<DeltaHook>,
     ) -> Self {
         Self {
             fut,

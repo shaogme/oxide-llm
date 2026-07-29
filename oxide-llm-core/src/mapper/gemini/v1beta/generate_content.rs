@@ -3,6 +3,7 @@ use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
     Role,
 };
+use crate::state::{ConversationState, RawConversationState};
 use crate::tool::{
     FunctionDefinition, JSONSchema, JSONSchemaType, ToolCall, ToolChoice, ToolDefinition, ToolType,
 };
@@ -373,23 +374,87 @@ impl GeminiGenerateContentMapper {
     }
 }
 
-impl From<&ToolDefinition> for GeminiFunctionDeclaration {
-    fn from(tool: &ToolDefinition) -> Self {
-        GeminiGenerateContentMapper::tool_to_gemini_function_declaration(tool)
+impl TryFrom<Message> for GeminiContent {
+    type Error = MapperError;
+
+    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+        GeminiGenerateContentMapper::from_core_message(msg)
     }
 }
 
-impl From<GeminiFunctionDeclaration> for ToolDefinition {
-    fn from(decl: GeminiFunctionDeclaration) -> Self {
-        GeminiGenerateContentMapper::tool_from_gemini(decl)
+impl TryFrom<GenerateContentResponse> for Message {
+    type Error = MapperError;
+
+    fn try_from(resp: GenerateContentResponse) -> Result<Self, Self::Error> {
+        GeminiGenerateContentMapper::to_core_message(resp)
     }
 }
 
-impl From<GeminiToolConfig> for ToolChoice {
-    fn from(config: GeminiToolConfig) -> Self {
-        GeminiGenerateContentMapper::tool_choice_from_gemini(config)
+impl TryFrom<&ToolDefinition> for GeminiFunctionDeclaration {
+    type Error = MapperError;
+
+    fn try_from(tool: &ToolDefinition) -> Result<Self, Self::Error> {
+        Ok(GeminiGenerateContentMapper::tool_to_gemini_function_declaration(tool))
     }
 }
+
+impl TryFrom<GeminiFunctionDeclaration> for ToolDefinition {
+    type Error = MapperError;
+
+    fn try_from(decl: GeminiFunctionDeclaration) -> Result<Self, Self::Error> {
+        Ok(GeminiGenerateContentMapper::tool_from_gemini(decl))
+    }
+}
+
+impl TryFrom<&ToolChoice> for GeminiToolConfig {
+    type Error = MapperError;
+
+    fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
+        GeminiGenerateContentMapper::tool_choice_to_gemini(choice).ok_or(MapperError::MissingField {
+            field: "tool_choice".to_string(),
+        })
+    }
+}
+
+impl TryFrom<GeminiToolConfig> for ToolChoice {
+    type Error = MapperError;
+
+    fn try_from(config: GeminiToolConfig) -> Result<Self, Self::Error> {
+        Ok(GeminiGenerateContentMapper::tool_choice_from_gemini(config))
+    }
+}
+
+impl TryFrom<ConversationState>
+    for RawConversationState<GeminiContent, GeminiFunctionDeclaration, GeminiToolConfig>
+{
+    type Error = MapperError;
+
+    fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let messages = state
+            .messages
+            .into_iter()
+            .map(GeminiGenerateContentMapper::from_core_message)
+            .collect::<Result<Vec<_>, _>>()?;
+        let tools = state
+            .tools
+            .iter()
+            .map(GeminiGenerateContentMapper::tool_to_gemini_function_declaration)
+            .collect();
+        let tool_choice = state
+            .tool_choice
+            .as_ref()
+            .and_then(GeminiGenerateContentMapper::tool_choice_to_gemini);
+
+        Ok(RawConversationState {
+            system_prompt: state.system_prompt,
+            messages,
+            tools,
+            tool_choice,
+        })
+    }
+}
+
+
 
 /// A stateful mapper for Gemini streaming responses.
 ///

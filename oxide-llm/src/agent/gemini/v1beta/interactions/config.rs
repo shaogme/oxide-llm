@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use oxide_llm_proto::gemini::v1beta::interactions::{
     agent::AgentConfig,
-    request::{CreateInteractionRequest, GenerationConfig, SafetySetting, ServiceTier},
+    request::{
+        CreateInteractionRequest, GenerationConfig, InteractionsInput, SafetySetting, ServiceTier,
+        ToolChoice as GeminiRequestToolChoice,
+    },
+    tool::Tool,
     webhook::WebhookConfig,
 };
 use ref_str::StaticRefStr;
@@ -121,6 +125,7 @@ impl InteractionsRequiredConfig {
 pub struct InteractionsOptionalConfig {
     system_instruction: Option<String>,
     response_format: Option<Value>,
+    stream: Option<bool>,
     store: Option<bool>,
     background: Option<bool>,
     generation_config: Option<GenerationConfig>,
@@ -184,6 +189,29 @@ impl InteractionsOptionalConfig {
     /// 设置响应格式（构建器模式）。
     pub fn with_response_format(mut self, response_format: Value) -> Self {
         self.response_format = Some(response_format);
+        self
+    }
+
+    /// Get stream flag.
+    ///
+    /// 获取流式传输标志。
+    pub fn stream(&self) -> Option<bool> {
+        self.stream
+    }
+
+    /// Set stream flag.
+    ///
+    /// 设置流式传输标志。
+    pub fn set_stream(&mut self, stream: Option<bool>) -> &mut Self {
+        self.stream = stream;
+        self
+    }
+
+    /// Set stream flag (builder pattern).
+    ///
+    /// 设置流式传输标志（构建器模式）。
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = Some(stream);
         self
     }
 
@@ -486,84 +514,59 @@ impl InteractionsConfig {
         self
     }
 
-    /// Merge optional configuration with base request.
+    /// Convert Config to CreateInteractionRequest with provided input, tools, tool_choice, and overrides.
     ///
-    /// 将选填配置合并到基础请求中。
-    pub fn apply_to_request(
+    /// 将配置转换为 CreateInteractionRequest，并整合输入、工具、工具选择及覆盖项。
+    pub fn to_request(
         &self,
-        mut req: CreateInteractionRequest,
+        input: InteractionsInput,
+        tools: Option<Vec<Tool>>,
+        tool_choice: Option<GeminiRequestToolChoice>,
         stream_override: Option<bool>,
-        sys_prompt: Option<&str>,
+        sys_prompt_override: Option<&str>,
     ) -> CreateInteractionRequest {
-        if self.required.agent.is_some() {
-            req.agent = self.required.agent.clone();
-        }
-        if self.required.model.is_some() {
-            req.model = self.required.model.clone();
-        }
-
-        // Priority for system instruction: state system prompt, then optional config
-        let sys_inst = sys_prompt
+        let system_instruction = sys_prompt_override
             .map(|s| s.to_string())
             .or_else(|| self.optional.system_instruction.clone());
-        req.system_instruction = sys_inst;
 
-        req.response_format = self.optional.response_format.clone();
-        req.stream = stream_override;
-        req.store = self.optional.store;
-        req.background = self.optional.background;
-        req.agent_config = self.optional.agent_config.clone();
-        req.environment = self.optional.environment.clone();
-        req.labels = self.optional.labels.clone();
-        req.previous_interaction_id = self.optional.previous_interaction_id.clone();
-        req.safety_settings = self.optional.safety_settings.clone();
-        req.service_tier = self.optional.service_tier.clone();
-        req.webhook_config = self.optional.webhook_config.clone();
-
-        if let Some(opt_gen) = &self.optional.generation_config {
-            let mut merged_gen = req.generation_config.unwrap_or_else(|| GenerationConfig {
+        let generation_config = match (self.optional.generation_config.clone(), tool_choice) {
+            (Some(mut gen_cfg), Some(tc)) => {
+                gen_cfg.tool_choice = Some(tc);
+                Some(gen_cfg)
+            }
+            (Some(gen_cfg), None) => Some(gen_cfg),
+            (None, Some(tc)) => Some(GenerationConfig {
                 max_output_tokens: None,
                 seed: None,
                 speech_config: None,
                 stop_sequences: None,
                 thinking_level: None,
                 thinking_summaries: None,
-                tool_choice: None,
+                tool_choice: Some(tc),
                 transcription_config: None,
                 video_config: None,
-            });
+            }),
+            (None, None) => None,
+        };
 
-            if opt_gen.max_output_tokens.is_some() {
-                merged_gen.max_output_tokens = opt_gen.max_output_tokens;
-            }
-            if opt_gen.seed.is_some() {
-                merged_gen.seed = opt_gen.seed;
-            }
-            if opt_gen.speech_config.is_some() {
-                merged_gen.speech_config = opt_gen.speech_config.clone();
-            }
-            if opt_gen.stop_sequences.is_some() {
-                merged_gen.stop_sequences = opt_gen.stop_sequences.clone();
-            }
-            if opt_gen.thinking_level.is_some() {
-                merged_gen.thinking_level = opt_gen.thinking_level.clone();
-            }
-            if opt_gen.thinking_summaries.is_some() {
-                merged_gen.thinking_summaries = opt_gen.thinking_summaries.clone();
-            }
-            if opt_gen.tool_choice.is_some() {
-                merged_gen.tool_choice = opt_gen.tool_choice.clone();
-            }
-            if opt_gen.transcription_config.is_some() {
-                merged_gen.transcription_config = opt_gen.transcription_config.clone();
-            }
-            if opt_gen.video_config.is_some() {
-                merged_gen.video_config = opt_gen.video_config.clone();
-            }
-
-            req.generation_config = Some(merged_gen);
+        CreateInteractionRequest {
+            model: self.required.model.clone(),
+            agent: self.required.agent.clone(),
+            input,
+            system_instruction,
+            tools,
+            response_format: self.optional.response_format.clone(),
+            stream: stream_override.or(self.optional.stream),
+            store: self.optional.store,
+            background: self.optional.background,
+            generation_config,
+            agent_config: self.optional.agent_config.clone(),
+            environment: self.optional.environment.clone(),
+            labels: self.optional.labels.clone(),
+            previous_interaction_id: self.optional.previous_interaction_id.clone(),
+            safety_settings: self.optional.safety_settings.clone(),
+            service_tier: self.optional.service_tier.clone(),
+            webhook_config: self.optional.webhook_config.clone(),
         }
-
-        req
     }
 }

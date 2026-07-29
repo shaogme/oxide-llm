@@ -19,7 +19,7 @@ mod tests {
         },
         core::{
             message::{ContentPart, Message},
-            state::ConversationState,
+            state::{ConversationState, RawConversationState},
             transport::TransportExt,
         },
         transport::reqwest::ReqwestTransport,
@@ -101,8 +101,9 @@ mod tests {
         state.add_message(Message::user("Hello Responses Non-Stream Stateful Step 1"));
 
         // Use chat_raw to retrieve raw Response structure containing response ID
+        let raw_state = RawConversationState::try_from(state).expect("RawConversationState try_from should succeed");
         let response = agent
-            .chat_raw(state)
+            .chat_raw(raw_state)
             .await
             .expect("First round chat_raw should succeed");
         let previous_response_id = response.id.clone();

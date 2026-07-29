@@ -3,6 +3,7 @@ use crate::message::{
     Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Image,
     ImageSource, Message, Role,
 };
+use crate::state::{ConversationState, RawConversationState};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::openai::v1::{
     FunctionDefinition as OpenAIFunctionDefinition,
@@ -311,12 +312,17 @@ impl OpenAIChatCompletionMapper {
     /// Convert `OpenAIChatCompletionsTool` to `ToolDefinition`.
     ///
     /// 将 `OpenAIChatCompletionsTool` 转换为 `ToolDefinition`。
-    pub fn tool_from_openai(value: OpenAIChatCompletionsTool) -> Result<ToolDefinition, String> {
+    pub fn tool_from_openai(
+        value: OpenAIChatCompletionsTool,
+    ) -> Result<ToolDefinition, MapperError> {
         if value.r#type != "function" {
-            return Err(format!("Unsupported OpenAI tool type: {}", value.r#type));
+            return Err(MapperError::UnsupportedContent {
+                role: "Tool".to_string(),
+                protocol: format!("OpenAI tool type: {}", value.r#type),
+            });
         }
         let parameters = match value.function.parameters {
-            Some(v) => Some(serde_json::from_value(v).map_err(|e| e.to_string())?),
+            Some(v) => Some(serde_json::from_value(v).map_err(MapperError::JsonError)?),
             None => None,
         };
         Ok(ToolDefinition {
@@ -347,31 +353,88 @@ impl OpenAIChatCompletionMapper {
     }
 }
 
-impl From<&ToolDefinition> for OpenAIChatCompletionsTool {
-    fn from(tool: &ToolDefinition) -> Self {
-        OpenAIChatCompletionMapper::tool_to_openai(tool)
+impl TryFrom<Message> for Vec<ChatCompletionMessage> {
+    type Error = MapperError;
+
+    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+        OpenAIChatCompletionMapper::from_core_message(msg)
     }
 }
 
-impl From<&ToolChoice> for OpenAIChatCompletionsToolChoice {
-    fn from(choice: &ToolChoice) -> Self {
-        OpenAIChatCompletionMapper::tool_choice_to_openai(choice)
+impl TryFrom<ChatCompletionResponse> for Message {
+    type Error = MapperError;
+
+    fn try_from(resp: ChatCompletionResponse) -> Result<Self, Self::Error> {
+        OpenAIChatCompletionMapper::to_core_message(resp)
+    }
+}
+
+impl TryFrom<&ToolDefinition> for OpenAIChatCompletionsTool {
+    type Error = MapperError;
+
+    fn try_from(tool: &ToolDefinition) -> Result<Self, Self::Error> {
+        Ok(OpenAIChatCompletionMapper::tool_to_openai(tool))
+    }
+}
+
+impl TryFrom<&ToolChoice> for OpenAIChatCompletionsToolChoice {
+    type Error = MapperError;
+
+    fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
+        Ok(OpenAIChatCompletionMapper::tool_choice_to_openai(choice))
     }
 }
 
 impl TryFrom<OpenAIChatCompletionsTool> for ToolDefinition {
-    type Error = String;
+    type Error = MapperError;
 
     fn try_from(value: OpenAIChatCompletionsTool) -> Result<Self, Self::Error> {
         OpenAIChatCompletionMapper::tool_from_openai(value)
     }
 }
 
-impl From<OpenAIChatCompletionsToolChoice> for ToolChoice {
-    fn from(value: OpenAIChatCompletionsToolChoice) -> Self {
-        OpenAIChatCompletionMapper::tool_choice_from_openai(value)
+impl TryFrom<OpenAIChatCompletionsToolChoice> for ToolChoice {
+    type Error = MapperError;
+
+    fn try_from(value: OpenAIChatCompletionsToolChoice) -> Result<Self, Self::Error> {
+        Ok(OpenAIChatCompletionMapper::tool_choice_from_openai(value))
     }
 }
+
+impl TryFrom<ConversationState>
+    for RawConversationState<
+        ChatCompletionMessage,
+        OpenAIChatCompletionsTool,
+        OpenAIChatCompletionsToolChoice,
+    >
+{
+    type Error = MapperError;
+
+    fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let mut messages = Vec::new();
+        for msg in state.messages {
+            messages.extend(OpenAIChatCompletionMapper::from_core_message(msg)?);
+        }
+        let tools = state
+            .tools
+            .iter()
+            .map(OpenAIChatCompletionMapper::tool_to_openai)
+            .collect();
+        let tool_choice = state
+            .tool_choice
+            .as_ref()
+            .map(OpenAIChatCompletionMapper::tool_choice_to_openai);
+
+        Ok(RawConversationState {
+            system_prompt: state.system_prompt,
+            messages,
+            tools,
+            tool_choice,
+        })
+    }
+}
+
+
 
 /// A stateful mapper for OpenAI streaming responses.
 ///

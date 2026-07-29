@@ -1,12 +1,13 @@
 use oxide_llm_core::mapper::openai::v1::{OpenAIChatCompletionMapper, OpenAIStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
-use oxide_llm_core::state::ConversationState;
+use oxide_llm_core::state::{ConversationState, RawConversationState};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
-use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk as OpenAIStreamChunk;
-use oxide_llm_proto::openai::v1::chat_completions::request::{
-    ChatCompletionMessage, ChatCompletionRequest, StreamOptions,
+use oxide_llm_proto::openai::v1::chat_completions::{
+    Tool as OpenAIChatCompletionsTool, ToolChoice as OpenAIChatCompletionsToolChoice,
+    chunk::ChatCompletionChunk as OpenAIStreamChunk,
+    request::{ChatCompletionMessage, ChatCompletionRequest, StreamOptions},
+    response::ChatCompletionResponse,
 };
-use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
 
 use crate::ChatAgent;
 use crate::error::{AgentError, Result};
@@ -52,62 +53,41 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         self
     }
 
-    /// Build a ChatCompletionRequest from the conversation state.
+    /// Build a ChatCompletionRequest from the raw conversation state.
     ///
-    /// 根据对话状态构建 ChatCompletionRequest。
+    /// 根据底层原始对话状态构建 ChatCompletionRequest。
     fn build_request(
         &self,
-        state: ConversationState,
+        state: RawConversationState<
+            ChatCompletionMessage,
+            OpenAIChatCompletionsTool,
+            OpenAIChatCompletionsToolChoice,
+        >,
         stream: bool,
     ) -> Result<ChatCompletionRequest> {
-        let ConversationState {
+        let RawConversationState {
             system_prompt,
-            messages,
+            mut messages,
             tools,
             tool_choice,
         } = state;
 
-        let tools = if tools.is_empty() {
-            None
-        } else {
-            Some(
-                tools
-                    .iter()
-                    .map(OpenAIChatCompletionMapper::tool_to_openai)
-                    .collect(),
-            )
-        };
+        if let Some(prompt) = system_prompt {
+            messages.insert(
+                0,
+                ChatCompletionMessage::System {
+                    content: prompt,
+                    name: None,
+                },
+            );
+        }
 
-        // 1. Convert Core Messages to OpenAI Messages
-        // 1. 将核心消息转换为 OpenAI 消息
-        let openai_messages: Vec<ChatCompletionMessage> = {
-            let initial_messages = match system_prompt {
-                Some(prompt) => {
-                    vec![ChatCompletionMessage::System {
-                        content: prompt,
-                        name: None,
-                    }]
-                }
-                None => Vec::new(),
-            };
-
-            messages
-                .into_iter()
-                .try_fold(initial_messages, |mut acc, msg| {
-                    acc.extend(OpenAIChatCompletionMapper::from_core_message(msg)?);
-                    Ok(acc)
-                })
-                .map_err(AgentError::Mapper)?
-        };
-
-        // 2. Construct Request using Config
-        // 2. 使用 Config 构建请求
-        let tc = tool_choice.as_ref().map(OpenAIChatCompletionMapper::tool_choice_to_openai);
+        let tools = if tools.is_empty() { None } else { Some(tools) };
 
         let mut request = self
             .config
             .clone()
-            .to_request(openai_messages, tools, tc, stream, None);
+            .to_request(messages, tools, tool_choice, stream, None);
 
         if stream && request.stream_options.is_none() {
             request.stream_options = Some(StreamOptions {
@@ -185,6 +165,9 @@ impl crate::stream::StreamMapper<OpenAIStreamChunk> for OpenAIStreamMapper {
 }
 
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
+    type RawInputMessage = ChatCompletionMessage;
+    type RawTool = OpenAIChatCompletionsTool;
+    type RawToolChoice = OpenAIChatCompletionsToolChoice;
     type RawMessage = ChatCompletionResponse;
     type RawDelta = OpenAIStreamChunk;
     type RawStream =
@@ -211,7 +194,10 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// Send a chat request to OpenAI and return raw response.
     ///
     /// 发送聊天请求到 OpenAI 并返回原始响应。
-    async fn chat_raw(&self, state: ConversationState) -> Result<ChatCompletionResponse> {
+    async fn chat_raw(
+        &self,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+    ) -> Result<ChatCompletionResponse> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -234,7 +220,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// 发送聊天请求到 OpenAI 并接收带有配置的原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: ConversationState,
+        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -258,7 +244,8 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ///
     /// 发送聊天请求到 OpenAI。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let response = self.chat_raw(state).await?;
+        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
         let core_message: Message =
@@ -277,8 +264,17 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
+        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_stream_fut = match raw_state_res {
+            Ok(raw_state) => self.chat_stream_raw(raw_state),
+            Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(
+                Err(e),
+                RawOpenAIProcessor::new(),
+                None,
+            ),
+        };
         crate::stream::AgentChatStreamFuture::with_hooks(
-            self.chat_stream_raw(state),
+            raw_stream_fut,
             OpenAIStreamMapper::new(),
             on_raw_delta,
             on_delta,

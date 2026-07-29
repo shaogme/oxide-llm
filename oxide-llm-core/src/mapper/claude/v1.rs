@@ -5,6 +5,7 @@ use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource,
     Message, Role,
 };
+use crate::state::{ConversationState, RawConversationState};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::claude::v1::messages::{
     Content as ClaudeContent, ContentBlock, ImageBlock, ImageSource as ClaudeImageSource,
@@ -222,7 +223,7 @@ impl ClaudeMapper {
     /// Convert `ClaudeTool` to `ToolDefinition`.
     ///
     /// 将 `ClaudeTool` 转换为 `ToolDefinition`。
-    pub fn tool_from_claude(value: ClaudeTool) -> Result<ToolDefinition, String> {
+    pub fn tool_from_claude(value: ClaudeTool) -> Result<ToolDefinition, MapperError> {
         match value {
             ClaudeTool::Custom(custom) => Ok(ToolDefinition {
                 r#type: ToolType::Function,
@@ -230,14 +231,15 @@ impl ClaudeMapper {
                     name: custom.name,
                     description: custom.description,
                     parameters: Some(
-                        serde_json::from_value(custom.input_schema).map_err(|e| e.to_string())?,
+                        serde_json::from_value(custom.input_schema).map_err(MapperError::JsonError)?,
                     ),
                     strict: custom.strict,
                 },
             }),
-            _ => {
-                Err("Only Custom tools are currently supported for generic conversion".to_string())
-            }
+            _ => Err(MapperError::UnsupportedContent {
+                role: "Tool".to_string(),
+                protocol: "Claude".to_string(),
+            }),
         }
     }
 
@@ -254,31 +256,85 @@ impl ClaudeMapper {
     }
 }
 
-impl From<&ToolDefinition> for ClaudeTool {
-    fn from(tool: &ToolDefinition) -> Self {
-        ClaudeMapper::tool_to_claude_tool(tool)
+impl TryFrom<Message> for ClaudeMessage {
+    type Error = MapperError;
+
+    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+        ClaudeMapper::from_core_message(msg)
     }
 }
 
-impl From<&ToolChoice> for ClaudeToolChoice {
-    fn from(choice: &ToolChoice) -> Self {
-        ClaudeMapper::tool_choice_to_claude(choice)
+impl TryFrom<MessagesResponse> for Message {
+    type Error = MapperError;
+
+    fn try_from(resp: MessagesResponse) -> Result<Self, Self::Error> {
+        ClaudeMapper::to_core_message(resp)
+    }
+}
+
+impl TryFrom<&ToolDefinition> for ClaudeTool {
+    type Error = MapperError;
+
+    fn try_from(tool: &ToolDefinition) -> Result<Self, Self::Error> {
+        Ok(ClaudeMapper::tool_to_claude_tool(tool))
+    }
+}
+
+impl TryFrom<&ToolChoice> for ClaudeToolChoice {
+    type Error = MapperError;
+
+    fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
+        Ok(ClaudeMapper::tool_choice_to_claude(choice))
     }
 }
 
 impl TryFrom<ClaudeTool> for ToolDefinition {
-    type Error = String;
+    type Error = MapperError;
 
     fn try_from(value: ClaudeTool) -> Result<Self, Self::Error> {
         ClaudeMapper::tool_from_claude(value)
     }
 }
 
-impl From<ClaudeToolChoice> for ToolChoice {
-    fn from(value: ClaudeToolChoice) -> Self {
-        ClaudeMapper::tool_choice_from_claude(value)
+impl TryFrom<ClaudeToolChoice> for ToolChoice {
+    type Error = MapperError;
+
+    fn try_from(value: ClaudeToolChoice) -> Result<Self, Self::Error> {
+        Ok(ClaudeMapper::tool_choice_from_claude(value))
     }
 }
+
+impl TryFrom<ConversationState>
+    for RawConversationState<ClaudeMessage, ClaudeTool, ClaudeToolChoice>
+{
+    type Error = MapperError;
+
+    fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let messages = state
+            .messages
+            .into_iter()
+            .map(ClaudeMapper::from_core_message)
+            .collect::<Result<Vec<_>, _>>()?;
+        let tools = state
+            .tools
+            .iter()
+            .map(ClaudeMapper::tool_to_claude_tool)
+            .collect();
+        let tool_choice = state
+            .tool_choice
+            .as_ref()
+            .map(ClaudeMapper::tool_choice_to_claude);
+
+        Ok(RawConversationState {
+            system_prompt: state.system_prompt,
+            messages,
+            tools,
+            tool_choice,
+        })
+    }
+}
+
+
 
 /// A stateful mapper for Claude streaming responses.
 ///

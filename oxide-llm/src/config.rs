@@ -1,10 +1,20 @@
 use oxide_llm_core::message::DeltaMessage;
 
+/// Alias for a raw delta callback hook.
+///
+/// 原始增量回调 Hook 类型别名。
+pub type RawDeltaHook<RawDelta> = Box<dyn FnMut(&RawDelta) + Send + 'static>;
+
+/// Alias for a parsed delta message callback hook.
+///
+/// 解析增量消息回调 Hook 类型别名。
+pub type DeltaHook = Box<dyn FnMut(&DeltaMessage) + Send + 'static>;
+
 /// Configuration for raw chat stream, including hooks.
 ///
 /// 原始聊天流配置（包含 Hook）。
 pub struct ChatStreamRawConfig<RawDelta> {
-    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<RawDelta>>,
 }
 
 impl<RawDelta> Default for ChatStreamRawConfig<RawDelta> {
@@ -31,7 +41,7 @@ impl<RawDelta> ChatStreamRawConfig<RawDelta> {
     }
 
     /// Take the `on_raw_delta` hook.
-    pub fn take_on_raw_delta(&mut self) -> Option<Box<dyn FnMut(&RawDelta) + Send + 'static>> {
+    pub fn take_on_raw_delta(&mut self) -> Option<RawDeltaHook<RawDelta>> {
         self.on_raw_delta.take()
     }
 }
@@ -40,8 +50,8 @@ impl<RawDelta> ChatStreamRawConfig<RawDelta> {
 ///
 /// 解析后的聊天流配置（包含 Hook）。
 pub struct ChatStreamConfig<RawDelta> {
-    on_raw_delta: Option<Box<dyn FnMut(&RawDelta) + Send + 'static>>,
-    on_delta: Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>>,
+    on_raw_delta: Option<RawDeltaHook<RawDelta>>,
+    on_delta: Option<DeltaHook>,
 }
 
 impl<RawDelta> Default for ChatStreamConfig<RawDelta> {
@@ -82,12 +92,12 @@ impl<RawDelta> ChatStreamConfig<RawDelta> {
     }
 
     /// Take the `on_raw_delta` hook.
-    pub fn take_on_raw_delta(&mut self) -> Option<Box<dyn FnMut(&RawDelta) + Send + 'static>> {
+    pub fn take_on_raw_delta(&mut self) -> Option<RawDeltaHook<RawDelta>> {
         self.on_raw_delta.take()
     }
 
     /// Take the `on_delta` hook.
-    pub fn take_on_delta(&mut self) -> Option<Box<dyn FnMut(&DeltaMessage) + Send + 'static>> {
+    pub fn take_on_delta(&mut self) -> Option<DeltaHook> {
         self.on_delta.take()
     }
 }

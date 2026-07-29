@@ -6,6 +6,7 @@ use crate::message::{
     Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Document, Image,
     ImageSource, Message, Role, Usage as CoreUsage, Video,
 };
+use crate::state::{ConversationState, RawConversationState};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::gemini::v1beta::interactions::{
     content::{
@@ -524,9 +525,19 @@ impl GeminiInteractionsMapper {
     }
 }
 
-impl From<&ToolDefinition> for Tool {
-    fn from(tool: &ToolDefinition) -> Self {
-        GeminiInteractionsMapper::tool_to_gemini(tool)
+impl TryFrom<Interaction> for Message {
+    type Error = MapperError;
+
+    fn try_from(interaction: Interaction) -> Result<Self, Self::Error> {
+        GeminiInteractionsMapper::to_core_message(interaction)
+    }
+}
+
+impl TryFrom<&ToolDefinition> for Tool {
+    type Error = MapperError;
+
+    fn try_from(tool: &ToolDefinition) -> Result<Self, Self::Error> {
+        Ok(GeminiInteractionsMapper::tool_to_gemini(tool))
     }
 }
 
@@ -538,17 +549,63 @@ impl TryFrom<Tool> for ToolDefinition {
     }
 }
 
-impl From<&ToolChoice> for Option<GeminiRequestToolChoice> {
-    fn from(choice: &ToolChoice) -> Self {
-        GeminiInteractionsMapper::tool_choice_to_gemini(choice)
+impl TryFrom<&ToolChoice> for GeminiRequestToolChoice {
+    type Error = MapperError;
+
+    fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
+        GeminiInteractionsMapper::tool_choice_to_gemini(choice).ok_or(MapperError::MissingField {
+            field: "tool_choice".to_string(),
+        })
     }
 }
 
-impl From<&GeminiRequestToolChoice> for ToolChoice {
-    fn from(choice: &GeminiRequestToolChoice) -> Self {
-        GeminiInteractionsMapper::tool_choice_from_gemini(choice)
+impl TryFrom<&GeminiRequestToolChoice> for ToolChoice {
+    type Error = MapperError;
+
+    fn try_from(choice: &GeminiRequestToolChoice) -> Result<Self, Self::Error> {
+        Ok(GeminiInteractionsMapper::tool_choice_from_gemini(choice))
     }
 }
+
+impl TryFrom<Message> for Turn {
+    type Error = MapperError;
+
+    fn try_from(msg: Message) -> Result<Self, Self::Error> {
+        GeminiInteractionsMapper::from_core_message_to_turn(msg)
+    }
+}
+
+impl TryFrom<ConversationState>
+    for RawConversationState<Step, Tool, GeminiRequestToolChoice>
+{
+    type Error = MapperError;
+
+    fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let mut steps = Vec::new();
+        for msg in state.messages {
+            let msg_steps = GeminiInteractionsMapper::from_core_message_to_steps(msg)?;
+            steps.extend(msg_steps);
+        }
+        let tools = state
+            .tools
+            .iter()
+            .map(GeminiInteractionsMapper::tool_to_gemini)
+            .collect();
+        let tool_choice = state
+            .tool_choice
+            .as_ref()
+            .and_then(GeminiInteractionsMapper::tool_choice_to_gemini);
+
+        Ok(RawConversationState {
+            system_prompt: state.system_prompt,
+            messages: steps,
+            tools,
+            tool_choice,
+        })
+    }
+}
+
+
 
 /// A stateful mapper for Gemini Interactions streaming SSE responses.
 ///

@@ -423,6 +423,9 @@ mod tests {
     struct DummyAgent;
 
     impl ChatAgent for DummyAgent {
+        type RawInputMessage = Message;
+        type RawTool = oxide_llm_core::tool::ToolDefinition;
+        type RawToolChoice = oxide_llm_core::tool::ToolChoice;
         type RawMessage = Message;
         type RawDelta = crate::core::message::DeltaMessage;
         type RawStream =
@@ -440,14 +443,22 @@ mod tests {
 
         async fn chat_raw(
             &self,
-            _state: ConversationState,
+            _state: oxide_llm_core::state::RawConversationState<
+                Self::RawInputMessage,
+                Self::RawTool,
+                Self::RawToolChoice,
+            >,
         ) -> Result<Self::RawMessage, AgentError> {
             Ok(Message::user("dummy"))
         }
 
         fn chat_stream_raw_with<'a>(
             &'a self,
-            _state: ConversationState,
+            _state: oxide_llm_core::state::RawConversationState<
+                Self::RawInputMessage,
+                Self::RawTool,
+                Self::RawToolChoice,
+            >,
             _config: crate::ChatStreamRawConfig<Self::RawDelta>,
         ) -> Self::ChatStreamRawFuture<'a> {
             std::future::ready(Ok(futures::stream::empty()))
