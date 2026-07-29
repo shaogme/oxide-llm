@@ -1,7 +1,7 @@
 use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
-use crate::core::tool::{ToolCall, ToolResult, ToolRunnable};
+use crate::core::tool::{ToolCall, ToolGroup, ToolResult, ToolRunnable, ToolSet};
 use crate::error::AgentError;
 use crate::tool::ToolRegistry;
 use futures::Stream;
@@ -13,14 +13,14 @@ use std::task::{Context, Poll};
 ///
 /// 用于协调 Agent 交互和工具执行的高级 Runner。
 #[derive(Clone, Default)]
-pub struct Runner<A> {
+pub struct Runner<A, G = ()> {
     agent: A,
-    registry: ToolRegistry,
+    registry: ToolRegistry<G>,
     max_turns: usize,
     auto_sync_tools: bool,
 }
 
-impl<A> Runner<A> {
+impl<A> Runner<A, ()> {
     /// Creates a new `Runner` wrapping the given agent with default max turns (5).
     ///
     /// 创建一个新的 `Runner` 包装指定的 Agent，默认最大轮次数为 5。
@@ -32,7 +32,9 @@ impl<A> Runner<A> {
             auto_sync_tools: false,
         }
     }
+}
 
+impl<A, G: ToolGroup> Runner<A, G> {
     /// Sets the maximum number of turns for interaction loops.
     ///
     /// 设置交互循环的最大轮次数。
@@ -52,20 +54,28 @@ impl<A> Runner<A> {
     /// Registers a tool with the runner.
     ///
     /// 向 Runner 注册一个工具。
-    pub fn with_tool<T>(mut self, tool: T) -> Self
+    pub fn with_tool<T>(self, tool: T) -> Runner<A, ToolSet<G, T>>
     where
-        T: ToolRunnable + 'static,
+        T: ToolRunnable + Clone + 'static,
     {
-        self.registry.register(tool);
-        self
+        Runner {
+            agent: self.agent,
+            registry: self.registry.register(tool),
+            max_turns: self.max_turns,
+            auto_sync_tools: self.auto_sync_tools,
+        }
     }
 
     /// Sets the tool registry for the runner.
     ///
     /// 设置 Runner 的工具注册表。
-    pub fn with_registry(mut self, registry: ToolRegistry) -> Self {
-        self.registry = registry;
-        self
+    pub fn with_registry<G2: ToolGroup>(self, registry: ToolRegistry<G2>) -> Runner<A, G2> {
+        Runner {
+            agent: self.agent,
+            registry,
+            max_turns: self.max_turns,
+            auto_sync_tools: self.auto_sync_tools,
+        }
     }
 
     /// Synchronizes registered tools into the conversation state.
@@ -94,7 +104,7 @@ impl<A> Runner<A> {
     /// Returns a reference to the tool registry.
     ///
     /// 返回工具注册表的引用。
-    pub fn registry(&self) -> &ToolRegistry {
+    pub fn registry(&self) -> &ToolRegistry<G> {
         &self.registry
     }
 
@@ -106,11 +116,11 @@ impl<A> Runner<A> {
     }
 }
 
-impl<A: ChatAgent> Runner<A> {
+impl<A: ChatAgent, G: ToolGroup> Runner<A, G> {
     /// Creates a stream that manages the agent interaction loop and tool execution.
     ///
     /// 创建管理 Agent 交互循环和工具执行的流。
-    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A> {
+    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, G> {
         if self.auto_sync_tools {
             self.sync_tools(state);
         }
@@ -118,24 +128,21 @@ impl<A: ChatAgent> Runner<A> {
     }
 }
 
-type ToolExecutionFuture =
-    Pin<Box<dyn Future<Output = Option<Result<Vec<ContentPart>, String>>> + Send>>;
-
 /// Future that executes a series of tool calls sequentially.
 ///
 /// 顺序执行一系列工具调用的 Future。
-pub struct ExecuteToolsFuture {
-    registry: ToolRegistry,
+pub struct ExecuteToolsFuture<G: ToolGroup> {
+    registry: ToolRegistry<G>,
     tool_calls: std::vec::IntoIter<ToolCall>,
-    current_exec: Option<(ToolCall, ToolExecutionFuture)>,
+    current_exec: Option<(ToolCall, G::ExecFuture)>,
     results: Vec<ToolResult>,
 }
 
-impl ExecuteToolsFuture {
+impl<G: ToolGroup> ExecuteToolsFuture<G> {
     /// Creates a new `ExecuteToolsFuture`.
     ///
     /// 创建一个新的 `ExecuteToolsFuture`。
-    pub fn new(registry: ToolRegistry, tool_calls: Vec<ToolCall>) -> Self {
+    pub fn new(registry: ToolRegistry<G>, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             registry,
             tool_calls: tool_calls.into_iter(),
@@ -145,41 +152,32 @@ impl ExecuteToolsFuture {
     }
 }
 
-impl Unpin for ExecuteToolsFuture {}
+impl<G: ToolGroup> Unpin for ExecuteToolsFuture<G> {}
 
-impl Future for ExecuteToolsFuture {
+impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
     type Output = Vec<ToolResult>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = &mut *self;
         loop {
             if let Some((_, ref mut fut)) = this.current_exec {
-                match fut.as_mut().poll(cx) {
-                    Poll::Ready(res_opt) => {
+                let pinned_fut = unsafe { Pin::new_unchecked(fut) };
+                match pinned_fut.poll(cx) {
+                    Poll::Ready(res) => {
                         let (tool_call, _) = this.current_exec.take().unwrap();
-                        let result = match res_opt {
-                            Some(Ok(content)) => ToolResult {
+                        let result = match res {
+                            Ok(content) => ToolResult {
                                 tool_call_id: tool_call.id.clone(),
                                 name: tool_call.name.clone(),
                                 content,
                                 is_error: false,
                                 signature: tool_call.signature.clone(),
                             },
-                            Some(Err(err)) => ToolResult {
+                            Err(err) => ToolResult {
                                 tool_call_id: tool_call.id.clone(),
                                 name: tool_call.name.clone(),
                                 content: vec![ContentPart::Text {
                                     text: format!("Error executing tool: {}", err).into(),
-                                    signature: None,
-                                }],
-                                is_error: true,
-                                signature: tool_call.signature.clone(),
-                            },
-                            None => ToolResult {
-                                tool_call_id: tool_call.id.clone(),
-                                name: tool_call.name.clone(),
-                                content: vec![ContentPart::Text {
-                                    text: format!("Error: Unknown tool '{}'", tool_call.name).into(),
                                     signature: None,
                                 }],
                                 is_error: true,
@@ -193,11 +191,23 @@ impl Future for ExecuteToolsFuture {
             }
 
             if let Some(tool_call) = this.tool_calls.next() {
-                let registry = this.registry.clone();
                 let name = tool_call.name.clone();
                 let args = tool_call.arguments.clone();
-                let fut = Box::pin(async move { registry.execute(&name, args).await });
-                this.current_exec = Some((tool_call, fut));
+                if let Some(fut) = this.registry.execute(&name, args) {
+                    this.current_exec = Some((tool_call, fut));
+                } else {
+                    let result = ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        content: vec![ContentPart::Text {
+                            text: format!("Error: Unknown tool '{}'", tool_call.name).into(),
+                            signature: None,
+                        }],
+                        is_error: true,
+                        signature: tool_call.signature.clone(),
+                    };
+                    this.results.push(result);
+                }
             } else {
                 return Poll::Ready(std::mem::take(&mut this.results));
             }
@@ -208,32 +218,32 @@ impl Future for ExecuteToolsFuture {
 /// A stream that manages the agent interaction loop, including tool execution.
 ///
 /// 管理 Agent 交互循环（包含工具执行）的流。
-pub struct RunnerStream<'a, A: ChatAgent + ?Sized + 'a> {
+pub struct RunnerStream<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup = ()> {
     agent: &'a A,
-    registry: &'a ToolRegistry,
+    registry: &'a ToolRegistry<G>,
     state: &'a mut ConversationState,
     max_turns: usize,
 
-    phase: Phase<'a, A>,
+    phase: Phase<'a, A, G>,
     current_turn: usize,
     collected_events: Vec<ChatStreamEvent>,
 }
 
-enum Phase<'a, A: ChatAgent + ?Sized + 'a> {
+enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> {
     Start,
     Initializing(A::ChatStreamFuture<'a>),
     Streaming(ChatStream<A::Stream, AgentError>),
-    ExecutingTools(ExecuteToolsFuture),
+    ExecutingTools(ExecuteToolsFuture<G>),
     Done,
 }
 
-impl<'a, A: ChatAgent + ?Sized + 'a> RunnerStream<'a, A> {
+impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup> RunnerStream<'a, A, G> {
     /// Creates a new `RunnerStream`.
     ///
     /// 创建一个新的 `RunnerStream`。
     pub fn new(
         agent: &'a A,
-        registry: &'a ToolRegistry,
+        registry: &'a ToolRegistry<G>,
         state: &'a mut ConversationState,
         max_turns: usize,
     ) -> Self {
@@ -249,11 +259,12 @@ impl<'a, A: ChatAgent + ?Sized + 'a> RunnerStream<'a, A> {
     }
 }
 
-impl<'a, A> Stream for RunnerStream<'a, A>
+impl<'a, A, G> Stream for RunnerStream<'a, A, G>
 where
     A: ChatAgent + ?Sized + 'a,
     A::Stream: Unpin,
     A::ChatStreamFuture<'a>: Unpin,
+    G: ToolGroup,
 {
     type Item = Result<ChatStreamEvent, AgentError>;
 
@@ -339,9 +350,12 @@ mod tests {
     use oxide_llm_core::tool::ToolDefinition;
     use std::sync::Arc;
 
+    #[derive(Clone)]
     struct DummyTool;
 
     impl ToolRunnable for DummyTool {
+        type Future = std::future::Ready<Result<Vec<ContentPart>, String>>;
+
         fn definition(&self) -> ToolDefinition {
             ToolDefinition {
                 r#type: oxide_llm_core::tool::ToolType::Function,
@@ -354,11 +368,8 @@ mod tests {
             }
         }
 
-        fn run(
-            &self,
-            _args: serde_json::Value,
-        ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send>> {
-            Box::pin(async { Ok(vec![]) })
+        fn run(&self, _args: serde_json::Value) -> Self::Future {
+            std::future::ready(Ok(vec![]))
         }
     }
 
