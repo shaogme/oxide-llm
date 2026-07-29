@@ -1,7 +1,6 @@
 use oxide_llm_core::mapper::gemini::v1beta::{GeminiMapper, GeminiStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
-use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::gemini::v1beta::generate_content::request::GenerateContentRequest;
 use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
@@ -73,7 +72,7 @@ impl<T: Transport> GenerateContentAgent<T> {
         } else {
             let function_declarations: Vec<_> = tools
                 .iter()
-                .map(|t| t.to_gemini_function_declaration())
+                .map(GeminiMapper::tool_to_gemini_function_declaration)
                 .collect();
 
             Some(vec![GeminiTool {
@@ -96,7 +95,9 @@ impl<T: Transport> GenerateContentAgent<T> {
             .map_err(AgentError::Mapper)?;
 
         // Tool Choice Conversion
-        let tool_config_override = tool_choice.and_then(|tc| tc.to_gemini());
+        let tool_config_override = tool_choice
+            .as_ref()
+            .and_then(GeminiMapper::tool_choice_to_gemini);
 
         Ok(self.config.clone().to_request(
             contents,

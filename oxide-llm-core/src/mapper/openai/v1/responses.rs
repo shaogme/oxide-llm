@@ -3,9 +3,12 @@ use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason,
     ImageSource, Message, Role, Usage,
 };
-use crate::tool::ToolCall;
-use oxide_llm_proto::openai::v1::response::chunk::ResponseStreamEvent;
-use oxide_llm_proto::openai::v1::response::response::{OutputItem, ResponseStatus};
+use crate::tool::{ToolCall, ToolChoice, ToolDefinition};
+use oxide_llm_proto::openai::v1::response::{
+    Tool as OpenAIResponseTool, ToolChoice as OpenAIResponseToolChoice,
+    chunk::ResponseStreamEvent,
+    response::{OutputItem, ResponseStatus},
+};
 
 /// Mapper for OpenAI Response API protocol.
 ///
@@ -214,6 +217,54 @@ impl OpenAIResponseMapper {
             content: content_parts,
             name: None,
         })
+    }
+
+    /// Convert `ToolDefinition` to `OpenAIResponseTool`.
+    ///
+    /// 将 `ToolDefinition` 转换为 `OpenAIResponseTool`。
+    pub fn tool_to_openai_response(tool: &ToolDefinition) -> OpenAIResponseTool {
+        let parameters = tool
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok());
+
+        OpenAIResponseTool {
+            r#type: "function".into(),
+            name: Some(tool.function.name.to_string()),
+            description: tool.function.description.as_ref().map(|s| s.to_string()),
+            parameters,
+            function: None,
+            strict: tool.function.strict,
+        }
+    }
+
+    /// Convert `ToolChoice` to `OpenAIResponseToolChoice`.
+    ///
+    /// 将 `ToolChoice` 转换为 `OpenAIResponseToolChoice`。
+    pub fn tool_choice_to_openai_response(choice: &ToolChoice) -> OpenAIResponseToolChoice {
+        match choice {
+            ToolChoice::None => OpenAIResponseToolChoice::Mode("none".into()),
+            ToolChoice::Auto => OpenAIResponseToolChoice::Mode("auto".into()),
+            ToolChoice::Required => OpenAIResponseToolChoice::Mode("required".into()),
+            ToolChoice::Function { name } => OpenAIResponseToolChoice::Function {
+                r#type: "function".into(),
+                name: Some(name.to_string()),
+                function: None,
+            },
+        }
+    }
+}
+
+impl From<&ToolDefinition> for OpenAIResponseTool {
+    fn from(tool: &ToolDefinition) -> Self {
+        OpenAIResponseMapper::tool_to_openai_response(tool)
+    }
+}
+
+impl From<&ToolChoice> for OpenAIResponseToolChoice {
+    fn from(choice: &ToolChoice) -> Self {
+        OpenAIResponseMapper::tool_choice_to_openai_response(choice)
     }
 }
 

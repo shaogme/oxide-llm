@@ -1,13 +1,24 @@
 use crate::mapper::MapperError;
-use crate::message::{Audio, ContentPart, Image, ImageSource, Message, Role};
-use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
-use crate::tool::ToolCall;
-use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk as OpenAIStreamChunk;
-use oxide_llm_proto::openai::v1::chat_completions::request::{
-    ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio, UserContent,
+use crate::message::{
+    Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Image,
+    ImageSource, Message, Role,
 };
-use oxide_llm_proto::openai::v1::chat_completions::response::ChatCompletionResponse;
-use oxide_llm_proto::openai::v1::chat_completions::{ToolCall as OpenAIToolCall, ToolCallFunction};
+use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
+use oxide_llm_proto::openai::v1::{
+    FunctionDefinition as OpenAIFunctionDefinition,
+    ToolChoiceFunction as OpenAIChatCompletionsToolChoiceFunction,
+    chat_completions::{
+        Tool as OpenAIChatCompletionsTool, ToolCall as OpenAIToolCall, ToolCallFunction,
+        ToolChoice as OpenAIChatCompletionsToolChoice,
+        ToolChoiceNamed as OpenAIChatCompletionsToolChoiceNamed,
+        chunk::ChatCompletionChunk as OpenAIStreamChunk,
+        request::{
+            ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio,
+            UserContent,
+        },
+        response::ChatCompletionResponse,
+    },
+};
 
 /// Mapper for OpenAI Chat Completions protocol.
 ///
@@ -257,6 +268,108 @@ impl OpenAIChatCompletionMapper {
             content: content_parts,
             name: None,
         })
+    }
+
+    /// Convert `ToolDefinition` to `OpenAIChatCompletionsTool`.
+    ///
+    /// 将 `ToolDefinition` 转换为 `OpenAIChatCompletionsTool`。
+    pub fn tool_to_openai(tool: &ToolDefinition) -> OpenAIChatCompletionsTool {
+        let parameters = tool
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok());
+
+        OpenAIChatCompletionsTool {
+            r#type: "function".into(),
+            function: OpenAIFunctionDefinition {
+                name: tool.function.name.clone(),
+                description: tool.function.description.clone(),
+                parameters,
+                strict: tool.function.strict,
+            },
+        }
+    }
+
+    /// Convert `ToolChoice` to `OpenAIChatCompletionsToolChoice`.
+    ///
+    /// 将 `ToolChoice` 转换为 `OpenAIChatCompletionsToolChoice`。
+    pub fn tool_choice_to_openai(choice: &ToolChoice) -> OpenAIChatCompletionsToolChoice {
+        match choice {
+            ToolChoice::None => OpenAIChatCompletionsToolChoice::String("none".into()),
+            ToolChoice::Auto => OpenAIChatCompletionsToolChoice::String("auto".into()),
+            ToolChoice::Required => OpenAIChatCompletionsToolChoice::String("required".into()),
+            ToolChoice::Function { name } => {
+                OpenAIChatCompletionsToolChoice::Named(OpenAIChatCompletionsToolChoiceNamed {
+                    r#type: "function".into(),
+                    function: OpenAIChatCompletionsToolChoiceFunction { name: name.clone() },
+                })
+            }
+        }
+    }
+
+    /// Convert `OpenAIChatCompletionsTool` to `ToolDefinition`.
+    ///
+    /// 将 `OpenAIChatCompletionsTool` 转换为 `ToolDefinition`。
+    pub fn tool_from_openai(value: OpenAIChatCompletionsTool) -> Result<ToolDefinition, String> {
+        if value.r#type != "function" {
+            return Err(format!("Unsupported OpenAI tool type: {}", value.r#type));
+        }
+        let parameters = match value.function.parameters {
+            Some(v) => Some(serde_json::from_value(v).map_err(|e| e.to_string())?),
+            None => None,
+        };
+        Ok(ToolDefinition {
+            r#type: ToolType::Function,
+            function: FunctionDefinition {
+                name: value.function.name,
+                description: value.function.description,
+                parameters,
+                strict: value.function.strict,
+            },
+        })
+    }
+
+    /// Convert `OpenAIChatCompletionsToolChoice` to `ToolChoice`.
+    ///
+    /// 将 `OpenAIChatCompletionsToolChoice` 转换为 `ToolChoice`。
+    pub fn tool_choice_from_openai(value: OpenAIChatCompletionsToolChoice) -> ToolChoice {
+        match value {
+            OpenAIChatCompletionsToolChoice::String(s) => match s.as_ref() {
+                "none" => ToolChoice::None,
+                "required" => ToolChoice::Required,
+                _ => ToolChoice::Auto,
+            },
+            OpenAIChatCompletionsToolChoice::Named(named) => ToolChoice::Function {
+                name: named.function.name,
+            },
+        }
+    }
+}
+
+impl From<&ToolDefinition> for OpenAIChatCompletionsTool {
+    fn from(tool: &ToolDefinition) -> Self {
+        OpenAIChatCompletionMapper::tool_to_openai(tool)
+    }
+}
+
+impl From<&ToolChoice> for OpenAIChatCompletionsToolChoice {
+    fn from(choice: &ToolChoice) -> Self {
+        OpenAIChatCompletionMapper::tool_choice_to_openai(choice)
+    }
+}
+
+impl TryFrom<OpenAIChatCompletionsTool> for ToolDefinition {
+    type Error = String;
+
+    fn try_from(value: OpenAIChatCompletionsTool) -> Result<Self, Self::Error> {
+        OpenAIChatCompletionMapper::tool_from_openai(value)
+    }
+}
+
+impl From<OpenAIChatCompletionsToolChoice> for ToolChoice {
+    fn from(value: OpenAIChatCompletionsToolChoice) -> Self {
+        OpenAIChatCompletionMapper::tool_choice_from_openai(value)
     }
 }
 

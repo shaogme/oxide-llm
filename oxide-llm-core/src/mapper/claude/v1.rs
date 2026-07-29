@@ -1,13 +1,20 @@
+use serde_json::Value;
+
 use crate::mapper::MapperError;
-use crate::message::{ContentPart, ImageSource, Message, Role};
-use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
-use crate::tool::ToolCall;
-use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
-use oxide_llm_proto::claude::v1::messages::request::Message as ClaudeMessage;
-use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
+use crate::message::{
+    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
+    Role,
+};
+use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::claude::v1::messages::{
     Content as ClaudeContent, ContentBlock, ImageBlock, ImageSource as ClaudeImageSource,
     Role as ClaudeRole, TextBlock, ThinkingBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
+    chunk::MessageStreamEvent as ClaudeStreamEvent,
+    request::{
+        CustomTool as ClaudeCustomTool, Message as ClaudeMessage, Tool as ClaudeTool,
+        ToolChoice as ClaudeToolChoice,
+    },
+    response::MessagesResponse,
 };
 
 /// Mapper for Claude protocol.
@@ -170,6 +177,106 @@ impl ClaudeMapper {
             content: content_parts,
             name: None,
         })
+    }
+
+    /// Convert `ToolDefinition` to `ClaudeTool`.
+    ///
+    /// 将 `ToolDefinition` 转换为 `ClaudeTool`。
+    pub fn tool_to_claude_tool(tool: &ToolDefinition) -> ClaudeTool {
+        let input_schema = tool
+            .function
+            .parameters
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok())
+            .unwrap_or(Value::Null);
+
+        ClaudeTool::Custom(ClaudeCustomTool {
+            name: tool.function.name.clone(),
+            description: tool.function.description.clone(),
+            input_schema,
+            cache_control: None,
+            r#type: Some("custom".into()),
+            strict: tool.function.strict,
+        })
+    }
+
+    /// Convert `ToolChoice` to `ClaudeToolChoice`.
+    ///
+    /// 将 `ToolChoice` 转换为 `ClaudeToolChoice`。
+    pub fn tool_choice_to_claude(choice: &ToolChoice) -> ClaudeToolChoice {
+        match choice {
+            ToolChoice::None => ClaudeToolChoice::None,
+            ToolChoice::Auto => ClaudeToolChoice::Auto {
+                disable_parallel_tool_use: None,
+            },
+            ToolChoice::Required => ClaudeToolChoice::Any {
+                disable_parallel_tool_use: None,
+            },
+            ToolChoice::Function { name } => ClaudeToolChoice::Tool {
+                name: name.clone(),
+                disable_parallel_tool_use: None,
+            },
+        }
+    }
+
+    /// Convert `ClaudeTool` to `ToolDefinition`.
+    ///
+    /// 将 `ClaudeTool` 转换为 `ToolDefinition`。
+    pub fn tool_from_claude(value: ClaudeTool) -> Result<ToolDefinition, String> {
+        match value {
+            ClaudeTool::Custom(custom) => Ok(ToolDefinition {
+                r#type: ToolType::Function,
+                function: FunctionDefinition {
+                    name: custom.name,
+                    description: custom.description,
+                    parameters: Some(
+                        serde_json::from_value(custom.input_schema).map_err(|e| e.to_string())?,
+                    ),
+                    strict: custom.strict,
+                },
+            }),
+            _ => {
+                Err("Only Custom tools are currently supported for generic conversion".to_string())
+            }
+        }
+    }
+
+    /// Convert `ClaudeToolChoice` to `ToolChoice`.
+    ///
+    /// 将 `ClaudeToolChoice` 转换为 `ToolChoice`。
+    pub fn tool_choice_from_claude(value: ClaudeToolChoice) -> ToolChoice {
+        match value {
+            ClaudeToolChoice::None => ToolChoice::None,
+            ClaudeToolChoice::Auto { .. } => ToolChoice::Auto,
+            ClaudeToolChoice::Any { .. } => ToolChoice::Required,
+            ClaudeToolChoice::Tool { name, .. } => ToolChoice::Function { name },
+        }
+    }
+}
+
+impl From<&ToolDefinition> for ClaudeTool {
+    fn from(tool: &ToolDefinition) -> Self {
+        ClaudeMapper::tool_to_claude_tool(tool)
+    }
+}
+
+impl From<&ToolChoice> for ClaudeToolChoice {
+    fn from(choice: &ToolChoice) -> Self {
+        ClaudeMapper::tool_choice_to_claude(choice)
+    }
+}
+
+impl TryFrom<ClaudeTool> for ToolDefinition {
+    type Error = String;
+
+    fn try_from(value: ClaudeTool) -> Result<Self, Self::Error> {
+        ClaudeMapper::tool_from_claude(value)
+    }
+}
+
+impl From<ClaudeToolChoice> for ToolChoice {
+    fn from(value: ClaudeToolChoice) -> Self {
+        ClaudeMapper::tool_choice_from_claude(value)
     }
 }
 

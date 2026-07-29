@@ -1,11 +1,18 @@
 use crate::mapper::MapperError;
-use crate::message::{ContentPart, ImageSource, Message, Role};
-use crate::tool::ToolCall;
-
-use crate::message::{DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall};
-use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
+use crate::message::{
+    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
+    Role,
+};
+use crate::tool::{
+    FunctionDefinition, JSONSchema, JSONSchemaType, ToolCall, ToolChoice, ToolDefinition, ToolType,
+};
 use oxide_llm_proto::gemini::v1beta::generate_content::{
-    Blob, Content as GeminiContent, FileData, FunctionCall, FunctionResponse, Part as GeminiPart,
+    Blob, Content as GeminiContent, FileData, FunctionCall,
+    FunctionCallingConfig as GeminiFunctionCallingConfig,
+    FunctionCallingConfigMode as GeminiFunctionCallingConfigMode,
+    FunctionDeclaration as GeminiFunctionDeclaration, FunctionResponse, Part as GeminiPart,
+    Schema as GeminiSchema, ToolConfig as GeminiToolConfig, Type as GeminiType,
+    response::GenerateContentResponse,
 };
 use ref_str::StaticRefStr;
 
@@ -201,6 +208,188 @@ impl GeminiMapper {
             content: content_parts,
             name: None,
         })
+    }
+
+    /// Convert `ToolDefinition` to `GeminiFunctionDeclaration`.
+    ///
+    /// 将 `ToolDefinition` 转换为 `GeminiFunctionDeclaration`。
+    pub fn tool_to_gemini_function_declaration(
+        tool: &ToolDefinition,
+    ) -> GeminiFunctionDeclaration {
+        let schema = tool
+            .function
+            .parameters
+            .as_ref()
+            .and_then(Self::json_schema_to_gemini_schema);
+
+        GeminiFunctionDeclaration {
+            name: tool.function.name.clone(),
+            description: tool.function.description.clone().unwrap_or_default(),
+            parameters: schema,
+        }
+    }
+
+    /// Convert `ToolChoice` to `Option<GeminiToolConfig>`.
+    ///
+    /// 将 `ToolChoice` 转换为 `Option<GeminiToolConfig>`。
+    pub fn tool_choice_to_gemini(choice: &ToolChoice) -> Option<GeminiToolConfig> {
+        let (mode, allowed_function_names) = match choice {
+            ToolChoice::None => (Some(GeminiFunctionCallingConfigMode::None), None),
+            ToolChoice::Auto => (Some(GeminiFunctionCallingConfigMode::Auto), None),
+            ToolChoice::Required => (Some(GeminiFunctionCallingConfigMode::Any), None),
+            ToolChoice::Function { name } => (
+                Some(GeminiFunctionCallingConfigMode::Any),
+                Some(vec![name.clone()]),
+            ),
+        };
+
+        Some(GeminiToolConfig {
+            function_calling_config: Some(GeminiFunctionCallingConfig {
+                mode,
+                allowed_function_names,
+            }),
+            retrieval_config: None,
+        })
+    }
+
+    /// Convert `GeminiFunctionDeclaration` to `ToolDefinition`.
+    ///
+    /// 将 `GeminiFunctionDeclaration` 转换为 `ToolDefinition`。
+    pub fn tool_from_gemini(decl: GeminiFunctionDeclaration) -> ToolDefinition {
+        let parameters = decl.parameters.as_ref().map(Self::gemini_schema_to_json_schema);
+        ToolDefinition {
+            r#type: ToolType::Function,
+            function: FunctionDefinition {
+                name: decl.name,
+                description: Some(decl.description),
+                parameters,
+                strict: None,
+            },
+        }
+    }
+
+    /// Convert `GeminiToolConfig` to `ToolChoice`.
+    ///
+    /// 将 `GeminiToolConfig` 转换为 `ToolChoice`。
+    pub fn tool_choice_from_gemini(config: GeminiToolConfig) -> ToolChoice {
+        let Some(config) = config.function_calling_config else {
+            return ToolChoice::Auto;
+        };
+
+        match config.mode {
+            Some(GeminiFunctionCallingConfigMode::None) => ToolChoice::None,
+            Some(GeminiFunctionCallingConfigMode::Auto) => ToolChoice::Auto,
+            Some(GeminiFunctionCallingConfigMode::Any) => config
+                .allowed_function_names
+                .filter(|names| names.len() == 1)
+                .map(|names| ToolChoice::Function {
+                    name: names[0].clone(),
+                })
+                .unwrap_or(ToolChoice::Required),
+            _ => ToolChoice::Auto,
+        }
+    }
+
+    /// Convert JSONSchema to Gemini Schema.
+    ///
+    /// 将 JSONSchema 转换为 Gemini Schema。
+    pub fn json_schema_to_gemini_schema(schema: &JSONSchema) -> Option<GeminiSchema> {
+        let schema_type = match schema.schema_type {
+            Some(JSONSchemaType::String) => GeminiType::String,
+            Some(JSONSchemaType::Number) => GeminiType::Number,
+            Some(JSONSchemaType::Integer) => GeminiType::Integer,
+            Some(JSONSchemaType::Boolean) => GeminiType::Boolean,
+            Some(JSONSchemaType::Array) => GeminiType::Array,
+            Some(JSONSchemaType::Object) => GeminiType::Object,
+            Some(JSONSchemaType::Null) => GeminiType::TypeUnspecified,
+            None => GeminiType::TypeUnspecified,
+        };
+
+        let properties = schema.properties.as_ref().map(|props| {
+            let mut map = std::collections::HashMap::new();
+            for (k, v) in props {
+                if let Some(s) = Self::json_schema_to_gemini_schema(v) {
+                    map.insert(k.clone(), s);
+                }
+            }
+            map
+        });
+
+        let items = schema
+            .items
+            .as_ref()
+            .and_then(|v| Self::json_schema_to_gemini_schema(v))
+            .map(Box::new);
+
+        Some(GeminiSchema {
+            schema_type,
+            format: schema.format.clone(),
+            description: schema.description.clone(),
+            nullable: schema.nullable,
+            r#enum: schema.enum_values.clone(),
+            properties,
+            required: schema.required.clone(),
+            items,
+        })
+    }
+
+    /// Recursively convert Gemini Schema to JSONSchema.
+    ///
+    /// 递归将 Gemini Schema 转换为 JSONSchema。
+    pub fn gemini_schema_to_json_schema(schema: &GeminiSchema) -> JSONSchema {
+        let schema_type = match schema.schema_type {
+            GeminiType::String => Some(JSONSchemaType::String),
+            GeminiType::Number => Some(JSONSchemaType::Number),
+            GeminiType::Integer => Some(JSONSchemaType::Integer),
+            GeminiType::Boolean => Some(JSONSchemaType::Boolean),
+            GeminiType::Array => Some(JSONSchemaType::Array),
+            GeminiType::Object => Some(JSONSchemaType::Object),
+            GeminiType::TypeUnspecified => None,
+        };
+
+        let properties = schema.properties.as_ref().map(|props| {
+            let mut map = std::collections::BTreeMap::new();
+            for (k, v) in props {
+                map.insert(k.clone(), Self::gemini_schema_to_json_schema(v));
+            }
+            map
+        });
+
+        let items = schema
+            .items
+            .as_ref()
+            .map(|v| Box::new(Self::gemini_schema_to_json_schema(v)));
+
+        JSONSchema {
+            schema_type,
+            description: schema.description.clone(),
+            properties,
+            required: schema.required.clone(),
+            items,
+            enum_values: schema.r#enum.clone(),
+            additional_properties: None,
+            format: schema.format.clone(),
+            default: None,
+            nullable: schema.nullable,
+        }
+    }
+}
+
+impl From<&ToolDefinition> for GeminiFunctionDeclaration {
+    fn from(tool: &ToolDefinition) -> Self {
+        GeminiMapper::tool_to_gemini_function_declaration(tool)
+    }
+}
+
+impl From<GeminiFunctionDeclaration> for ToolDefinition {
+    fn from(decl: GeminiFunctionDeclaration) -> Self {
+        GeminiMapper::tool_from_gemini(decl)
+    }
+}
+
+impl From<GeminiToolConfig> for ToolChoice {
+    fn from(config: GeminiToolConfig) -> Self {
+        GeminiMapper::tool_choice_from_gemini(config)
     }
 }
 

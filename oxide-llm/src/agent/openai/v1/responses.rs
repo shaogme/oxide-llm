@@ -1,7 +1,6 @@
 use oxide_llm_core::mapper::openai::v1::{OpenAIResponseMapper, OpenAIResponseStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
-use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::response::chunk::ResponseStreamEvent;
 use oxide_llm_proto::openai::v1::response::request::{
@@ -63,7 +62,12 @@ impl<T: Transport> ResponsesAgent<T> {
         let tools = if tools.is_empty() {
             None
         } else {
-            Some(tools.into_iter().map(|t| t.to_openai_response()).collect())
+            Some(
+                tools
+                    .iter()
+                    .map(OpenAIResponseMapper::tool_to_openai_response)
+                    .collect(),
+            )
         };
 
         let mut input_items: Vec<InputItem> = Vec::new();
@@ -74,7 +78,7 @@ impl<T: Transport> ResponsesAgent<T> {
         }
 
         let input_param = InputParam::List(input_items);
-        let tc = tool_choice.map(|tc| tc.to_openai_response_choice());
+        let tc = tool_choice.as_ref().map(OpenAIResponseMapper::tool_choice_to_openai_response);
 
         let mut config = self.config.clone();
         if let Some(prompt) = system_prompt

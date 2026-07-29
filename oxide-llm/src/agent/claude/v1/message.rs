@@ -1,7 +1,6 @@
 use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
-use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
 use oxide_llm_proto::claude::v1::messages::request::{
@@ -67,7 +66,12 @@ impl<T: Transport> MessagesAgent<T> {
         let tools = if tools.is_empty() {
             None
         } else {
-            Some(tools.into_iter().map(|t| t.to_claude_tool()).collect())
+            Some(
+                tools
+                    .iter()
+                    .map(ClaudeMapper::tool_to_claude_tool)
+                    .collect(),
+            )
         };
 
         // 1. Convert Core Messages to Claude Messages
@@ -80,7 +84,7 @@ impl<T: Transport> MessagesAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
-        let tc = tool_choice.map(|tc| tc.to_claude());
+        let tc = tool_choice.as_ref().map(ClaudeMapper::tool_choice_to_claude);
 
         let request = self
             .config

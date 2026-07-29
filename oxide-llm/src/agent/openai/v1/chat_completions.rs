@@ -1,7 +1,6 @@
 use oxide_llm_core::mapper::openai::v1::{OpenAIChatCompletionMapper, OpenAIStreamMapper};
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
-use oxide_llm_core::tool::{ToolAdapter, ToolChoiceAdapter};
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::chunk::ChatCompletionChunk as OpenAIStreamChunk;
 use oxide_llm_proto::openai::v1::chat_completions::request::{
@@ -73,8 +72,8 @@ impl<T: Transport> ChatCompletionsAgent<T> {
         } else {
             Some(
                 tools
-                    .into_iter()
-                    .map(|t| t.to_openai_chat_completions())
+                    .iter()
+                    .map(OpenAIChatCompletionMapper::tool_to_openai)
                     .collect(),
             )
         };
@@ -103,7 +102,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         // 2. Construct Request using Config
         // 2. 使用 Config 构建请求
-        let tc = tool_choice.map(|tc| tc.to_openai_chat_completions());
+        let tc = tool_choice.as_ref().map(OpenAIChatCompletionMapper::tool_choice_to_openai);
 
         let mut request = self
             .config
