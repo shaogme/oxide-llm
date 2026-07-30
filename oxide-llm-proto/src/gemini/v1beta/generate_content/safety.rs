@@ -18,6 +18,11 @@ pub enum HarmCategory {
     HarmCategorySexuallyExplicit,
     HarmCategoryDangerousContent,
     HarmCategoryCivicIntegrity,
+    HarmCategoryImageHate,
+    HarmCategoryImageDangerousContent,
+    HarmCategoryImageHarassment,
+    HarmCategoryImageSexuallyExplicit,
+    HarmCategoryJailbreak,
 }
 
 /// The probability that a piece of content is harmful.
@@ -46,3 +51,15 @@ pub enum HarmBlockThreshold {
     BlockNone,
     Off,
 }
+
+/// The method for blocking content.
+///
+/// 阻止内容的方法。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum HarmBlockMethod {
+    HarmBlockMethodUnspecified,
+    Severity,
+    Probability,
+}
+

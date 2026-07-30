@@ -1,4 +1,7 @@
-use super::{Content, HarmBlockThreshold, HarmCategory, Modality, Schema, Tool, ToolConfig};
+use super::{
+    Content, HarmBlockMethod, HarmBlockThreshold, HarmCategory, Modality, Schema, ServiceTier,
+    Tool, ToolConfig,
+};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +45,16 @@ pub struct GenerateContentRequest {
     /// 可选。缓存内容的名称，用作提供预测的上下文。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_content: Option<StaticRefStr>,
+    /// Optional. The service tier of the request.
+    ///
+    /// 可选。请求的服务层级。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+    /// Optional. Configures the logging behavior for a given request.
+    ///
+    /// 可选。配置给定请求的日志记录行为。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
 }
 
 /// Safety setting, affecting the safety-blocking behavior.
@@ -57,6 +70,11 @@ pub struct SafetySetting {
     ///
     /// 必填。控制阻止伤害的概率阈值。
     pub threshold: HarmBlockThreshold,
+    /// Optional. The method for blocking content.
+    ///
+    /// 可选。阻止内容的方法。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<HarmBlockMethod>,
 }
 
 /// Configuration options for model generation and outputs.
@@ -160,6 +178,41 @@ pub struct GenerationConfig {
     /// 可选。响应的请求模态。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_modalities: Option<Vec<Modality>>,
+    /// Optional. Enables enhanced civic answers.
+    ///
+    /// 可选。启用增强的公民回答。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_enhanced_civic_answers: Option<bool>,
+    /// Optional. If enabled, the model will detect emotions and adapt its responses accordingly.
+    ///
+    /// 可选。如果启用，模型将检测情绪并相应地调整其响应。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_affective_dialog: Option<bool>,
+    /// Optional. Configuration for the response output format.
+    ///
+    /// 可选。响应输出格式的配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormatConfig>,
+    /// Optional. Config for translation.
+    ///
+    /// 可选。翻译配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation_config: Option<TranslationConfig>,
+    /// Optional. Specifies the thinking level for the model.
+    ///
+    /// 可选。指定模型的思考层级。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<ThinkingLevel>,
+    /// Optional. Whether to include thought summaries in the response.
+    ///
+    /// 可选。是否在响应中包含思考摘要。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_summaries: Option<ThinkingSummaries>,
+    /// Optional. Config for video generation.
+    ///
+    /// 可选。视频生成的配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_config: Option<VideoConfig>,
 }
 
 /// The speech generation config.
@@ -299,3 +352,239 @@ pub enum MediaResolution {
     MediaResolutionMedium,
     MediaResolutionHigh,
 }
+
+/// Configuration for the response output format.
+///
+/// 响应输出格式的配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseFormatConfig {
+    /// Optional. Text output format configuration.
+    ///
+    /// 可选。文本输出格式配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<TextResponseFormat>,
+    /// Optional. Audio output format configuration.
+    ///
+    /// 可选。音频输出格式配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioResponseFormat>,
+    /// Optional. Image output format configuration.
+    ///
+    /// 可选。图像输出格式配置。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<ImageResponseFormat>,
+}
+
+/// Configuration for text output format.
+///
+/// 文本输出格式配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextResponseFormat {
+    /// Optional. The MIME type of the text output.
+    ///
+    /// 可选。文本输出的 MIME 类型。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<TextResponseMimeType>,
+    /// Optional. The JSON schema that the output should conform to.
+    ///
+    /// 可选。输出应符合的 JSON 模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<serde_json::Value>,
+}
+
+/// Supported MIME types for text output.
+///
+/// 文本输出支持的 MIME 类型。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TextResponseMimeType {
+    MimeTypeUnspecified,
+    ApplicationJson,
+    TextPlain,
+}
+
+/// Configuration for audio output format.
+///
+/// 音频输出格式配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioResponseFormat {
+    /// Optional. The MIME type of the audio output.
+    ///
+    /// 可选。音频输出的 MIME 类型。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<AudioResponseMimeType>,
+    /// Optional. The delivery mode for the audio output.
+    ///
+    /// 可选。音频输出的交付模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
+    /// Optional. Sample rate in Hz.
+    ///
+    /// 可选。采样率（Hz）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<i32>,
+    /// Optional. Bit rate in bits per second (bps).
+    ///
+    /// 可选。比特率（bps）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bit_rate: Option<i32>,
+}
+
+/// Supported MIME types for audio output.
+///
+/// 音频输出支持的 MIME 类型。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AudioResponseMimeType {
+    MimeTypeUnspecified,
+    AudioMp3,
+    AudioOggOpus,
+    AudioL16,
+    AudioWav,
+    AudioAlaw,
+    AudioMulaw,
+}
+
+/// Delivery mode for output.
+///
+/// 输出的交付模式。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Delivery {
+    DeliveryUnspecified,
+    Inline,
+    Uri,
+}
+
+/// Configuration for image output format.
+///
+/// 图像输出格式配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageResponseFormat {
+    /// Optional. The MIME type of the image output.
+    ///
+    /// 可选。图像输出的 MIME 类型。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<ImageResponseMimeType>,
+    /// Optional. The delivery mode for the image output.
+    ///
+    /// 可选。图像输出的交付模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
+    /// Optional. The aspect ratio for the image output.
+    ///
+    /// 可选。图像输出的长宽比。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<AspectRatio>,
+    /// Optional. The size of the image output.
+    ///
+    /// 可选。图像输出的大小。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<ImageSize>,
+}
+
+/// Supported MIME types for image output.
+///
+/// 图像输出支持的 MIME 类型。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ImageResponseMimeType {
+    MimeTypeUnspecified,
+    ImageJpeg,
+}
+
+/// Supported aspect ratios for image output.
+///
+/// 图像输出支持的长宽比。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AspectRatio {
+    AspectRatioUnspecified,
+    AspectRatioOneByOne,
+    AspectRatioTwoByThree,
+    AspectRatioThreeByTwo,
+    AspectRatioThreeByFour,
+    AspectRatioFourByThree,
+    AspectRatioFourByFive,
+    AspectRatioFiveByFour,
+    AspectRatioNineBySixteen,
+    AspectRatioSixteenByNine,
+    AspectRatioTwentyOneByNine,
+    AspectRatioOneByEight,
+    AspectRatioEightByOne,
+    AspectRatioOneByFour,
+    AspectRatioFourByOne,
+}
+
+/// Supported image sizes for image output.
+///
+/// 图像输出支持的图像大小。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ImageSize {
+    ImageSizeUnspecified,
+    ImageSizeFiveTwelve,
+    ImageSizeOneK,
+    ImageSizeTwoK,
+    ImageSizeFourK,
+}
+
+/// Config for translation features.
+///
+/// 翻译功能配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationConfig {
+    /// Required. The target language for translation.
+    ///
+    /// 必填。翻译的目标语言。
+    pub target_language_code: StaticRefStr,
+    /// Optional. If true, the model will generate audio when target language is spoken.
+    ///
+    /// 可选。如果为 true，模型将在说目标语言时生成音频。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub echo_target_language: Option<bool>,
+}
+
+/// Whether to include thought summaries in the response.
+///
+/// 是否在响应中包含思考摘要。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ThinkingSummaries {
+    ThinkingSummariesUnspecified,
+    ThinkingSummariesAuto,
+    ThinkingSummariesNone,
+}
+
+/// Config for video generation features.
+///
+/// 视频生成功能的配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoConfig {
+    /// Optional. Task mode for video generation.
+    ///
+    /// 可选。视频生成的任务模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<Task>,
+}
+
+/// Supported video generation tasks.
+///
+/// 支持的视频生成任务。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Task {
+    TaskUnspecified,
+    TextToVideo,
+    ImageToVideo,
+    ReferenceToVideo,
+    Edit,
+}
+
+

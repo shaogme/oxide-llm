@@ -55,6 +55,23 @@ pub struct UsageMetadata {
     /// 仅输出。为工具使用请求输入处理的模态列表。
     #[serde(default)]
     pub tool_use_prompt_tokens_details: Vec<ModalityTokenCount>,
+    /// Output only. Service tier of the request.
+    ///
+    /// 仅输出。请求的服务层级。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+}
+
+/// Service tier of the interaction.
+///
+/// 交互的服务层级。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ServiceTier {
+    ServiceTierUnspecified,
+    ServiceTierFlex,
+    ServiceTierStandard,
+    ServiceTierPriority,
 }
 
 /// Represents token counting info for a single modality.

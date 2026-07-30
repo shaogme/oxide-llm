@@ -133,6 +133,8 @@ pub enum FinishReason {
     UnexpectedToolCall,
     TooManyToolCalls,
     MissingThoughtSignature,
+    MalformedResponse,
+    Escalation,
 }
 
 /// A set of the feedback metadata the prompt specified in `GenerateContentRequest.content`.
@@ -315,6 +317,11 @@ pub struct GroundingMetadata {
     /// 后续网络搜索的网络搜索查询。
     #[serde(default)]
     pub web_search_queries: Vec<String>,
+    /// Image search queries used for grounding.
+    ///
+    /// 用于依据的图像搜索查询。
+    #[serde(default)]
+    pub image_search_queries: Vec<String>,
     /// Optional. Google search entry for the following-up web searches.
     ///
     /// 可选。后续网络搜索的 Google 搜索条目。
@@ -343,6 +350,11 @@ pub struct GroundingChunk {
     /// 来自网络的依据块。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web: Option<Web>,
+    /// Optional. Grounding chunk from image search.
+    ///
+    /// 可选。图像搜索的依据块。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<GroundingChunkImage>,
     /// Optional. Grounding chunk from context retrieved by the file search tool.
     ///
     /// 可选。文件搜索工具检索的上下文中的依据块。
@@ -353,6 +365,30 @@ pub struct GroundingChunk {
     /// 可选。来自 Google 地图的依据块。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub maps: Option<Maps>,
+}
+
+/// Grounding chunk from image search.
+///
+/// 图像搜索的依据块。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroundingChunkImage {
+    /// The web page URI for attribution.
+    ///
+    /// 归因的网页 URI。
+    pub source_uri: String,
+    /// The image asset URL.
+    ///
+    /// 图像资源 URL。
+    pub image_uri: String,
+    /// The title of the web page that the image is from.
+    ///
+    /// 图像来源网页的标题。
+    pub title: String,
+    /// The root domain of the web page that the image is from.
+    ///
+    /// 图像来源网页的根域名。
+    pub domain: String,
 }
 
 /// Chunk from the web.
@@ -376,6 +412,11 @@ pub struct Web {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrievedContext {
+    /// Optional. User-provided metadata about the retrieved context.
+    ///
+    /// 可选。用户提供的关于检索上下文的元数据。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_metadata: Option<Vec<CustomMetadata>>,
     /// Optional. URI reference of the semantic retrieval document.
     ///
     /// 可选。语义检索文档的 URI 引用。
@@ -391,6 +432,60 @@ pub struct RetrievedContext {
     /// 可选。块的文本。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Optional. Name of the FileSearchStore containing the document.
+    ///
+    /// 可选。包含该文档的 FileSearchStore 名称。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_search_store: Option<String>,
+    /// Optional. Page number of the retrieved context.
+    ///
+    /// 可选。检索上下文的页码。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_number: Option<i32>,
+    /// Optional. The media blob resource name for multimodal file search results.
+    ///
+    /// 可选。多模态文件搜索结果的媒体 Blob 资源结构。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<String>,
+}
+
+/// User provided metadata about the GroundingFact.
+///
+/// 关于 GroundingFact 的用户提供元数据。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomMetadata {
+    /// The key of the metadata.
+    ///
+    /// 元数据的键。
+    pub key: String,
+    /// Optional. The string value of the metadata.
+    ///
+    /// 可选。元数据的字符串值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string_value: Option<String>,
+    /// Optional. A list of string values for the metadata.
+    ///
+    /// 可选。元数据的字符串值列表。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub string_list_value: Option<StringList>,
+    /// Optional. The numeric value of the metadata.
+    ///
+    /// 可选。元数据的数值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub numeric_value: Option<f64>,
+}
+
+/// A list of string values.
+///
+/// 字符串值列表。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StringList {
+    /// The string values of the list.
+    ///
+    /// 列表的字符串值。
+    #[serde(default)]
+    pub values: Vec<String>,
 }
 
 /// A grounding chunk from Google Maps.
@@ -471,6 +566,11 @@ pub struct GroundingSupport {
     /// 可选。支持参考的置信度分数。
     #[serde(default)]
     pub confidence_scores: Vec<f64>,
+    /// Output only. Indices into the parts field of the candidate's content.
+    ///
+    /// 仅输出。候选项内容的 parts 字段中的索引。
+    #[serde(default)]
+    pub rendered_parts: Vec<i32>,
     /// Segment of the content this support belongs to.
     ///
     /// 此支持所属的内容段。

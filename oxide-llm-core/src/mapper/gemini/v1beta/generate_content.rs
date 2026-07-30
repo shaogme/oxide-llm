@@ -226,7 +226,11 @@ impl GeminiGenerateContentMapper {
         GeminiFunctionDeclaration {
             name: tool.function.name.clone(),
             description: tool.function.description.clone().unwrap_or_default(),
+            behavior: None,
             parameters: schema,
+            parameters_json_schema: None,
+            response: None,
+            response_json_schema: None,
         }
     }
 
@@ -302,7 +306,7 @@ impl GeminiGenerateContentMapper {
             Some(JSONSchemaType::Boolean) => GeminiType::Boolean,
             Some(JSONSchemaType::Array) => GeminiType::Array,
             Some(JSONSchemaType::Object) => GeminiType::Object,
-            Some(JSONSchemaType::Null) => GeminiType::TypeUnspecified,
+            Some(JSONSchemaType::Null) => GeminiType::Null,
             None => GeminiType::TypeUnspecified,
         };
 
@@ -325,12 +329,26 @@ impl GeminiGenerateContentMapper {
         Some(GeminiSchema {
             schema_type,
             format: schema.format.clone(),
+            title: None,
             description: schema.description.clone(),
             nullable: schema.nullable,
             r#enum: schema.enum_values.clone(),
+            max_items: None,
+            min_items: None,
             properties,
             required: schema.required.clone(),
+            min_properties: None,
+            max_properties: None,
+            min_length: None,
+            max_length: None,
+            pattern: None,
+            example: None,
+            any_of: None,
+            property_ordering: None,
+            default: None,
             items,
+            minimum: None,
+            maximum: None,
         })
     }
 
@@ -345,6 +363,7 @@ impl GeminiGenerateContentMapper {
             GeminiType::Boolean => Some(JSONSchemaType::Boolean),
             GeminiType::Array => Some(JSONSchemaType::Array),
             GeminiType::Object => Some(JSONSchemaType::Object),
+            GeminiType::Null => Some(JSONSchemaType::Null),
             GeminiType::TypeUnspecified => None,
         };
 

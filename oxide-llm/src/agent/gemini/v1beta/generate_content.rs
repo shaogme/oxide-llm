@@ -87,6 +87,7 @@ impl<T: Transport> GenerateContentAgent<T> {
                 computer_use: None,
                 url_context: None,
                 file_search: None,
+                mcp_servers: None,
                 google_maps: None,
             }])
         };

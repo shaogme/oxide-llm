@@ -43,6 +43,11 @@ pub struct Tool {
     /// 可选。FileSearch 工具类型。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_search: Option<FileSearch>,
+    /// Optional. MCP Servers to connect to.
+    ///
+    /// 可选。要连接的 MCP 服务器。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<McpServer>>,
     /// Optional. Tool that allows grounding the model's response with geospatial context.
     ///
     /// 可选。允许使用地理空间上下文建立模型响应的工具。
@@ -50,10 +55,61 @@ pub struct Tool {
     pub google_maps: Option<GoogleMaps>,
 }
 
+/// A MCPServer is a server that can be called by the model to perform actions.
+///
+/// MCPServer 是模型可以调用以执行操作的服务器。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServer {
+    /// The name of the MCPServer.
+    ///
+    /// MCPServer 的名称。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<StaticRefStr>,
+    /// A transport that can stream HTTP requests and responses.
+    ///
+    /// 可以流式传输 HTTP 请求和响应的传输。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streamable_http_transport: Option<StreamableHttpTransport>,
+}
+
+/// A transport that can stream HTTP requests and responses.
+///
+/// 可以流式传输 HTTP 请求和响应的传输。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamableHttpTransport {
+    /// Required. The full URL for the MCPServer endpoint.
+    ///
+    /// 必填。MCPServer 端点的完整 URL。
+    pub url: StaticRefStr,
+    /// Optional. Fields for authentication headers, timeouts, etc.
+    ///
+    /// 可选。身份验证标头、超时等的字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<StaticRefStr, StaticRefStr>>,
+    /// Optional. HTTP timeout for regular operations.
+    ///
+    /// 可选。常规操作的 HTTP 超时。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<StaticRefStr>,
+    /// Optional. Timeout for SSE read operations.
+    ///
+    /// 可选。SSE 读取操作的超时。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sse_read_timeout: Option<StaticRefStr>,
+    /// Optional. Whether to close the client session when the transport closes.
+    ///
+    /// 可选。传输关闭时是否关闭客户端会话。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminate_on_close: Option<bool>,
+}
+
 /// Structured representation of a function declaration.
 ///
 /// 函数声明的结构化表示。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FunctionDeclaration {
     /// Required. The name of the function.
     ///
@@ -63,11 +119,42 @@ pub struct FunctionDeclaration {
     ///
     /// 必填。函数的简要描述。
     pub description: StaticRefStr,
+    /// Optional. Specifies the function Behavior.
+    ///
+    /// 可选。指定函数行为。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<Behavior>,
     /// Optional. Describes the parameters to this function.
     ///
     /// 可选。描述此函数的参数。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Schema>,
+    /// Optional. Describes the parameters to the function in JSON Schema format.
+    ///
+    /// 可选。以 JSON Schema 格式描述此函数的参数。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters_json_schema: Option<serde_json::Value>,
+    /// Optional. Describes the output from this function in JSON Schema format.
+    ///
+    /// 可选。以 JSON Schema 格式描述此函数的输出。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<Schema>,
+    /// Optional. Describes the output from this function in JSON Schema format.
+    ///
+    /// 可选。以 JSON Schema 格式描述此函数的输出。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_json_schema: Option<serde_json::Value>,
+}
+
+/// Defines the function behavior.
+///
+/// 定义函数行为。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Behavior {
+    Unspecified,
+    Blocking,
+    NonBlocking,
 }
 
 /// Tool configuration for any `Tool` specified in the request.
@@ -317,6 +404,11 @@ pub struct Schema {
     /// 可选。数据的格式。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<StaticRefStr>,
+    /// Optional. The title of the schema.
+    ///
+    /// 可选。架构的标题。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<StaticRefStr>,
     /// Optional. A brief description of the parameter.
     ///
     /// 可选。参数的简要说明。
@@ -332,6 +424,16 @@ pub struct Schema {
     /// 可选。Type.STRING 类型的元素以及枚举格式的可能值。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#enum: Option<Vec<StaticRefStr>>,
+    /// Optional. Maximum number of the elements for Type.ARRAY.
+    ///
+    /// 可选。Type.ARRAY 元素的最大数量。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<StaticRefStr>,
+    /// Optional. Minimum number of the elements for Type.ARRAY.
+    ///
+    /// 可选。Type.ARRAY 元素的最小数量。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_items: Option<StaticRefStr>,
     /// Optional. Properties of Type.OBJECT.
     ///
     /// 可选。Type.OBJECT 的属性。
@@ -342,11 +444,66 @@ pub struct Schema {
     /// 可选。Type.OBJECT 的必需属性。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<StaticRefStr>>,
+    /// Optional. Minimum number of the properties for Type.OBJECT.
+    ///
+    /// 可选。Type.OBJECT 的最小属性数。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_properties: Option<StaticRefStr>,
+    /// Optional. Maximum number of the properties for Type.OBJECT.
+    ///
+    /// 可选。Type.OBJECT 的最大属性数。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_properties: Option<StaticRefStr>,
+    /// Optional. Minimum length of the Type.STRING.
+    ///
+    /// 可选。Type.STRING 的最小长度。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<StaticRefStr>,
+    /// Optional. Maximum length of the Type.STRING.
+    ///
+    /// 可选。Type.STRING 的最大长度。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<StaticRefStr>,
+    /// Optional. Pattern of the Type.STRING to restrict a string to a regular expression.
+    ///
+    /// 可选。Type.STRING 的正则表达式限制模式。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<StaticRefStr>,
+    /// Optional. Example of the object.
+    ///
+    /// 可选。对象的示例。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example: Option<serde_json::Value>,
+    /// Optional. The value should be validated against any (one or more) of the subschemas.
+    ///
+    /// 可选。值应针对列表中的任何一个或多个子架构进行验证。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub any_of: Option<Vec<Schema>>,
+    /// Optional. The order of the properties.
+    ///
+    /// 可选。属性的顺序。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property_ordering: Option<Vec<StaticRefStr>>,
+    /// Optional. Default value of the field.
+    ///
+    /// 可选。字段的默认值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
     /// Optional. Schema of the elements of Type.ARRAY.
     ///
     /// 可选。Type.ARRAY 元素的架构。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<Schema>>,
+    /// Optional. Minimum value of Type.INTEGER and Type.NUMBER.
+    ///
+    /// 可选。Type.INTEGER 和 Type.NUMBER 的最小值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<f64>,
+    /// Optional. Maximum value of Type.INTEGER and Type.NUMBER.
+    ///
+    /// 可选。Type.INTEGER 和 Type.NUMBER 的最大值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<f64>,
 }
 
 /// Type contains the list of OpenAPI data types as defined by [OpenAPI schema](https://spec.openapis.org/oas/v3.0.3#schema).
@@ -362,4 +519,5 @@ pub enum Type {
     Boolean,
     Array,
     Object,
+    Null,
 }
