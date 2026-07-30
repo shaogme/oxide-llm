@@ -1,4 +1,5 @@
 use ref_str::StaticRefStr;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::mapper::MapperError;
@@ -6,7 +7,7 @@ use crate::message::{
     Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Document, Image,
     ImageSource, Message, Role, Usage as CoreUsage, Video,
 };
-use crate::state::{ConversationState, RawConversationState};
+use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::gemini::v1beta::interactions::{
     content::{
@@ -575,9 +576,36 @@ impl TryFrom<Message> for Turn {
     }
 }
 
-impl TryFrom<ConversationState>
-    for RawConversationState<Step, Tool, GeminiRequestToolChoice>
-{
+/// Gemini Interactions Raw Conversation State.
+///
+/// Gemini Interactions 原始对话状态。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InteractionsConversationState {
+    /// System Prompt.
+    ///
+    /// 系统提示词(可选)。
+    pub system_prompt: Option<StaticRefStr>,
+
+    /// Raw Message list.
+    ///
+    /// 原始消息列表。
+    pub messages: Vec<Step>,
+
+    /// Available raw tools.
+    ///
+    /// 可用原始工具列表。
+    pub tools: Vec<Tool>,
+
+    /// Raw Tool choice preference.
+    ///
+    /// 原始工具选择偏好。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<GeminiRequestToolChoice>,
+}
+
+impl ConversationStateTrait for InteractionsConversationState {}
+
+impl TryFrom<ConversationState> for InteractionsConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
@@ -596,7 +624,7 @@ impl TryFrom<ConversationState>
             .as_ref()
             .and_then(GeminiInteractionsMapper::tool_choice_to_gemini);
 
-        Ok(RawConversationState {
+        Ok(InteractionsConversationState {
             system_prompt: state.system_prompt,
             messages: steps,
             tools,

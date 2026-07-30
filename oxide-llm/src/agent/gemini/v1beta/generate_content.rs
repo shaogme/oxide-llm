@@ -1,14 +1,14 @@
 use oxide_llm_core::mapper::gemini::v1beta::{
-    GeminiGenerateContentMapper, GeminiGenerateContentStreamMapper,
+    GenerateContentConversationState, GeminiGenerateContentMapper,
+    GeminiGenerateContentStreamMapper,
 };
 use oxide_llm_core::message::{DeltaMessage, Message};
-use oxide_llm_core::state::{ConversationState, RawConversationState};
+use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::gemini::v1beta::generate_content::request::GenerateContentRequest;
 use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
 use oxide_llm_proto::gemini::v1beta::generate_content::{
-    Content, FunctionDeclaration as GeminiFunctionDeclaration, Part, Tool as GeminiTool,
-    ToolConfig as GeminiToolConfig,
+    Content, Part, Tool as GeminiTool,
 };
 
 use crate::ChatAgent;
@@ -60,9 +60,9 @@ impl<T: Transport> GenerateContentAgent<T> {
     /// 根据底层原始对话状态构建 GenerateContentRequest。
     fn build_request(
         &self,
-        state: RawConversationState<Content, GeminiFunctionDeclaration, GeminiToolConfig>,
+        state: GenerateContentConversationState,
     ) -> Result<GenerateContentRequest> {
-        let RawConversationState {
+        let GenerateContentConversationState {
             system_prompt,
             messages,
             tools,
@@ -167,9 +167,7 @@ impl crate::stream::StreamMapper<GenerateContentResponse>
 }
 
 impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
-    type RawInputMessage = Content;
-    type RawTool = GeminiFunctionDeclaration;
-    type RawToolChoice = GeminiToolConfig;
+    type RawConversationState = GenerateContentConversationState;
     type RawMessage = GenerateContentResponse;
     type RawDelta = GenerateContentResponse;
     type RawStream =
@@ -198,7 +196,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     /// 发送聊天请求到 Gemini 并返回原始响应。
     async fn chat_raw(
         &self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Result<GenerateContentResponse> {
         let request = self.build_request(state)?;
 
@@ -218,7 +216,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     /// 发送聊天请求到 Gemini 并接收带有配置的原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -243,7 +241,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     /// 发送聊天请求到 Gemini 并接收原始块的流式响应。
     fn chat_stream_raw<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Self::ChatStreamRawFuture<'a> {
         self.chat_stream_raw_with(state, Default::default())
     }
@@ -252,7 +250,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     ///
     /// 发送聊天请求到 Gemini。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state = GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
@@ -272,7 +270,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res = GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

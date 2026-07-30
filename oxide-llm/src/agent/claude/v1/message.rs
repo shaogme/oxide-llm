@@ -1,12 +1,11 @@
-use oxide_llm_core::mapper::claude::v1::{ClaudeMapper, ClaudeStreamMapper};
+use oxide_llm_core::mapper::claude::v1::{
+    ClaudeMapper, ClaudeStreamMapper, MessagesConversationState,
+};
 use oxide_llm_core::message::{DeltaMessage, Message};
-use oxide_llm_core::state::{ConversationState, RawConversationState};
+use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
-use oxide_llm_proto::claude::v1::messages::request::{
-    Message as ClaudeMessage, MessagesRequest, SystemPrompt, Tool as ClaudeTool,
-    ToolChoice as ClaudeToolChoice,
-};
+use oxide_llm_proto::claude::v1::messages::request::{MessagesRequest, SystemPrompt};
 use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
 
 use crate::ChatAgent;
@@ -56,10 +55,10 @@ impl<T: Transport> MessagesAgent<T> {
     /// 根据底层原始对话状态构建 MessagesRequest。
     fn build_request(
         &self,
-        state: RawConversationState<ClaudeMessage, ClaudeTool, ClaudeToolChoice>,
+        state: MessagesConversationState,
         stream: bool,
     ) -> Result<MessagesRequest> {
-        let RawConversationState {
+        let MessagesConversationState {
             system_prompt,
             messages,
             tools,
@@ -155,9 +154,7 @@ impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeStreamMapper {
 }
 
 impl<T: Transport> ChatAgent for MessagesAgent<T> {
-    type RawInputMessage = ClaudeMessage;
-    type RawTool = ClaudeTool;
-    type RawToolChoice = ClaudeToolChoice;
+    type RawConversationState = MessagesConversationState;
     type RawMessage = MessagesResponse;
     type RawDelta = ClaudeStreamEvent;
     type RawStream =
@@ -182,7 +179,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// 发送聊天请求到 Claude 并返回原始响应。
     async fn chat_raw(
         &self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Result<MessagesResponse> {
         let request = self.build_request(state, false)?;
 
@@ -206,7 +203,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     /// 发送聊天请求到 Claude 并接收带有配置的原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -230,7 +227,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     ///
     /// 发送聊天请求到 Claude。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state = MessagesConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
@@ -250,7 +247,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res = MessagesConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

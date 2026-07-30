@@ -1,9 +1,12 @@
+use ref_str::StaticRefStr;
+use serde::{Deserialize, Serialize};
+
 use crate::mapper::MapperError;
 use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason,
     ImageSource, Message, Role, Usage,
 };
-use crate::state::{ConversationState, RawConversationState};
+use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{ToolCall, ToolChoice, ToolDefinition};
 use oxide_llm_proto::openai::v1::response::{
     Tool as OpenAIResponseTool, ToolChoice as OpenAIResponseToolChoice,
@@ -292,9 +295,36 @@ impl TryFrom<&ToolChoice> for OpenAIResponseToolChoice {
     }
 }
 
-impl TryFrom<ConversationState>
-    for RawConversationState<InputItem, OpenAIResponseTool, OpenAIResponseToolChoice>
-{
+/// OpenAI Responses Raw Conversation State.
+///
+/// OpenAI Responses 原始对话状态。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResponsesConversationState {
+    /// System Prompt.
+    ///
+    /// 系统提示词(可选)。
+    pub system_prompt: Option<StaticRefStr>,
+
+    /// Raw Message list.
+    ///
+    /// 原始消息列表。
+    pub messages: Vec<InputItem>,
+
+    /// Available raw tools.
+    ///
+    /// 可用原始工具列表。
+    pub tools: Vec<OpenAIResponseTool>,
+
+    /// Raw Tool choice preference.
+    ///
+    /// 原始工具选择偏好。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<OpenAIResponseToolChoice>,
+}
+
+impl ConversationStateTrait for ResponsesConversationState {}
+
+impl TryFrom<ConversationState> for ResponsesConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
@@ -312,7 +342,7 @@ impl TryFrom<ConversationState>
             .as_ref()
             .map(OpenAIResponseMapper::tool_choice_to_openai_response);
 
-        Ok(RawConversationState {
+        Ok(ResponsesConversationState {
             system_prompt: state.system_prompt,
             messages,
             tools,

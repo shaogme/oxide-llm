@@ -1,9 +1,10 @@
-use oxide_llm_core::mapper::openai::v1::{OpenAIChatCompletionMapper, OpenAIStreamMapper};
+use oxide_llm_core::mapper::openai::v1::{
+    ChatCompletionsConversationState, OpenAIChatCompletionMapper, OpenAIStreamMapper,
+};
 use oxide_llm_core::message::{DeltaMessage, Message};
-use oxide_llm_core::state::{ConversationState, RawConversationState};
+use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::chat_completions::{
-    Tool as OpenAIChatCompletionsTool, ToolChoice as OpenAIChatCompletionsToolChoice,
     chunk::ChatCompletionChunk as OpenAIStreamChunk,
     request::{ChatCompletionMessage, ChatCompletionRequest, StreamOptions},
     response::ChatCompletionResponse,
@@ -58,14 +59,10 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// 根据底层原始对话状态构建 ChatCompletionRequest。
     fn build_request(
         &self,
-        state: RawConversationState<
-            ChatCompletionMessage,
-            OpenAIChatCompletionsTool,
-            OpenAIChatCompletionsToolChoice,
-        >,
+        state: ChatCompletionsConversationState,
         stream: bool,
     ) -> Result<ChatCompletionRequest> {
-        let RawConversationState {
+        let ChatCompletionsConversationState {
             system_prompt,
             mut messages,
             tools,
@@ -165,9 +162,7 @@ impl crate::stream::StreamMapper<OpenAIStreamChunk> for OpenAIStreamMapper {
 }
 
 impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
-    type RawInputMessage = ChatCompletionMessage;
-    type RawTool = OpenAIChatCompletionsTool;
-    type RawToolChoice = OpenAIChatCompletionsToolChoice;
+    type RawConversationState = ChatCompletionsConversationState;
     type RawMessage = ChatCompletionResponse;
     type RawDelta = OpenAIStreamChunk;
     type RawStream =
@@ -196,7 +191,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// 发送聊天请求到 OpenAI 并返回原始响应。
     async fn chat_raw(
         &self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Result<ChatCompletionResponse> {
         let request = self.build_request(state, false)?;
 
@@ -220,7 +215,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     /// 发送聊天请求到 OpenAI 并接收带有配置的原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -244,7 +239,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ///
     /// 发送聊天请求到 OpenAI。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state = ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
@@ -264,7 +259,7 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res = ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

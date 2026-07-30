@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 use crate::mapper::MapperError;
 use crate::message::{
     ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
     Role,
 };
-use crate::state::{ConversationState, RawConversationState};
+use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{
     FunctionDefinition, JSONSchema, JSONSchemaType, ToolCall, ToolChoice, ToolDefinition, ToolType,
 };
@@ -424,9 +426,36 @@ impl TryFrom<GeminiToolConfig> for ToolChoice {
     }
 }
 
-impl TryFrom<ConversationState>
-    for RawConversationState<GeminiContent, GeminiFunctionDeclaration, GeminiToolConfig>
-{
+/// Gemini GenerateContent Raw Conversation State.
+///
+/// Gemini GenerateContent 原始对话状态。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GenerateContentConversationState {
+    /// System Prompt.
+    ///
+    /// 系统提示词(可选)。
+    pub system_prompt: Option<StaticRefStr>,
+
+    /// Raw Message list.
+    ///
+    /// 原始消息列表。
+    pub messages: Vec<GeminiContent>,
+
+    /// Available raw tools.
+    ///
+    /// 可用原始工具列表。
+    pub tools: Vec<GeminiFunctionDeclaration>,
+
+    /// Raw Tool choice preference.
+    ///
+    /// 原始工具选择偏好。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<GeminiToolConfig>,
+}
+
+impl ConversationStateTrait for GenerateContentConversationState {}
+
+impl TryFrom<ConversationState> for GenerateContentConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
@@ -445,7 +474,7 @@ impl TryFrom<ConversationState>
             .as_ref()
             .and_then(GeminiGenerateContentMapper::tool_choice_to_gemini);
 
-        Ok(RawConversationState {
+        Ok(GenerateContentConversationState {
             system_prompt: state.system_prompt,
             messages,
             tools,

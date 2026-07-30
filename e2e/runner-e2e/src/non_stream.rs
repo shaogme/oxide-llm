@@ -18,8 +18,9 @@ mod tests {
             },
         },
         core::{
+            mapper::openai::v1::ResponsesConversationState,
             message::{ContentPart, Message},
-            state::{ConversationState, RawConversationState},
+            state::ConversationState,
             transport::TransportExt,
         },
         transport::reqwest::ReqwestTransport,
@@ -101,7 +102,7 @@ mod tests {
         state.add_message(Message::user("Hello Responses Non-Stream Stateful Step 1"));
 
         // Use chat_raw to retrieve raw Response structure containing response ID
-        let raw_state = RawConversationState::try_from(state).expect("RawConversationState try_from should succeed");
+        let raw_state = ResponsesConversationState::try_from(state).expect("ResponsesConversationState try_from should succeed");
         let response = agent
             .chat_raw(raw_state)
             .await

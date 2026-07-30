@@ -1,11 +1,12 @@
-use oxide_llm_core::mapper::openai::v1::{OpenAIResponseMapper, OpenAIResponseStreamMapper};
+use oxide_llm_core::mapper::openai::v1::{
+    OpenAIResponseMapper, OpenAIResponseStreamMapper, ResponsesConversationState,
+};
 use oxide_llm_core::message::{DeltaMessage, Message};
-use oxide_llm_core::state::{ConversationState, RawConversationState};
+use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::openai::v1::response::{
-    Tool as OpenAIResponseTool, ToolChoice as OpenAIResponseToolChoice,
     chunk::ResponseStreamEvent,
-    request::{CreateResponseRequest, InputItem, InputParam},
+    request::{CreateResponseRequest, InputParam},
     response::Response,
 };
 
@@ -65,10 +66,10 @@ impl<T: Transport> ResponsesAgent<T> {
     /// 根据底层原始对话状态构建 CreateResponseRequest。
     fn build_request(
         &self,
-        state: RawConversationState<InputItem, OpenAIResponseTool, OpenAIResponseToolChoice>,
+        state: ResponsesConversationState,
         stream: bool,
     ) -> Result<CreateResponseRequest> {
-        let RawConversationState {
+        let ResponsesConversationState {
             system_prompt,
             messages,
             tools,
@@ -155,9 +156,7 @@ impl crate::stream::StreamMapper<ResponseStreamEvent> for OpenAIResponseStreamMa
 }
 
 impl<T: Transport> ChatAgent for ResponsesAgent<T> {
-    type RawInputMessage = InputItem;
-    type RawTool = OpenAIResponseTool;
-    type RawToolChoice = OpenAIResponseToolChoice;
+    type RawConversationState = ResponsesConversationState;
     type RawMessage = Response;
     type RawDelta = ResponseStreamEvent;
     type RawStream =
@@ -186,7 +185,7 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     /// 发送 Response 请求到 OpenAI 并返回原始响应。
     async fn chat_raw(
         &self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Result<Response> {
         let request = self.build_request(state, false)?;
 
@@ -209,7 +208,7 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     /// 发送 Response 请求到 OpenAI 并接收带有配置的原始块的流式响应。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -233,7 +232,7 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     ///
     /// 发送 Response 请求到 OpenAI。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state = ResponsesConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         let core_message: Message =
@@ -252,7 +251,7 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res = ResponsesConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

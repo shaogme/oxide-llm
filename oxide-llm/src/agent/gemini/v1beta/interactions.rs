@@ -1,14 +1,12 @@
 use oxide_llm_core::{
-    mapper::gemini::v1beta::GeminiInteractionsStreamMapper,
+    mapper::gemini::v1beta::{GeminiInteractionsStreamMapper, InteractionsConversationState},
     message::{DeltaMessage, Message},
-    state::{ConversationState, RawConversationState},
+    state::ConversationState,
     transport::{Method, Transport, TransportRequest},
 };
 use oxide_llm_proto::gemini::v1beta::interactions::{
-    request::{CreateInteractionRequest, InteractionsInput, ToolChoice as GeminiRequestToolChoice},
+    request::{CreateInteractionRequest, InteractionsInput},
     sse::InteractionSseEvent,
-    step::Step,
-    tool::Tool,
 };
 
 use crate::{
@@ -60,10 +58,10 @@ impl<T: Transport> InteractionsAgent<T> {
     /// 根据底层原始对话状态构建 CreateInteractionRequest。
     fn build_request(
         &self,
-        state: RawConversationState<Step, Tool, GeminiRequestToolChoice>,
+        state: InteractionsConversationState,
         stream_override: Option<bool>,
     ) -> Result<CreateInteractionRequest> {
-        let RawConversationState {
+        let InteractionsConversationState {
             system_prompt,
             messages,
             tools,
@@ -149,9 +147,7 @@ impl crate::stream::StreamMapper<InteractionSseEvent> for GeminiInteractionsStre
 }
 
 impl<T: Transport> ChatAgent for InteractionsAgent<T> {
-    type RawInputMessage = Step;
-    type RawTool = Tool;
-    type RawToolChoice = GeminiRequestToolChoice;
+    type RawConversationState = InteractionsConversationState;
     type RawMessage = Vec<InteractionSseEvent>;
     type RawDelta = InteractionSseEvent;
     type RawStream =
@@ -184,7 +180,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     /// 发送聊天请求到 Gemini Interactions API 并返回原始 SSE 事件。
     async fn chat_raw(
         &self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Result<Vec<InteractionSseEvent>> {
         let request = self.build_request(state, Some(true))?;
 
@@ -214,7 +210,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     /// 发送聊天请求到 Gemini Interactions API 并接收带有配置的原始 SSE 事件的流。
     fn chat_stream_raw_with<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
         mut config: crate::ChatStreamRawConfig<Self::RawDelta>,
     ) -> Self::ChatStreamRawFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
@@ -236,7 +232,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     /// 发送聊天请求到 Gemini Interactions API 并接收原始 SSE 事件的流。
     fn chat_stream_raw<'a>(
         &'a self,
-        state: RawConversationState<Self::RawInputMessage, Self::RawTool, Self::RawToolChoice>,
+        state: Self::RawConversationState,
     ) -> Self::ChatStreamRawFuture<'a> {
         self.chat_stream_raw_with(state, crate::ChatStreamRawConfig::default())
     }
@@ -245,7 +241,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ///
     /// 发送聊天请求到 Gemini Interactions API。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = RawConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state = InteractionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let events = self.chat_raw(raw_state).await?;
         let mut mapper = GeminiInteractionsStreamMapper::new();
         let mut assembler = oxide_llm_core::message::MessageAssembler::new();
@@ -268,7 +264,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = RawConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res = InteractionsConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

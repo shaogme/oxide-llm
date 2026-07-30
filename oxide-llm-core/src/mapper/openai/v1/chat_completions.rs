@@ -1,9 +1,12 @@
+use ref_str::StaticRefStr;
+use serde::{Deserialize, Serialize};
+
 use crate::mapper::MapperError;
 use crate::message::{
     Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Image,
     ImageSource, Message, Role,
 };
-use crate::state::{ConversationState, RawConversationState};
+use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::openai::v1::{
     FunctionDefinition as OpenAIFunctionDefinition,
@@ -401,13 +404,36 @@ impl TryFrom<OpenAIChatCompletionsToolChoice> for ToolChoice {
     }
 }
 
-impl TryFrom<ConversationState>
-    for RawConversationState<
-        ChatCompletionMessage,
-        OpenAIChatCompletionsTool,
-        OpenAIChatCompletionsToolChoice,
-    >
-{
+/// OpenAI Chat Completions Raw Conversation State.
+///
+/// OpenAI Chat Completions 原始对话状态。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChatCompletionsConversationState {
+    /// System Prompt.
+    ///
+    /// 系统提示词(可选)。
+    pub system_prompt: Option<StaticRefStr>,
+
+    /// Raw Message list.
+    ///
+    /// 原始消息列表。
+    pub messages: Vec<ChatCompletionMessage>,
+
+    /// Available raw tools.
+    ///
+    /// 可用原始工具列表。
+    pub tools: Vec<OpenAIChatCompletionsTool>,
+
+    /// Raw Tool choice preference.
+    ///
+    /// 原始工具选择偏好。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<OpenAIChatCompletionsToolChoice>,
+}
+
+impl ConversationStateTrait for ChatCompletionsConversationState {}
+
+impl TryFrom<ConversationState> for ChatCompletionsConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
@@ -425,7 +451,7 @@ impl TryFrom<ConversationState>
             .as_ref()
             .map(OpenAIChatCompletionMapper::tool_choice_to_openai);
 
-        Ok(RawConversationState {
+        Ok(ChatCompletionsConversationState {
             system_prompt: state.system_prompt,
             messages,
             tools,
