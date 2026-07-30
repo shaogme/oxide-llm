@@ -33,7 +33,7 @@ mod tests {
 
         // Register WeatherTool with runner
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("Multi-turn weather in Beijing"));
 

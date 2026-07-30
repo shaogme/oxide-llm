@@ -607,23 +607,24 @@ impl TryFrom<ConversationState> for InteractionsConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let raw = state.into_raw();
         let mut steps = Vec::new();
-        for msg in state.messages {
+        for msg in raw.messages {
             let msg_steps = GeminiInteractionsMapper::from_core_message_to_steps(msg)?;
             steps.extend(msg_steps);
         }
-        let tools = state
+        let tools = raw
             .tools
             .iter()
             .map(GeminiInteractionsMapper::tool_to_gemini)
             .collect();
-        let tool_choice = state
+        let tool_choice = raw
             .tool_choice
             .as_ref()
             .and_then(GeminiInteractionsMapper::tool_choice_to_gemini);
 
         Ok(InteractionsConversationState {
-            system_prompt: state.system_prompt,
+            system_prompt: raw.system_prompt,
             messages: steps,
             tools,
             tool_choice,

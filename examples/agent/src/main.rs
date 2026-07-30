@@ -243,7 +243,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_max_turns(5);
 
     // 5. Prepare Conversation State
-    let mut state = ConversationState::new(None);
+    let mut state = ConversationState::new();
     runner.sync_tools(&mut state);
 
     // 6. Interaction Loop

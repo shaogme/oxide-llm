@@ -108,7 +108,7 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
         let definitions = self.registry.definitions();
         for def in definitions {
             if !state
-                .tools
+                .tools()
                 .iter()
                 .any(|t| t.function.name == def.function.name)
             {
@@ -160,7 +160,7 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
         loop {
             if current_turn >= self.max_turns {
                 let last_message = state
-                    .messages
+                    .messages()
                     .last()
                     .cloned()
                     .unwrap_or_else(|| Message::assistant(""));
@@ -479,18 +479,18 @@ mod tests {
         assert_eq!(runner.max_turns(), 10);
         assert_eq!(runner.registry().definitions().len(), 1);
 
-        let mut state = ConversationState::new(None);
-        assert!(state.tools.is_empty());
+        let mut state = ConversationState::new();
+        assert!(state.tools().is_empty());
 
         // Default run_stream does NOT implicitly sync tools to ConversationState
         let stream = runner.run_stream(&mut state);
         drop(stream);
-        assert!(state.tools.is_empty());
+        assert!(state.tools().is_empty());
 
         // Explicit sync_tools fills state.tools
         runner.sync_tools(&mut state);
-        assert_eq!(state.tools.len(), 1);
-        assert_eq!(state.tools[0].function.name, "dummy_tool");
+        assert_eq!(state.tools().len(), 1);
+        assert_eq!(state.tools()[0].function.name, "dummy_tool");
     }
 
     #[test]
@@ -500,13 +500,13 @@ mod tests {
             .with_tool(DummyTool)
             .with_auto_sync_tools(true);
 
-        let mut state = ConversationState::new(None);
-        assert!(state.tools.is_empty());
+        let mut state = ConversationState::new();
+        assert!(state.tools().is_empty());
 
         // Opted-in auto sync fills state.tools during run_stream
         let stream = runner.run_stream(&mut state);
         drop(stream);
-        assert_eq!(state.tools.len(), 1);
+        assert_eq!(state.tools().len(), 1);
     }
 
     #[test]
@@ -516,12 +516,12 @@ mod tests {
             .with_tool(DummyTool)
             .with_auto_sync_tools(true);
 
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         let res = futures::executor::block_on(runner.run(&mut state));
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), Message::user("dummy"));
-        assert_eq!(state.tools.len(), 1);
-        assert_eq!(state.messages.len(), 1);
+        assert_eq!(state.tools().len(), 1);
+        assert_eq!(state.messages().len(), 1);
     }
 
     #[test]
@@ -529,13 +529,13 @@ mod tests {
         let agent = Arc::new(DummyAgent);
         let runner = Runner::new(agent).with_tool(DummyTool);
 
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         let stream = runner.run_stream(&mut state);
         drop(stream);
-        assert!(state.tools.is_empty());
+        assert!(state.tools().is_empty());
 
         runner.sync_tools(&mut state);
-        assert_eq!(state.tools.len(), 1);
+        assert_eq!(state.tools().len(), 1);
     }
 
     #[test]
@@ -544,7 +544,7 @@ mod tests {
 
         let agent = DummyAgent;
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
 
         let count = Arc::new(AtomicUsize::new(0));
         let count_clone = count.clone();
@@ -636,7 +636,7 @@ mod tests {
             .with_tool(DummyTool)
             .with_executor(SortingExecutor);
 
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         let _stream = runner.run_stream(&mut state);
     }
 }

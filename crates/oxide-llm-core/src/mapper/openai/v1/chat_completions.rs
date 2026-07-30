@@ -447,22 +447,23 @@ impl TryFrom<ConversationState> for ChatCompletionsConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let raw = state.into_raw();
         let mut messages = Vec::new();
-        for msg in state.messages {
+        for msg in raw.messages {
             messages.extend(OpenAIChatCompletionMapper::from_core_message(msg)?);
         }
-        let tools = state
+        let tools = raw
             .tools
             .iter()
             .map(OpenAIChatCompletionMapper::tool_to_openai)
             .collect();
-        let tool_choice = state
+        let tool_choice = raw
             .tool_choice
             .as_ref()
             .map(OpenAIChatCompletionMapper::tool_choice_to_openai);
 
         Ok(ChatCompletionsConversationState {
-            system_prompt: state.system_prompt,
+            system_prompt: raw.system_prompt,
             messages,
             tools,
             tool_choice,

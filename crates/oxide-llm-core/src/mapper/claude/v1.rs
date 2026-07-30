@@ -339,23 +339,24 @@ impl TryFrom<ConversationState> for MessagesConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
-        let messages = state
+        let raw = state.into_raw();
+        let messages = raw
             .messages
             .into_iter()
             .map(ClaudeMapper::from_core_message)
             .collect::<Result<Vec<_>, _>>()?;
-        let tools = state
+        let tools = raw
             .tools
             .iter()
             .map(ClaudeMapper::tool_to_claude_tool)
             .collect();
-        let tool_choice = state
+        let tool_choice = raw
             .tool_choice
             .as_ref()
             .map(ClaudeMapper::tool_choice_to_claude);
 
         Ok(MessagesConversationState {
-            system_prompt: state.system_prompt,
+            system_prompt: raw.system_prompt,
             messages,
             tools,
             tool_choice,

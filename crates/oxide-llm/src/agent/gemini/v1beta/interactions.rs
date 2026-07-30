@@ -297,7 +297,6 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
 mod tests {
     use super::*;
     use oxide_llm_core::message::{ContentPart, DeltaContentPart, Role};
-    use ref_str::StaticRefStr;
 
     #[test]
     fn test_interactions_config_build_request() {
@@ -308,7 +307,8 @@ mod tests {
 
         let config = InteractionsConfig::new(required);
 
-        let mut state = ConversationState::new(Some(StaticRefStr::from("System prompt test")));
+        let mut state = ConversationState::new();
+        state.set_system_prompt("System prompt test");
         state.add_message(Message {
             role: Role::User,
             content: vec![ContentPart::Text {

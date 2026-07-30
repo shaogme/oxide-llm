@@ -42,7 +42,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello OpenAI!"));
 
         let mut stream = runner.run_stream(&mut state);
@@ -76,7 +76,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Responses Stream!"));
 
         let mut stream = runner.run_stream(&mut state);
@@ -112,7 +112,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent.clone());
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Responses Stream Stateful Step 1"));
 
         // Use on_raw_delta hook to extract response_id from raw stream events
@@ -161,7 +161,7 @@ mod tests {
             .unwrap();
 
         let runner_step2 = Runner::new(agent_step2);
-        let mut state_step2 = ConversationState::new(None);
+        let mut state_step2 = ConversationState::new();
         state_step2.add_message(Message::user("Hello Responses Stream Stateful Step 2"));
 
         let mut stream_step2 = runner_step2.run_stream(&mut state_step2);
@@ -192,7 +192,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Tokyo?"));
 
@@ -230,7 +230,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Claude!"));
 
         let mut stream = runner.run_stream(&mut state);
@@ -262,7 +262,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in London?"));
 
@@ -300,7 +300,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Gemini!"));
 
         let mut stream = runner.run_stream(&mut state);
@@ -332,7 +332,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Paris?"));
 
@@ -370,7 +370,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Gemini Interactions Stream!"));
 
         let mut stream = runner.run_stream(&mut state);
@@ -402,7 +402,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Shanghai?"));
 

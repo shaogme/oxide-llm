@@ -328,22 +328,23 @@ impl TryFrom<ConversationState> for ResponsesConversationState {
     type Error = MapperError;
 
     fn try_from(state: ConversationState) -> Result<Self, Self::Error> {
+        let raw = state.into_raw();
         let mut messages = Vec::new();
-        for msg in state.messages {
+        for msg in raw.messages {
             messages.extend(OpenAIResponseMapper::from_core_message(msg)?);
         }
-        let tools = state
+        let tools = raw
             .tools
             .iter()
             .map(OpenAIResponseMapper::tool_to_openai_response)
             .collect();
-        let tool_choice = state
+        let tool_choice = raw
             .tool_choice
             .as_ref()
             .map(OpenAIResponseMapper::tool_choice_to_openai_response);
 
         Ok(ResponsesConversationState {
-            system_prompt: state.system_prompt,
+            system_prompt: raw.system_prompt,
             messages,
             tools,
             tool_choice,

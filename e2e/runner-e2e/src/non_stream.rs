@@ -41,7 +41,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello OpenAI Non-Stream!"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -73,7 +73,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Responses Non-Stream!"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -107,7 +107,7 @@ mod tests {
             .unwrap();
 
         // Step 1: Initial conversation turn with set_store(true)
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Responses Non-Stream Stateful Step 1"));
 
         // Use chat_raw to retrieve raw Response structure containing response ID
@@ -131,7 +131,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent_step2);
-        let mut state_step2 = ConversationState::new(None);
+        let mut state_step2 = ConversationState::new();
         state_step2.add_message(Message::user("Hello Responses Non-Stream Stateful Step 2"));
 
         let res_msg = runner
@@ -167,7 +167,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Claude Non-Stream!"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -200,7 +200,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Gemini Non-Stream!"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -232,7 +232,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Berlin?"));
 
@@ -269,7 +269,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in London?"));
 
@@ -306,7 +306,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Paris?"));
 
@@ -342,9 +342,8 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(Some(
-            "you are a helpful assistant with system prompt".into(),
-        ));
+        let mut state = ConversationState::new();
+        state.set_system_prompt("you are a helpful assistant with system prompt");
         state.add_message(Message::user("Hello"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -376,7 +375,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Trigger 401 Unauthorized"));
 
         let result = runner.run(&mut state).await;
@@ -401,7 +400,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Trigger 500 Internal Error"));
 
         let result = runner.run(&mut state).await;
@@ -427,7 +426,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         state.add_message(Message::user("Hello Gemini Interactions Non-Stream!"));
 
         let res_msg = runner.run(&mut state).await.expect("Run should succeed");
@@ -460,7 +459,7 @@ mod tests {
             .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
-        let mut state = ConversationState::new(None);
+        let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Shanghai?"));
 
