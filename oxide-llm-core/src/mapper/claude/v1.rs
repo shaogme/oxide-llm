@@ -10,14 +10,11 @@ use crate::message::{
 use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::claude::v1::messages::{
-    Content as ClaudeContent, ContentBlock, ImageBlock, ImageSource as ClaudeImageSource,
-    Role as ClaudeRole, TextBlock, ThinkingBlock, ToolResultBlock, ToolResultContent, ToolUseBlock,
-    chunk::MessageStreamEvent as ClaudeStreamEvent,
-    request::{
-        CustomTool as ClaudeCustomTool, Message as ClaudeMessage, Tool as ClaudeTool,
-        ToolChoice as ClaudeToolChoice,
-    },
-    response::MessagesResponse,
+    Content as ClaudeContent, ContentBlock, CustomTool as ClaudeCustomTool, ImageBlock,
+    ImageSource as ClaudeImageSource, Message as ClaudeMessage,
+    MessageStreamEvent as ClaudeStreamEvent, MessagesResponse, Role as ClaudeRole, TextBlock,
+    ThinkingBlock, Tool as ClaudeTool, ToolChoice as ClaudeToolChoice, ToolResultBlock,
+    ToolResultContent, ToolUseBlock, WebSearchResultItem,
 };
 
 /// Mapper for Claude protocol.
@@ -91,6 +88,7 @@ impl ClaudeMapper {
                         id: tc.id,
                         name: tc.name,
                         input: tc.arguments,
+                        caller: None,
                         cache_control: None,
                     }));
                 }
@@ -200,6 +198,7 @@ impl ClaudeMapper {
             cache_control: None,
             r#type: Some("custom".into()),
             strict: tool.function.strict,
+            allowed_callers: None,
         })
     }
 
@@ -467,10 +466,14 @@ impl ClaudeStreamMapper {
                     ChunkContentBlock::WebSearchToolResult(wstr) => {
                         let mut text = String::from("[Web Search Results]\n");
                         for item in wstr.content {
-                            if let oxide_llm_proto::claude::v1::messages::WebSearchResultItem::WebSearchResult(res) = item {
-                                     use std::fmt::Write;
-                                     let _ = writeln!(text, "- {} ({}) : {}", res.title, res.url, res.encrypted_content);
-                                 }
+                            if let WebSearchResultItem::WebSearchResult(res) = item {
+                                use std::fmt::Write;
+                                let _ = writeln!(
+                                    text,
+                                    "- {} ({}) : {}",
+                                    res.title, res.url, res.encrypted_content
+                                );
+                            }
                         }
                         Some(DeltaContentPart::Text {
                             index,
@@ -489,9 +492,14 @@ impl ClaudeStreamMapper {
                             None
                         }
                     }
-                    ChunkContentBlock::Image(_) => {
-                        // Current DeltaContentPart does not support Image.
-                        // Images in streaming responses are rare or typically static references.
+                    ChunkContentBlock::Image(_)
+                    | ChunkContentBlock::WebFetchToolResult(_)
+                    | ChunkContentBlock::CodeExecutionToolResult(_)
+                    | ChunkContentBlock::BashCodeExecutionToolResult(_)
+                    | ChunkContentBlock::TextEditorCodeExecutionToolResult(_)
+                    | ChunkContentBlock::ToolSearchToolResult(_)
+                    | ChunkContentBlock::ContainerUpload(_) => {
+                        // Other streaming block types do not produce user text deltas.
                         None
                     }
                 };
@@ -537,6 +545,7 @@ impl ClaudeStreamMapper {
                             signature: Some(signature),
                         })
                     }
+                    ChunkContentBlockDelta::CitationsDelta { .. } => None,
                 };
 
                 Ok(DeltaMessage {

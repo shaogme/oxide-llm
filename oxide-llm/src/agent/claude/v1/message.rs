@@ -4,9 +4,9 @@ use oxide_llm_core::mapper::claude::v1::{
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
-use oxide_llm_proto::claude::v1::messages::chunk::MessageStreamEvent as ClaudeStreamEvent;
-use oxide_llm_proto::claude::v1::messages::request::{MessagesRequest, SystemPrompt};
-use oxide_llm_proto::claude::v1::messages::response::MessagesResponse;
+use oxide_llm_proto::claude::v1::messages::{
+    MessageStreamEvent as ClaudeStreamEvent, MessagesRequest, MessagesResponse, SystemPrompt,
+};
 
 use crate::ChatAgent;
 use crate::error::{AgentError, Result};
