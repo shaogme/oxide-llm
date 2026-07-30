@@ -1,4 +1,4 @@
-use super::{Content, HarmBlockThreshold, HarmCategory, Schema, Tool, ToolConfig};
+use super::{Content, HarmBlockThreshold, HarmCategory, Modality, Schema, Tool, ToolConfig};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
@@ -159,7 +159,7 @@ pub struct GenerationConfig {
     ///
     /// 可选。响应的请求模态。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_modalities: Option<Vec<super::Modality>>,
+    pub response_modalities: Option<Vec<Modality>>,
 }
 
 /// The speech generation config.
