@@ -376,36 +376,10 @@ where
 mod tests {
     use super::*;
     use oxide_llm_core::tool::{
-        EitherFuture, ExecuteToolsFuture, JSONSchema, Schema, Tool, ToolDefinition, ToolError,
-        ToolExecutionError, ToolExecutionFuture,
+        DynToolRegistry, ExecuteToolsFuture, JSONSchema, Schema, Tool, ToolDefinition, ToolError,
+        ToolExecutionError,
     };
     use std::sync::Arc;
-
-    #[derive(Clone)]
-    struct SingleToolRegistry<T>(T);
-
-    impl<T: ToolRunnable + Clone + 'static> ToolRegistry for SingleToolRegistry<T> {
-        type ExecFuture = EitherFuture<
-            ToolExecutionFuture<T>,
-            std::future::Ready<Result<Vec<ContentPart>, ToolExecutionError>>,
-        >;
-
-        fn definitions(&self) -> Vec<ToolDefinition> {
-            vec![self.0.definition()]
-        }
-
-        fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture> {
-            let def = self.0.definition();
-            if def.function.name == name {
-                Some(EitherFuture::Left(ToolExecutionFuture::new(
-                    self.0.clone(),
-                    args,
-                )))
-            } else {
-                None
-            }
-        }
-    }
 
     #[derive(Clone)]
     struct DummyTool;
@@ -485,7 +459,7 @@ mod tests {
     #[test]
     fn test_runner_no_implicit_sync_by_default() {
         let agent = DummyAgent;
-        let registry = SingleToolRegistry(DummyTool);
+        let registry = DynToolRegistry::new().with(DummyTool);
         let runner = Runner::new(agent)
             .with_registry(registry)
             .with_max_turns(10);
@@ -510,7 +484,7 @@ mod tests {
     #[test]
     fn test_runner_opt_in_auto_sync() {
         let agent = DummyAgent;
-        let registry = SingleToolRegistry(DummyTool);
+        let registry = DynToolRegistry::new().with(DummyTool);
         let runner = Runner::new(agent)
             .with_registry(registry)
             .with_auto_sync_tools(true);
@@ -527,7 +501,7 @@ mod tests {
     #[test]
     fn test_runner_run_method() {
         let agent = DummyAgent;
-        let registry = SingleToolRegistry(DummyTool);
+        let registry = DynToolRegistry::new().with(DummyTool);
         let runner = Runner::new(agent)
             .with_registry(registry)
             .with_auto_sync_tools(true);
@@ -543,7 +517,7 @@ mod tests {
     #[test]
     fn test_runner_with_smart_pointers() {
         let agent = Arc::new(DummyAgent);
-        let registry = SingleToolRegistry(DummyTool);
+        let registry = DynToolRegistry::new().with(DummyTool);
         let runner = Runner::new(agent).with_registry(registry);
 
         let mut state = ConversationState::new();
@@ -619,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_fatal_tool_execution_error_exits_runner() {
-        let registry = SingleToolRegistry(FatalTool);
+        let registry = DynToolRegistry::new().with(FatalTool);
         let tool_call = ToolCall {
             id: "call_1".into(),
             name: "fatal_tool".into(),
@@ -655,7 +629,7 @@ mod tests {
     #[test]
     fn test_custom_sorting_executor() {
         let agent = DummyAgent;
-        let registry = SingleToolRegistry(DummyTool);
+        let registry = DynToolRegistry::new().with(DummyTool);
         let runner = Runner::new(agent)
             .with_registry(registry)
             .with_executor(SortingExecutor);
@@ -708,7 +682,7 @@ mod tests {
 
     #[test]
     fn test_tool_invalid_arguments_handled_by_user() {
-        let registry = SingleToolRegistry(TypedTool);
+        let registry = DynToolRegistry::new().with(TypedTool);
         let tool_call = ToolCall {
             id: "call_bad_arg".into(),
             name: "typed_tool".into(),

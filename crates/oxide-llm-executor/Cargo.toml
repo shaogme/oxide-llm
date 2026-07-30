@@ -20,9 +20,9 @@ oxide-llm-core = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies.tokio]
-version = "1"
+workspace = true
 features = ["sync", "rt"]
 optional = true
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }

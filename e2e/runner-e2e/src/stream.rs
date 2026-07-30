@@ -6,7 +6,7 @@ mod tests {
     use crate::{MockServerGuard, WeatherTool};
     use futures::StreamExt;
     use oxide_llm::{
-        Runner,
+        Runner, TransportBuilder,
         agent::{
             claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
             gemini::v1beta::{
@@ -21,7 +21,6 @@ mod tests {
         core::{
             message::{ChatStreamEvent, Message},
             state::ConversationState,
-            transport::TransportExt,
         },
         executor::TokioToolRegistry,
         proto::openai::v1::response::ResponseStreamEvent,
@@ -32,9 +31,11 @@ mod tests {
     async fn test_openai_chat_completions_stream_e2e() {
         let guard = MockServerGuard::start(3001);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
@@ -66,9 +67,11 @@ mod tests {
     async fn test_openai_responses_stream_e2e() {
         let guard = MockServerGuard::start(3017);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
         let agent = ResponsesAgent::builder(transport)
@@ -100,9 +103,11 @@ mod tests {
 
         let guard = MockServerGuard::start(3026);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let required = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
         let mut agent_config = ResponsesConfig::new(required.clone());
@@ -182,9 +187,11 @@ mod tests {
     async fn test_openai_tool_call_stream_e2e() {
         let guard = MockServerGuard::start(3004);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
@@ -220,9 +227,11 @@ mod tests {
     async fn test_claude_messages_stream_e2e() {
         let guard = MockServerGuard::start(3002);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
@@ -252,9 +261,11 @@ mod tests {
     async fn test_claude_tool_call_stream_e2e() {
         let guard = MockServerGuard::start(3018);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
@@ -291,9 +302,11 @@ mod tests {
     async fn test_gemini_generate_content_stream_e2e() {
         let guard = MockServerGuard::start(3003);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
@@ -323,9 +336,11 @@ mod tests {
     async fn test_gemini_tool_call_stream_e2e() {
         let guard = MockServerGuard::start(3019);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
@@ -362,9 +377,11 @@ mod tests {
     async fn test_gemini_interactions_stream_e2e() {
         let guard = MockServerGuard::start(3023);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
@@ -394,9 +411,11 @@ mod tests {
     async fn test_gemini_interactions_tool_call_stream_e2e() {
         let guard = MockServerGuard::start(3024);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config =
             InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
@@ -427,5 +446,138 @@ mod tests {
             tool_called,
             "Tool 'get_weather' should be triggered for Gemini Interactions stream"
         );
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // AnyTransport stream E2E tests
+    // ────────────────────────────────────────────────────────────────────────
+
+    /// Verify that `AnyTransport` wrapping `ReqwestTransport` + middleware
+    /// correctly proxies the byte stream through the erased interface.
+    ///
+    /// 验证 `AnyTransport` 包装后，字节流能完整地通过 erased 接口传递，
+    /// 流式输出与具体 Transport 的结果一致。
+    #[tokio::test]
+    async fn test_any_transport_openai_stream_e2e() {
+        use oxide_llm::core::transport::AnyTransport;
+
+        let guard = MockServerGuard::start(3040);
+
+        let concrete = ReqwestTransport::builder()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
+        let transport = AnyTransport::new(concrete);
+
+        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
+
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new();
+        state.add_message(Message::user("Hello OpenAI!"));
+
+        let mut stream = runner.run_stream(&mut state);
+        let mut received_text = String::new();
+
+        while let Some(event_res) = stream.next().await {
+            let event = event_res.expect("AnyTransport stream event should be Ok");
+            if let ChatStreamEvent::Text { text } = event {
+                received_text.push_str(&text);
+            }
+        }
+
+        assert!(
+            !received_text.is_empty(),
+            "AnyTransport should forward streamed text from mock OpenAI server"
+        );
+    }
+
+    /// Verify that a cloned `AnyTransport` streams the same data as the
+    /// original — the `Arc` sharing must not break stream independence.
+    ///
+    /// 验证克隆的 `AnyTransport` 与原始实例在流式模式下行为一致，
+    /// `Arc` 共享不能破坏流的独立性。
+    #[tokio::test]
+    async fn test_any_transport_clone_stream_e2e() {
+        use oxide_llm::core::transport::AnyTransport;
+
+        let guard = MockServerGuard::start(3041);
+
+        let concrete = ReqwestTransport::builder()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
+        let transport = AnyTransport::new(concrete);
+        let transport_clone = transport.clone();
+
+        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent = ChatCompletionsAgent::builder(transport_clone)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
+
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new();
+        state.add_message(Message::user("Hello OpenAI!"));
+
+        let mut stream = runner.run_stream(&mut state);
+        let mut received_text = String::new();
+
+        while let Some(event_res) = stream.next().await {
+            let event = event_res.expect("Cloned AnyTransport stream event should be Ok");
+            if let ChatStreamEvent::Text { text } = event {
+                received_text.push_str(&text);
+            }
+        }
+
+        assert!(
+            !received_text.is_empty(),
+            "Cloned AnyTransport should also forward streamed text correctly"
+        );
+    }
+
+    /// Verify that `AnyTransport` works with Claude agent in stream mode.
+    ///
+    /// 验证 `AnyTransport` 对 Claude 代理在流式模式下正常工作。
+    #[tokio::test]
+    async fn test_any_transport_claude_stream_e2e() {
+        use oxide_llm::core::transport::AnyTransport;
+
+        let guard = MockServerGuard::start(3042);
+
+        let concrete = ReqwestTransport::builder()
+            .with_authorization("mock-api-key")
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
+        let transport = AnyTransport::new(concrete);
+
+        let agent_config =
+            MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
+        let agent = MessagesAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
+
+        let runner = Runner::new(agent);
+        let mut state = ConversationState::new();
+        state.add_message(Message::user("Hello Claude!"));
+
+        let mut stream = runner.run_stream(&mut state);
+        let mut received_text = String::new();
+
+        while let Some(event_res) = stream.next().await {
+            let event = event_res.expect("AnyTransport Claude stream event should be Ok");
+            if let ChatStreamEvent::Text { text } = event {
+                received_text.push_str(&text);
+            }
+        }
+
+        assert_eq!(received_text, "Hello from Claude Mock!");
     }
 }

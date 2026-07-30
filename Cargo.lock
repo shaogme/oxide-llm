@@ -842,6 +842,7 @@ dependencies = [
  "ref_str",
  "serde",
  "serde_json",
+ "tokio",
  "trait-morph",
 ]
 

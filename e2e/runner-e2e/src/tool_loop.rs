@@ -5,14 +5,13 @@
 mod tests {
     use crate::{MockServerGuard, WeatherTool};
     use oxide_llm::{
-        Runner,
+        Runner, TransportBuilder,
         agent::openai::v1::chat_completions::{
             ChatCompletionsAgent, ChatCompletionsRequiredConfig,
         },
         core::{
             message::{ContentPart, Message},
             state::ConversationState,
-            transport::TransportExt,
         },
         executor::TokioToolRegistry,
         transport::reqwest::ReqwestTransport,
@@ -22,9 +21,11 @@ mod tests {
     async fn test_multi_turn_tool_execution_loop_e2e() {
         let guard = MockServerGuard::start(3020);
 
-        let transport = ReqwestTransport::new()
+        let transport = ReqwestTransport::builder()
             .with_authorization("mock-api-key")
-            .with_base_url(guard.base_url.clone());
+            .with_base_url(guard.base_url.clone())
+            .build()
+            .unwrap();
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)

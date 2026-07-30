@@ -14,6 +14,10 @@ pub mod traits;
 pub use config::{
     ChatStreamConfig, ChatStreamRawConfig, Config, OptionalConfig, ReasoningEffort, RequiredConfig,
 };
+pub use core::{
+    tool::{DynTool, Tool, ToolError},
+    transport::{AnyTransport, Transport, TransportBuilder, TransportConfig},
+};
 pub use runner::{DefaultExecutor, Executor, Runner, SequentialExecutor};
 pub use traits::{ChatAgent, DynChatAgent};
 

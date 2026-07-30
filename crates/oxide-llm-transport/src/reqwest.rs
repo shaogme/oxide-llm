@@ -1,9 +1,71 @@
-use futures::{Stream, StreamExt, stream::BoxStream};
-use oxide_llm_core::transport::{Method, Transport, TransportError, TransportRequest};
-use reqwest::{Client, RequestBuilder};
-use serde::{Serialize, de::DeserializeOwned};
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures::{Stream, StreamExt, stream::BoxStream};
+use oxide_llm_core::transport::{
+    Method, Transport, TransportBuilder, TransportConfig, TransportError, TransportRequest,
+};
+use reqwest::{Client, RequestBuilder};
+use serde::{Serialize, de::DeserializeOwned};
+
+// ────────────────────────────────────────────────────────────────────────────
+// Builder
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Builder for [`ReqwestTransport`].
+///
+/// [`ReqwestTransport`] 的构造器。
+///
+/// Common options (`base_url`, `api_key`) are provided via the blanket methods
+/// from [`TransportBuilder`]; reqwest-specific options (custom [`Client`]) are
+/// added directly here.
+///
+/// 通用选项（`base_url`、`api_key`）由 [`TransportBuilder`] 的 blanket 方法提供；
+/// reqwest 专属选项（自定义 [`Client`]）直接定义在此处。
+#[derive(Debug, Default)]
+pub struct ReqwestTransportBuilder {
+    config: TransportConfig,
+    client: Option<Client>,
+}
+
+impl TransportBuilder for ReqwestTransportBuilder {
+    fn transport_config_mut(&mut self) -> &mut TransportConfig {
+        &mut self.config
+    }
+}
+
+impl ReqwestTransportBuilder {
+    /// Sets a custom [`reqwest::Client`].
+    ///
+    /// 设置自定义 [`reqwest::Client`]。
+    pub fn with_client(mut self, client: Client) -> Self {
+        self.client = Some(client);
+        self
+    }
+
+    /// Builds the [`ReqwestTransport`].
+    ///
+    /// Returns `Err` if `base_url` has not been provided.
+    ///
+    /// 构建 [`ReqwestTransport`]。
+    ///
+    /// 若未提供 `base_url` 则返回 `Err`。
+    pub fn build(self) -> Result<ReqwestTransport, TransportError> {
+        let TransportConfig { base_url, api_key } = self.config;
+        let base_url = base_url.ok_or_else(|| TransportError::Other {
+            message: "ReqwestTransport: `base_url` is required".to_string(),
+        })?;
+        Ok(ReqwestTransport {
+            client: self.client.unwrap_or_default(),
+            base_url,
+            api_key,
+        })
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Transport
+// ────────────────────────────────────────────────────────────────────────────
 
 /// Transport implementation based on `reqwest`.
 ///
@@ -11,23 +73,18 @@ use std::task::{Context, Poll};
 #[derive(Debug, Clone)]
 pub struct ReqwestTransport {
     client: Client,
+    /// Base URL prepended to every relative endpoint.
+    base_url: String,
+    /// Optional Bearer-token API key.
+    api_key: Option<String>,
 }
 
 impl ReqwestTransport {
-    /// Creates a new `ReqwestTransport` instance.
+    /// Returns a [`ReqwestTransportBuilder`] for fluent configuration.
     ///
-    /// 创建一个新的 `ReqwestTransport` 实例。
-    pub fn new() -> Self {
-        Self {
-            client: Client::new(),
-        }
-    }
-
-    /// Creates a new `ReqwestTransport` with a custom `reqwest::Client`.
-    ///
-    /// 使用自定义的 `reqwest::Client` 创建 `ReqwestTransport`。
-    pub fn new_with_client(client: Client) -> Self {
-        Self { client }
+    /// 返回用于链式配置的 [`ReqwestTransportBuilder`]。
+    pub fn builder() -> ReqwestTransportBuilder {
+        ReqwestTransportBuilder::default()
     }
 
     fn prepare_request<Req: Serialize>(
@@ -44,7 +101,20 @@ impl ReqwestTransport {
             Method::Options => reqwest::Method::OPTIONS,
         };
 
-        let mut builder = self.client.request(method, req.endpoint.as_ref());
+        // Resolve endpoint: prepend base_url when the endpoint is relative.
+        let url = if req.endpoint.starts_with("http") {
+            req.endpoint.into_owned()
+        } else {
+            let endpoint = req.endpoint.trim_start_matches('/');
+            format!("{}/{}", self.base_url, endpoint)
+        };
+
+        let mut builder = self.client.request(method, &url);
+
+        // Inject Authorization header when an API key is configured.
+        if let Some(ref key) = self.api_key {
+            builder = builder.header("Authorization", format!("Bearer {}", key));
+        }
 
         for (k, v) in req.headers {
             builder = builder.header(k.as_ref(), v.as_ref());
@@ -56,11 +126,9 @@ impl ReqwestTransport {
     }
 }
 
-impl Default for ReqwestTransport {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Error mapping
+// ────────────────────────────────────────────────────────────────────────────
 
 fn map_reqwest_error(e: reqwest::Error) -> TransportError {
     let message = e.to_string();
@@ -83,6 +151,10 @@ fn map_reqwest_error(e: reqwest::Error) -> TransportError {
         TransportError::Other { message }
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stream types
+// ────────────────────────────────────────────────────────────────────────────
 
 /// Stream implementation for `ReqwestTransport`.
 ///
@@ -129,6 +201,10 @@ impl std::future::Future for ReqwestStreamFuture {
         Pin::new(&mut self.inner).poll(cx)
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Transport impl
+// ────────────────────────────────────────────────────────────────────────────
 
 impl Transport for ReqwestTransport {
     type Stream = ReqwestStream;

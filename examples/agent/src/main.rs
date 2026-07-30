@@ -4,7 +4,7 @@ use clap::Parser;
 use config::{Config, ProviderType};
 use futures::StreamExt;
 use oxide_llm::{
-    DynChatAgent, Runner,
+    DynChatAgent, Runner, TransportBuilder,
     agent::{
         claude::v1::message::MessagesAgent,
         gemini::v1beta::{generate_content::GenerateContentAgent, interactions::InteractionsAgent},
@@ -14,7 +14,6 @@ use oxide_llm::{
         message::{ChatStreamEvent, Message},
         state::ConversationState,
         tool::Tool,
-        transport::TransportExt,
     },
     executor::TokioToolRegistry,
     macros::Schema,
@@ -180,9 +179,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let agent: Box<dyn DynChatAgent> = match provider_config.r#type {
         ProviderType::OpenAI => {
             println!("Loaded config for OpenAI model: {}", model_config.model());
-            let transport = ReqwestTransport::new()
+            let transport = ReqwestTransport::builder()
                 .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone());
+                .with_base_url(provider_config.base_url.clone())
+                .build()?;
 
             if model_config.endpoint().contains("responses") {
                 Box::new(
@@ -200,9 +200,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         ProviderType::Claude => {
             println!("Loaded config for Claude model: {}", model_config.model());
-            let transport = ReqwestTransport::new()
+            let transport = ReqwestTransport::builder()
                 .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone());
+                .with_base_url(provider_config.base_url.clone())
+                .build()?;
 
             Box::new(
                 MessagesAgent::builder(transport)
@@ -212,9 +213,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         ProviderType::Gemini => {
             println!("Loaded config for Gemini model: {}", model_config.model());
-            let transport = ReqwestTransport::new()
+            let transport = ReqwestTransport::builder()
                 .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone());
+                .with_base_url(provider_config.base_url.clone())
+                .build()?;
 
             if model_config.endpoint().contains("interactions") {
                 Box::new(
@@ -242,9 +244,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_tool(weather_tool)
         .with_tool(stock_tool);
 
-    let runner = Runner::new(agent)
-        .with_registry(registry)
-        .with_max_turns(5);
+    let runner = Runner::new(agent).with_registry(registry).with_max_turns(5);
 
     // 5. Prepare Conversation State
     let mut state = ConversationState::new();

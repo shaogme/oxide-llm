@@ -222,29 +222,6 @@ impl Display for ToolExecutionError {
 
 impl Error for ToolExecutionError {}
 
-/// A static branching future that delegates polling to either Left or Right.
-///
-/// 静态分流 Future，将轮询委托给 Left 或 Right。
-pub enum EitherFuture<L, R> {
-    Left(L),
-    Right(R),
-}
-
-impl<L, R> Future for EitherFuture<L, R>
-where
-    L: Future<Output = Result<Vec<ContentPart>, ToolExecutionError>>,
-    R: Future<Output = Result<Vec<ContentPart>, ToolExecutionError>>,
-{
-    type Output = Result<Vec<ContentPart>, ToolExecutionError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match unsafe { self.get_unchecked_mut() } {
-            EitherFuture::Left(l) => unsafe { Pin::new_unchecked(l) }.poll(cx),
-            EitherFuture::Right(r) => unsafe { Pin::new_unchecked(r) }.poll(cx),
-        }
-    }
-}
-
 /// Helper future wrapper that executes a ToolRunnable and maps its error using `handle_error`.
 pub struct ToolExecutionFuture<T: ToolRunnable> {
     tool: T,

@@ -1,6 +1,9 @@
 use crate::{
     message::ContentPart,
-    tool::{ToolCall, ToolExecutionError, ToolRegistry, ToolResult},
+    tool::{
+        DynTool, ToolCall, ToolDefinition, ToolExecutionError, ToolRegistry, ToolResult,
+        ToolRunnable,
+    },
 };
 use std::{
     future::Future,
@@ -140,5 +143,68 @@ impl<'a, R: ToolRegistry> Future for ExecuteToolsFuture<'a, R> {
                 return Poll::Ready(Ok(std::mem::take(&mut this.results)));
             }
         }
+    }
+}
+
+/// A general-purpose tool registry backed by type-erased [`DynTool`] objects.
+///
+/// This allows mixing tools of different types in a single registry without
+/// needing hand-written `EitherFuture` branches.
+///
+/// 基于类型擦除的通用工具注册表，支持将不同类型的工具混合注册而无需手写类型分支。
+pub struct DynToolRegistry {
+    tools: Vec<Box<dyn DynTool>>,
+}
+
+impl Default for DynToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DynToolRegistry {
+    /// Creates a new empty `DynToolRegistry`.
+    ///
+    /// 创建一个空的 `DynToolRegistry`。
+    pub fn new() -> Self {
+        Self { tools: Vec::new() }
+    }
+
+    /// Registers a tool into the registry.
+    ///
+    /// 将一个工具注册到注册表中。
+    pub fn register<T>(&mut self, tool: T) -> &mut Self
+    where
+        T: ToolRunnable + Clone + 'static,
+    {
+        self.tools.push(Box::new(tool));
+        self
+    }
+
+    /// Builder-style registration: consumes `self`, registers the tool, and returns `self`.
+    ///
+    /// Builder 风格的注册：消耗 `self`，注册工具后返回 `self`。
+    pub fn with<T>(mut self, tool: T) -> Self
+    where
+        T: ToolRunnable + Clone + 'static,
+    {
+        self.register(tool);
+        self
+    }
+}
+
+impl ToolRegistry for DynToolRegistry {
+    type ExecFuture =
+        Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>>;
+
+    fn definitions(&self) -> Vec<ToolDefinition> {
+        self.tools.iter().map(|t| t.definition()).collect()
+    }
+
+    fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture> {
+        self.tools
+            .iter()
+            .find(|t| t.definition().function.name == name)
+            .map(|t| t.execute(args))
     }
 }

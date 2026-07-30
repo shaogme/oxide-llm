@@ -8,7 +8,7 @@ authors.workspace = true
 [dependencies]
 oxide-llm = { workspace = true, features = ["transport-reqwest", "executor-tokio"] }
 futures = { workspace = true }
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 reqwest = "0.12"
 serde = { workspace = true }
 serde_json = { workspace = true }
