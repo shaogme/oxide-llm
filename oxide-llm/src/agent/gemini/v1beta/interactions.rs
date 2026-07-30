@@ -10,7 +10,7 @@ use oxide_llm_proto::gemini::v1beta::interactions::{
 };
 
 use crate::{
-    ChatAgent,
+    ChatAgent, Config,
     error::{AgentError, Result},
 };
 
@@ -48,9 +48,17 @@ impl<T: Transport> InteractionsAgent<T> {
     /// Set the configuration for the agent.
     ///
     /// 设置代理的配置。
-    pub fn with_config(mut self, config: InteractionsConfig) -> Self {
+    pub fn with_raw_config(mut self, config: InteractionsConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Set the configuration for the agent using generic `Config`.
+    ///
+    /// 使用通用 `Config` 设置代理配置。
+    pub fn with_config(mut self, config: Config) -> Result<Self> {
+        self.config = InteractionsConfig::try_from(config)?;
+        Ok(self)
     }
 
     /// Build a CreateInteractionRequest from the raw conversation state.
@@ -241,7 +249,8 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ///
     /// 发送聊天请求到 Gemini Interactions API。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = InteractionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state =
+            InteractionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let events = self.chat_raw(raw_state).await?;
         let mut mapper = GeminiInteractionsStreamMapper::new();
         let mut assembler = oxide_llm_core::message::MessageAssembler::new();
@@ -264,7 +273,8 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = InteractionsConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res =
+            InteractionsConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

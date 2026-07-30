@@ -10,8 +10,8 @@ use oxide_llm_proto::openai::v1::chat_completions::{
     response::ChatCompletionResponse,
 };
 
-use crate::ChatAgent;
 use crate::error::{AgentError, Result};
+use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -49,9 +49,17 @@ impl<T: Transport> ChatCompletionsAgent<T> {
     /// Set the configuration for the agent.
     ///
     /// 设置代理的配置。
-    pub fn with_config(mut self, config: ChatCompletionsConfig) -> Self {
+    pub fn with_raw_config(mut self, config: ChatCompletionsConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Set the configuration for the agent using generic `Config`.
+    ///
+    /// 使用通用 `Config` 设置代理配置。
+    pub fn with_config(mut self, config: Config) -> Result<Self> {
+        self.config = ChatCompletionsConfig::try_from(config)?;
+        Ok(self)
     }
 
     /// Build a ChatCompletionRequest from the raw conversation state.
@@ -81,10 +89,10 @@ impl<T: Transport> ChatCompletionsAgent<T> {
 
         let tools = if tools.is_empty() { None } else { Some(tools) };
 
-        let mut request = self
-            .config
-            .clone()
-            .to_request(messages, tools, tool_choice, stream, None);
+        let mut request =
+            self.config
+                .clone()
+                .to_request(messages, tools, tool_choice, stream, None);
 
         if stream && request.stream_options.is_none() {
             request.stream_options = Some(StreamOptions {
@@ -165,34 +173,30 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     type RawConversationState = ChatCompletionsConversationState;
     type RawMessage = ChatCompletionResponse;
     type RawDelta = OpenAIStreamChunk;
-    type RawStream =
-        crate::stream::MessageStream<T::Stream, RawOpenAIProcessor, OpenAIStreamChunk>;
+    type RawStream = crate::stream::MessageStream<T::Stream, RawOpenAIProcessor, OpenAIStreamChunk>;
     type ChatStreamRawFuture<'a>
         = crate::stream::AgentChatStreamRawFuture<
-            T::StreamFuture,
-            RawOpenAIProcessor,
-            OpenAIStreamChunk,
-        >
+        T::StreamFuture,
+        RawOpenAIProcessor,
+        OpenAIStreamChunk,
+    >
     where
         Self: 'a;
 
     type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
-            Self::ChatStreamRawFuture<'a>,
-            OpenAIStreamMapper,
-            Self::RawDelta,
-        >
+        Self::ChatStreamRawFuture<'a>,
+        OpenAIStreamMapper,
+        Self::RawDelta,
+    >
     where
         Self: 'a;
 
     /// Send a chat request to OpenAI and return raw response.
     ///
     /// 发送聊天请求到 OpenAI 并返回原始响应。
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<ChatCompletionResponse> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<ChatCompletionResponse> {
         let request = self.build_request(state, false)?;
 
         // Send Request
@@ -239,7 +243,8 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ///
     /// 发送聊天请求到 OpenAI。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state =
+            ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
@@ -259,7 +264,8 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res =
+            ChatCompletionsConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

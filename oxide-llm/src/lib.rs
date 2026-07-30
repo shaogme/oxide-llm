@@ -10,7 +10,9 @@ pub mod runner;
 pub mod stream;
 pub mod traits;
 
-pub use config::{ChatStreamConfig, ChatStreamRawConfig};
+pub use config::{
+    ChatStreamConfig, ChatStreamRawConfig, Config, OptionalConfig, ReasoningEffort, RequiredConfig,
+};
 pub use runner::{DefaultExecutor, Executor, Runner, SequentialExecutor};
 pub use traits::{ChatAgent, DynChatAgent};
 

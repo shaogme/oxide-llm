@@ -1,10 +1,14 @@
-use oxide_llm_proto::gemini::v1beta::generate_content::request::{
-    GenerateContentRequest, GenerationConfig, ImageConfig, MediaResolution, ResponseFormatConfig,
-    SafetySetting, SpeechConfig, ThinkingConfig, ThinkingLevel, ThinkingSummaries,
-    TranslationConfig, VideoConfig,
+use crate::{
+    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    error::AgentError,
 };
 use oxide_llm_proto::gemini::v1beta::generate_content::{
     Content, Modality, Schema, ServiceTier, Tool as GeminiTool, ToolConfig,
+    request::{
+        GenerateContentRequest, GenerationConfig, ImageConfig, MediaResolution,
+        ResponseFormatConfig, SafetySetting, SpeechConfig, ThinkingConfig, ThinkingLevel,
+        ThinkingSummaries, TranslationConfig, VideoConfig,
+    },
 };
 use ref_str::StaticRefStr;
 
@@ -497,10 +501,7 @@ impl GenerateContentOptionalConfig {
     }
 
     /// Set media resolution.
-    pub fn set_media_resolution(
-        &mut self,
-        media_resolution: Option<MediaResolution>,
-    ) -> &mut Self {
+    pub fn set_media_resolution(&mut self, media_resolution: Option<MediaResolution>) -> &mut Self {
         self.media_resolution = media_resolution;
         self
     }
@@ -782,6 +783,91 @@ impl GenerateContentConfig {
             cached_content: self.optional.cached_content,
             service_tier: self.optional.service_tier,
             store: self.optional.store,
+        }
+    }
+}
+
+impl TryFrom<RequiredConfig> for GenerateContentRequiredConfig {
+    type Error = AgentError;
+
+    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
+        let model = config
+            .model_static()
+            .ok_or_else(|| AgentError::Config("model is required".into()))?;
+        let endpoint = config
+            .endpoint_static()
+            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+
+        Ok(Self::new(model, endpoint))
+    }
+}
+
+impl TryFrom<OptionalConfig> for GenerateContentOptionalConfig {
+    type Error = AgentError;
+
+    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
+        let OptionalConfig {
+            temperature,
+            top_p,
+            top_k,
+            frequency_penalty,
+            presence_penalty,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
+
+        let mut optional = Self::new();
+        if let Some(temp) = temperature {
+            optional.set_temperature(Some(temp));
+        }
+        if let Some(top_p) = top_p {
+            optional.set_top_p(Some(top_p));
+        }
+        if let Some(top_k) = top_k {
+            optional.set_top_k(Some(top_k as i32));
+        }
+        if let Some(freq_pen) = frequency_penalty {
+            optional.set_frequency_penalty(Some(freq_pen));
+        }
+        if let Some(pres_pen) = presence_penalty {
+            optional.set_presence_penalty(Some(pres_pen));
+        }
+        if let Some(stop) = stop_sequences {
+            optional.set_stop_sequences(Some(stop));
+        }
+        if let Some(seed) = seed {
+            optional.set_seed(Some(seed as i32));
+        }
+        if let Some(effort) = reasoning_effort {
+            let level = match effort {
+                ReasoningEffort::None => ThinkingLevel::Minimal,
+                ReasoningEffort::Minimal => ThinkingLevel::Minimal,
+                ReasoningEffort::Low => ThinkingLevel::Low,
+                ReasoningEffort::Medium => ThinkingLevel::Medium,
+                ReasoningEffort::High => ThinkingLevel::High,
+                ReasoningEffort::Xhigh => ThinkingLevel::High,
+                ReasoningEffort::Max => ThinkingLevel::High,
+            };
+            optional.set_thinking_level(Some(level));
+        }
+        Ok(optional)
+    }
+}
+
+impl TryFrom<Config> for GenerateContentConfig {
+    type Error = AgentError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let (required, optional) = (config.required().clone(), config.optional().clone());
+        let required = GenerateContentRequiredConfig::try_from(required)?;
+        let optional = GenerateContentOptionalConfig::try_from(optional)?;
+        if let Some(max_tokens) = config.required().max_tokens() {
+            let mut optional = optional;
+            optional.set_max_output_tokens(Some(max_tokens as i32));
+            Ok(Self::new(required).with_optional(optional))
+        } else {
+            Ok(Self::new(required).with_optional(optional))
         }
     }
 }

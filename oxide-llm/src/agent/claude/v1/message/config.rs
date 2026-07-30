@@ -1,3 +1,7 @@
+use crate::{
+    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    error::AgentError,
+};
 use oxide_llm_proto::claude::v1::messages::{
     Container, Message as ClaudeMessage, MessagesRequest, Metadata, OutputConfig, OutputEffort,
     OutputFormat, SystemPrompt, ThinkingConfigParam, Tool, ToolChoice,
@@ -499,5 +503,78 @@ impl MessagesConfig {
             output_config,
             service_tier: self.optional.service_tier,
         }
+    }
+}
+
+impl TryFrom<RequiredConfig> for MessagesRequiredConfig {
+    type Error = AgentError;
+
+    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
+        let model = config
+            .model_static()
+            .ok_or_else(|| AgentError::Config("model is required".into()))?;
+        let max_tokens = config
+            .max_tokens()
+            .ok_or_else(|| AgentError::Config("max_tokens is required".into()))?;
+        let endpoint = config
+            .endpoint_static()
+            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+
+        Ok(Self::new(model, max_tokens, endpoint))
+    }
+}
+
+impl TryFrom<OptionalConfig> for MessagesOptionalConfig {
+    type Error = AgentError;
+
+    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
+        let OptionalConfig {
+            temperature,
+            top_p,
+            top_k,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences,
+            seed: _,
+            reasoning_effort,
+        } = config;
+
+        let mut optional = Self::new();
+        if let Some(temp) = temperature {
+            optional.set_temperature(Some(temp));
+        }
+        if let Some(top_p) = top_p {
+            optional.set_top_p(Some(top_p));
+        }
+        if let Some(top_k) = top_k {
+            optional.set_top_k(Some(top_k));
+        }
+        if let Some(stop) = stop_sequences {
+            optional.set_stop_sequences(Some(stop));
+        }
+        if let Some(effort) = reasoning_effort {
+            let output_effort = match effort {
+                ReasoningEffort::None => OutputEffort::Low,
+                ReasoningEffort::Minimal => OutputEffort::Low,
+                ReasoningEffort::Low => OutputEffort::Low,
+                ReasoningEffort::Medium => OutputEffort::Medium,
+                ReasoningEffort::High => OutputEffort::High,
+                ReasoningEffort::Xhigh => OutputEffort::Xhigh,
+                ReasoningEffort::Max => OutputEffort::Max,
+            };
+            optional.set_output_effort(Some(output_effort));
+        }
+        Ok(optional)
+    }
+}
+
+impl TryFrom<Config> for MessagesConfig {
+    type Error = AgentError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let (required, optional) = (config.required().clone(), config.optional().clone());
+        let required = MessagesRequiredConfig::try_from(required)?;
+        let optional = MessagesOptionalConfig::try_from(optional)?;
+        Ok(Self::new(required).with_optional(optional))
     }
 }

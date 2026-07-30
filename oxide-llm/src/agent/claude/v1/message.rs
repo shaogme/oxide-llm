@@ -8,8 +8,8 @@ use oxide_llm_proto::claude::v1::messages::{
     MessageStreamEvent as ClaudeStreamEvent, MessagesRequest, MessagesResponse, SystemPrompt,
 };
 
-use crate::ChatAgent;
 use crate::error::{AgentError, Result};
+use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -45,9 +45,17 @@ impl<T: Transport> MessagesAgent<T> {
     /// Set the configuration for the agent.
     ///
     /// 设置代理的配置。
-    pub fn with_config(mut self, config: MessagesConfig) -> Self {
+    pub fn with_raw_config(mut self, config: MessagesConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Set the configuration for the agent using generic `Config`.
+    ///
+    /// 使用通用 `Config` 设置代理配置。
+    pub fn with_config(mut self, config: Config) -> Result<Self> {
+        self.config = MessagesConfig::try_from(config)?;
+        Ok(self)
     }
 
     /// Build a MessagesRequest from the raw conversation state.
@@ -140,10 +148,7 @@ impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeStreamMapper {
         match self.map_response(raw) {
             Ok(delta) => Ok(Some(delta)),
             Err(e) => {
-                if matches!(
-                    e,
-                    oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }
-                ) {
+                if matches!(e, oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }) {
                     Ok(None)
                 } else {
                     Err(AgentError::Mapper(e))
@@ -157,30 +162,30 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     type RawConversationState = MessagesConversationState;
     type RawMessage = MessagesResponse;
     type RawDelta = ClaudeStreamEvent;
-    type RawStream =
-        crate::stream::MessageStream<T::Stream, RawClaudeProcessor, ClaudeStreamEvent>;
+    type RawStream = crate::stream::MessageStream<T::Stream, RawClaudeProcessor, ClaudeStreamEvent>;
     type ChatStreamRawFuture<'a>
-        = crate::stream::AgentChatStreamRawFuture<T::StreamFuture, RawClaudeProcessor, ClaudeStreamEvent>
+        = crate::stream::AgentChatStreamRawFuture<
+        T::StreamFuture,
+        RawClaudeProcessor,
+        ClaudeStreamEvent,
+    >
     where
         Self: 'a;
 
     type Stream = crate::stream::MappedStream<Self::RawStream, ClaudeStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
-            Self::ChatStreamRawFuture<'a>,
-            ClaudeStreamMapper,
-            Self::RawDelta,
-        >
+        Self::ChatStreamRawFuture<'a>,
+        ClaudeStreamMapper,
+        Self::RawDelta,
+    >
     where
         Self: 'a;
 
     /// Send a chat request to Claude and return raw response.
     ///
     /// 发送聊天请求到 Claude 并返回原始响应。
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<MessagesResponse> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<MessagesResponse> {
         let request = self.build_request(state, false)?;
 
         // Send Request

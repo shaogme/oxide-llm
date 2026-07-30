@@ -36,9 +36,7 @@ pub trait ChatAgent: Send + Sync {
     /// The future type returned by `chat_stream_raw`.
     ///
     /// `chat_stream_raw` 返回的 Future 类型。
-    type ChatStreamRawFuture<'a>: std::future::Future<Output = Result<Self::RawStream>>
-        + Send
-        + 'a
+    type ChatStreamRawFuture<'a>: std::future::Future<Output = Result<Self::RawStream>> + Send + 'a
     where
         Self: 'a;
 
@@ -59,10 +57,7 @@ pub trait ChatAgent: Send + Sync {
     /// Send a chat request and return the raw response message.
     ///
     /// 发送聊天请求并返回底层原始响应消息。
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Self::RawMessage>;
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Self::RawMessage>;
 
     /// Send a chat request and receive a stream of raw chunks with configuration.
     ///
@@ -120,10 +115,7 @@ impl<T: ChatAgent + ?Sized> ChatAgent for &T {
     where
         Self: 'a;
 
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Self::RawMessage> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
@@ -174,10 +166,7 @@ impl<T: ChatAgent + ?Sized> ChatAgent for Box<T> {
     where
         Self: 'a;
 
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Self::RawMessage> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
@@ -228,10 +217,7 @@ impl<T: ChatAgent + ?Sized> ChatAgent for std::sync::Arc<T> {
     where
         Self: 'a;
 
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Self::RawMessage> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Self::RawMessage> {
         (**self).chat_raw(state).await
     }
 
@@ -314,10 +300,7 @@ impl ChatAgent for dyn DynChatAgent + '_ {
     where
         Self: 'a;
 
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Self::RawMessage> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Self::RawMessage> {
         DynChatAgent::chat(self, state).await
     }
 
@@ -371,8 +354,8 @@ mod tests {
     #[test]
     fn test_chat_stream_hooks() {
         use std::sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         };
 
         struct TestAgent;
@@ -390,7 +373,8 @@ mod tests {
                 TestMapper,
                 String,
             >;
-            type ChatStreamFuture<'a> = std::future::Ready<Result<ChatStream<Self::Stream, AgentError>>>;
+            type ChatStreamFuture<'a> =
+                std::future::Ready<Result<ChatStream<Self::Stream, AgentError>>>;
 
             async fn chat_raw(
                 &self,
@@ -404,7 +388,8 @@ mod tests {
                 _state: Self::RawConversationState,
                 mut config: ChatStreamRawConfig<Self::RawDelta>,
             ) -> Self::ChatStreamRawFuture<'a> {
-                let raw_stream = futures::stream::iter(vec![Ok("chunk1".to_string()), Ok("chunk2".to_string())]);
+                let raw_stream =
+                    futures::stream::iter(vec![Ok("chunk1".to_string()), Ok("chunk2".to_string())]);
                 let on_raw = config.take_on_raw_delta();
                 let hook_stream = crate::stream::RawHookStream::new(raw_stream, on_raw);
                 std::future::ready(Ok(hook_stream))
@@ -419,10 +404,13 @@ mod tests {
                 _state: ConversationState,
                 mut config: ChatStreamConfig<Self::RawDelta>,
             ) -> Self::ChatStreamFuture<'a> {
-                let raw_stream = futures::stream::iter(vec![Ok("chunk1".to_string()), Ok("chunk2".to_string())]);
+                let raw_stream =
+                    futures::stream::iter(vec![Ok("chunk1".to_string()), Ok("chunk2".to_string())]);
                 let on_raw = config.take_on_raw_delta();
                 let on_delta = config.take_on_delta();
-                let mapped = crate::stream::MappedStream::with_hooks(raw_stream, TestMapper, on_raw, on_delta);
+                let mapped = crate::stream::MappedStream::with_hooks(
+                    raw_stream, TestMapper, on_raw, on_delta,
+                );
                 std::future::ready(Ok(ChatStream::new(mapped)))
             }
         }
@@ -455,8 +443,11 @@ mod tests {
             });
 
             use futures::StreamExt;
-            let mut raw_stream = agent.chat_stream_raw_with(ConversationState::new(None), raw_config).await.unwrap();
-            while let Some(_) = raw_stream.next().await {}
+            let mut raw_stream = agent
+                .chat_stream_raw_with(ConversationState::new(None), raw_config)
+                .await
+                .unwrap();
+            while raw_stream.next().await.is_some() {}
             assert_eq!(raw_count_1.load(Ordering::SeqCst), 2);
 
             // 2. Test chat_stream_with
@@ -474,8 +465,11 @@ mod tests {
                     delta_c2.fetch_add(1, Ordering::SeqCst);
                 });
 
-            let mut stream = agent.chat_stream_with(ConversationState::new(None), config).await.unwrap();
-            while let Some(_) = stream.next().await {}
+            let mut stream = agent
+                .chat_stream_with(ConversationState::new(None), config)
+                .await
+                .unwrap();
+            while stream.next().await.is_some() {}
 
             assert_eq!(raw_count_2.load(Ordering::SeqCst), 2);
             assert_eq!(delta_count_2.load(Ordering::SeqCst), 2);

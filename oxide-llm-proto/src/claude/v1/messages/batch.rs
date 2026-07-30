@@ -174,7 +174,7 @@ pub enum MessageBatchResult {
         /// The generated message response.
         ///
         /// 生成的消息响应。
-        message: MessagesResponse,
+        message: Box<MessagesResponse>,
     },
 
     /// The request resulted in an error.

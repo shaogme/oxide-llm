@@ -1,7 +1,14 @@
 use std::collections::HashMap;
 
-use oxide_llm_proto::openai::v1::response::request::{CreateResponseRequest, InputParam};
-use oxide_llm_proto::openai::v1::response::{Tool, ToolChoice};
+use crate::{
+    config::{Config, OptionalConfig, ReasoningEffort as ConfigReasoningEffort, RequiredConfig},
+    error::AgentError,
+};
+use oxide_llm_proto::openai::v1::response::{
+    Tool, ToolChoice,
+    config::{ConversationParam, ReasoningConf, ReasoningEffort},
+    request::{CreateResponseRequest, InputParam, ResponseStreamOptions},
+};
 use ref_str::StaticRefStr;
 
 /// Configuration for OpenAI Responses Agent (Required).
@@ -78,7 +85,10 @@ pub struct ResponsesOptionalConfig {
     max_output_tokens: Option<u32>,
     max_tool_calls: Option<u32>,
     previous_response_id: Option<StaticRefStr>,
+    stream_options: Option<ResponseStreamOptions>,
+    conversation: Option<ConversationParam>,
     background: Option<bool>,
+    reasoning: Option<ReasoningConf>,
 }
 
 impl ResponsesOptionalConfig {
@@ -380,6 +390,43 @@ impl ResponsesOptionalConfig {
         self
     }
 
+    /// Get stream options.
+    pub fn stream_options(&self) -> Option<&ResponseStreamOptions> {
+        self.stream_options.as_ref()
+    }
+
+    /// Set stream options.
+    pub fn set_stream_options(
+        &mut self,
+        stream_options: Option<ResponseStreamOptions>,
+    ) -> &mut Self {
+        self.stream_options = stream_options;
+        self
+    }
+
+    /// Set stream options (builder pattern).
+    pub fn with_stream_options(mut self, stream_options: ResponseStreamOptions) -> Self {
+        self.stream_options = Some(stream_options);
+        self
+    }
+
+    /// Get conversation parameter.
+    pub fn conversation(&self) -> Option<&ConversationParam> {
+        self.conversation.as_ref()
+    }
+
+    /// Set conversation parameter.
+    pub fn set_conversation(&mut self, conversation: Option<ConversationParam>) -> &mut Self {
+        self.conversation = conversation;
+        self
+    }
+
+    /// Set conversation parameter (builder pattern).
+    pub fn with_conversation(mut self, conversation: ConversationParam) -> Self {
+        self.conversation = Some(conversation);
+        self
+    }
+
     /// Get background option.
     pub fn background(&self) -> Option<bool> {
         self.background
@@ -394,6 +441,23 @@ impl ResponsesOptionalConfig {
     /// Set background option (builder pattern).
     pub fn with_background(mut self, background: bool) -> Self {
         self.background = Some(background);
+        self
+    }
+
+    /// Get reasoning config.
+    pub fn reasoning(&self) -> Option<&ReasoningConf> {
+        self.reasoning.as_ref()
+    }
+
+    /// Set reasoning config.
+    pub fn set_reasoning(&mut self, reasoning: Option<ReasoningConf>) -> &mut Self {
+        self.reasoning = reasoning;
+        self
+    }
+
+    /// Set reasoning config (builder pattern).
+    pub fn with_reasoning(mut self, reasoning: ReasoningConf) -> Self {
+        self.reasoning = Some(reasoning);
         self
     }
 }
@@ -460,8 +524,8 @@ impl ResponsesConfig {
             store: self.optional.store,
             instructions: self.optional.instructions,
             stream,
-            stream_options: None,
-            conversation: None,
+            stream_options: self.optional.stream_options,
+            conversation: self.optional.conversation,
             metadata: self.optional.metadata,
             top_logprobs: self.optional.top_logprobs,
             temperature: self.optional.temperature,
@@ -476,11 +540,85 @@ impl ResponsesConfig {
             max_output_tokens: self.optional.max_output_tokens,
             max_tool_calls: self.optional.max_tool_calls,
             previous_response_id: self.optional.previous_response_id,
-            reasoning: None,
+            reasoning: self.optional.reasoning,
             background: self.optional.background,
             text: None,
             prompt: None,
             truncation: None,
+        }
+    }
+}
+
+impl TryFrom<RequiredConfig> for ResponsesRequiredConfig {
+    type Error = AgentError;
+
+    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
+        let model = config
+            .model_static()
+            .ok_or_else(|| AgentError::Config("model is required".into()))?;
+        let endpoint = config
+            .endpoint_static()
+            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+
+        Ok(Self::new(model, endpoint))
+    }
+}
+
+impl TryFrom<OptionalConfig> for ResponsesOptionalConfig {
+    type Error = AgentError;
+
+    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
+        let OptionalConfig {
+            temperature,
+            top_p,
+            top_k: _,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences: _,
+            seed: _,
+            reasoning_effort,
+        } = config;
+
+        let mut optional = Self::new();
+        if let Some(temp) = temperature {
+            optional.set_temperature(Some(temp));
+        }
+        if let Some(top_p) = top_p {
+            optional.set_top_p(Some(top_p));
+        }
+        if let Some(effort) = reasoning_effort {
+            let reasoning_effort = match effort {
+                ConfigReasoningEffort::None => ReasoningEffort::None,
+                ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
+                ConfigReasoningEffort::Low => ReasoningEffort::Low,
+                ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
+                ConfigReasoningEffort::High => ReasoningEffort::High,
+                ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
+                ConfigReasoningEffort::Max => ReasoningEffort::High,
+            };
+            optional.set_reasoning(Some(ReasoningConf {
+                effort: Some(reasoning_effort),
+                summary: None,
+                generate_summary: None,
+            }));
+        }
+        Ok(optional)
+    }
+}
+
+impl TryFrom<Config> for ResponsesConfig {
+    type Error = AgentError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let (required, optional) = (config.required().clone(), config.optional().clone());
+        let required = ResponsesRequiredConfig::try_from(required)?;
+        let optional = ResponsesOptionalConfig::try_from(optional)?;
+        if let Some(max_tokens) = config.required().max_tokens() {
+            let mut optional = optional;
+            optional.set_max_output_tokens(Some(max_tokens));
+            Ok(Self::new(required).with_optional(optional))
+        } else {
+            Ok(Self::new(required).with_optional(optional))
         }
     }
 }

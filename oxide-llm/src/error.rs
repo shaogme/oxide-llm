@@ -16,6 +16,8 @@ set! {
         AlreadyPolled(String),
         #[display("Tool execution error: {0}")]
         ToolExecution(String),
+        #[display("Configuration error: {0}")]
+        Config(String),
     }
 }
 

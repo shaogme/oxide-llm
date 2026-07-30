@@ -100,7 +100,7 @@ mod tests {
         let required = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
         let mut agent_config = ResponsesConfig::new(required.clone());
         agent_config.optional_mut().set_store(Some(true));
-        let agent = ResponsesAgent::new(transport, required).with_config(agent_config);
+        let agent = ResponsesAgent::new(transport, required).with_raw_config(agent_config);
 
         let runner = Runner::new(agent.clone());
         let mut state = ConversationState::new(None);
@@ -148,7 +148,7 @@ mod tests {
         updated_config
             .optional_mut()
             .set_previous_response_id(Some(previous_response_id));
-        let agent_step2 = agent.with_config(updated_config);
+        let agent_step2 = agent.with_raw_config(updated_config);
 
         let runner_step2 = Runner::new(agent_step2);
         let mut state_step2 = ConversationState::new(None);

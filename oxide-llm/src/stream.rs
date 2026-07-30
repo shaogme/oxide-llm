@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::BytesMut;
-use futures::{ready, Stream};
+use futures::{Stream, ready};
 use oxide_llm_core::message::{ChatStream, DeltaMessage};
 use oxide_llm_core::transport::TransportError;
 
@@ -54,11 +54,7 @@ impl<S, P, Item> MessageStream<S, P, Item> {
         }
     }
 
-    pub fn with_hook(
-        stream: S,
-        processor: P,
-        on_raw_delta: Option<RawDeltaHook<Item>>,
-    ) -> Self {
+    pub fn with_hook(stream: S, processor: P, on_raw_delta: Option<RawDeltaHook<Item>>) -> Self {
         Self {
             stream,
             buffer: BytesMut::new(),
@@ -186,7 +182,8 @@ where
                             .take()
                             .expect("processor polled after completion");
                         let on_raw_delta = this.on_raw_delta.take();
-                        let message_stream = MessageStream::with_hook(stream, processor, on_raw_delta);
+                        let message_stream =
+                            MessageStream::with_hook(stream, processor, on_raw_delta);
                         Poll::Ready(Ok(message_stream))
                     }
                     Poll::Ready(Err(e)) => Poll::Ready(Err(AgentError::Transport(e))),
@@ -214,11 +211,11 @@ pub struct RawHookStream<S, RawDelta> {
 
 impl<S, RawDelta> RawHookStream<S, RawDelta> {
     /// Creates a new `RawHookStream`.
-    pub fn new(
-        stream: S,
-        on_raw_delta: Option<RawDeltaHook<RawDelta>>,
-    ) -> Self {
-        Self { stream, on_raw_delta }
+    pub fn new(stream: S, on_raw_delta: Option<RawDeltaHook<RawDelta>>) -> Self {
+        Self {
+            stream,
+            on_raw_delta,
+        }
     }
 }
 
@@ -386,7 +383,8 @@ where
                     .expect("AgentChatStreamFuture polled after completion");
                 let on_raw_delta = this.on_raw_delta.take();
                 let on_delta = this.on_delta.take();
-                let mapped_stream = MappedStream::with_hooks(raw_stream, mapper, on_raw_delta, on_delta);
+                let mapped_stream =
+                    MappedStream::with_hooks(raw_stream, mapper, on_raw_delta, on_delta);
                 Poll::Ready(Ok(ChatStream::new(mapped_stream)))
             }
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),

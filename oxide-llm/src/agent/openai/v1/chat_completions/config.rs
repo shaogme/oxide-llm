@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
-use oxide_llm_proto::openai::v1::chat_completions::request::{
-    AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
-    Stop, StreamOptions, WebSearchOptions,
+use crate::{
+    config::{Config, OptionalConfig, ReasoningEffort as ConfigReasoningEffort, RequiredConfig},
+    error::AgentError,
 };
 use oxide_llm_proto::openai::v1::chat_completions::{
     FunctionDefinition, ReasoningEffort, Tool, ToolChoice,
+    request::{
+        AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent,
+        ResponseFormat, Stop, StreamOptions, WebSearchOptions,
+    },
 };
 use ref_str::StaticRefStr;
 
@@ -519,10 +523,7 @@ impl ChatCompletionsOptionalConfig {
     }
 
     /// Set reasoning effort.
-    pub fn set_reasoning_effort(
-        &mut self,
-        reasoning_effort: Option<ReasoningEffort>,
-    ) -> &mut Self {
+    pub fn set_reasoning_effort(&mut self, reasoning_effort: Option<ReasoningEffort>) -> &mut Self {
         self.reasoning_effort = reasoning_effort;
         self
     }
@@ -548,10 +549,7 @@ impl ChatCompletionsOptionalConfig {
     }
 
     /// Set metadata (builder pattern).
-    pub fn with_metadata(
-        mut self,
-        metadata: HashMap<StaticRefStr, StaticRefStr>,
-    ) -> Self {
+    pub fn with_metadata(mut self, metadata: HashMap<StaticRefStr, StaticRefStr>) -> Self {
         self.metadata = Some(metadata);
         self
     }
@@ -645,6 +643,93 @@ impl ChatCompletionsConfig {
             verbosity: self.optional.verbosity,
             reasoning_effort: self.optional.reasoning_effort,
             metadata: self.optional.metadata,
+        }
+    }
+}
+
+impl TryFrom<RequiredConfig> for ChatCompletionsRequiredConfig {
+    type Error = AgentError;
+
+    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
+        let model = config
+            .model_static()
+            .ok_or_else(|| AgentError::Config("model is required".into()))?;
+        let endpoint = config
+            .endpoint_static()
+            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+
+        Ok(Self::new(model, endpoint))
+    }
+}
+
+impl TryFrom<OptionalConfig> for ChatCompletionsOptionalConfig {
+    type Error = AgentError;
+
+    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
+        let OptionalConfig {
+            temperature,
+            top_p,
+            top_k: _,
+            frequency_penalty,
+            presence_penalty,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
+
+        let mut optional = Self::new();
+        if let Some(temp) = temperature {
+            optional.set_temperature(Some(temp));
+        }
+        if let Some(top_p) = top_p {
+            optional.set_top_p(Some(top_p));
+        }
+        if let Some(freq_pen) = frequency_penalty {
+            optional.set_frequency_penalty(Some(freq_pen));
+        }
+        if let Some(pres_pen) = presence_penalty {
+            optional.set_presence_penalty(Some(pres_pen));
+        }
+        if let Some(stop) = stop_sequences {
+            let stop_val = if stop.len() == 1 {
+                Stop::String(stop[0].clone())
+            } else {
+                Stop::Array(stop)
+            };
+            optional.set_stop(Some(stop_val));
+        }
+        if let Some(seed) = seed {
+            optional.set_seed(Some(seed));
+        }
+        if let Some(effort) = reasoning_effort {
+            let reasoning_effort = match effort {
+                ConfigReasoningEffort::None => ReasoningEffort::None,
+                ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
+                ConfigReasoningEffort::Low => ReasoningEffort::Low,
+                ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
+                ConfigReasoningEffort::High => ReasoningEffort::High,
+                ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
+                ConfigReasoningEffort::Max => ReasoningEffort::High,
+            };
+            optional.set_reasoning_effort(Some(reasoning_effort));
+        }
+        Ok(optional)
+    }
+}
+
+impl TryFrom<Config> for ChatCompletionsConfig {
+    type Error = AgentError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let (required, optional) = (config.required().clone(), config.optional().clone());
+        let required = ChatCompletionsRequiredConfig::try_from(required)?;
+        let optional = ChatCompletionsOptionalConfig::try_from(optional)?;
+        if let Some(max_tokens) = config.required().max_tokens() {
+            let mut optional = optional;
+            optional.set_max_tokens(Some(max_tokens));
+            Ok(Self::new(required).with_optional(optional))
+        } else {
+            Ok(Self::new(required).with_optional(optional))
         }
     }
 }

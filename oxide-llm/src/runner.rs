@@ -559,7 +559,7 @@ mod tests {
         use futures::StreamExt;
         futures::executor::block_on(async {
             let mut s = stream;
-            while let Some(_) = s.next().await {}
+            while s.next().await.is_some() {}
         });
 
         // DummyAgent produces an empty stream, but run_stream_with correctly constructs and executes.

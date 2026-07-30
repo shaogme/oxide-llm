@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use crate::{
+    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    error::AgentError,
+};
 use oxide_llm_proto::gemini::v1beta::interactions::{
     agent::AgentConfig,
     request::{
@@ -424,10 +428,7 @@ impl InteractionsOptionalConfig {
     /// Set tool choice.
     ///
     /// 设置工具选择配置。
-    pub fn set_tool_choice(
-        &mut self,
-        tool_choice: Option<GeminiRequestToolChoice>,
-    ) -> &mut Self {
+    pub fn set_tool_choice(&mut self, tool_choice: Option<GeminiRequestToolChoice>) -> &mut Self {
         self.tool_choice = tool_choice;
         self
     }
@@ -461,10 +462,7 @@ impl InteractionsOptionalConfig {
     /// Set transcription config (builder pattern).
     ///
     /// 设置语音识别（转录）配置（构建器模式）。
-    pub fn with_transcription_config(
-        mut self,
-        transcription_config: TranscriptionConfig,
-    ) -> Self {
+    pub fn with_transcription_config(mut self, transcription_config: TranscriptionConfig) -> Self {
         self.transcription_config = Some(transcription_config);
         self
     }
@@ -779,6 +777,77 @@ impl InteractionsConfig {
             safety_settings: self.optional.safety_settings.clone(),
             service_tier: self.optional.service_tier.clone(),
             webhook_config: self.optional.webhook_config.clone(),
+        }
+    }
+}
+
+impl TryFrom<RequiredConfig> for InteractionsRequiredConfig {
+    type Error = AgentError;
+
+    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
+        let endpoint = config
+            .endpoint_static()
+            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+
+        let mut req = Self::new(endpoint);
+        if let Some(model) = config.model_static() {
+            req.set_model(Some(model));
+        }
+        Ok(req)
+    }
+}
+
+impl TryFrom<OptionalConfig> for InteractionsOptionalConfig {
+    type Error = AgentError;
+
+    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
+        let OptionalConfig {
+            temperature: _,
+            top_p: _,
+            top_k: _,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
+
+        let mut optional = Self::new();
+        if let Some(stop) = stop_sequences {
+            optional.set_stop_sequences(Some(stop));
+        }
+        if let Some(seed) = seed {
+            optional.set_seed(Some(seed as i32));
+        }
+        if let Some(effort) = reasoning_effort {
+            let level = match effort {
+                ReasoningEffort::None => ThinkingLevel::Minimal,
+                ReasoningEffort::Minimal => ThinkingLevel::Minimal,
+                ReasoningEffort::Low => ThinkingLevel::Low,
+                ReasoningEffort::Medium => ThinkingLevel::Medium,
+                ReasoningEffort::High => ThinkingLevel::High,
+                ReasoningEffort::Xhigh => ThinkingLevel::High,
+                ReasoningEffort::Max => ThinkingLevel::High,
+            };
+            optional.set_thinking_level(Some(level));
+        }
+        Ok(optional)
+    }
+}
+
+impl TryFrom<Config> for InteractionsConfig {
+    type Error = AgentError;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let (required, optional) = (config.required().clone(), config.optional().clone());
+        let required = InteractionsRequiredConfig::try_from(required)?;
+        let optional = InteractionsOptionalConfig::try_from(optional)?;
+        if let Some(max_tokens) = config.required().max_tokens() {
+            let mut optional = optional;
+            optional.set_max_output_tokens(Some(max_tokens as i32));
+            Ok(Self::new(required).with_optional(optional))
+        } else {
+            Ok(Self::new(required).with_optional(optional))
         }
     }
 }

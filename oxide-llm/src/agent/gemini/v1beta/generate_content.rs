@@ -1,18 +1,16 @@
 use oxide_llm_core::mapper::gemini::v1beta::{
-    GenerateContentConversationState, GeminiGenerateContentMapper,
-    GeminiGenerateContentStreamMapper,
+    GeminiGenerateContentMapper, GeminiGenerateContentStreamMapper,
+    GenerateContentConversationState,
 };
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
 use oxide_llm_core::transport::{Method, Transport, TransportRequest};
 use oxide_llm_proto::gemini::v1beta::generate_content::request::GenerateContentRequest;
 use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
-use oxide_llm_proto::gemini::v1beta::generate_content::{
-    Content, Part, Tool as GeminiTool,
-};
+use oxide_llm_proto::gemini::v1beta::generate_content::{Content, Part, Tool as GeminiTool};
 
-use crate::ChatAgent;
 use crate::error::{AgentError, Result};
+use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -50,9 +48,17 @@ impl<T: Transport> GenerateContentAgent<T> {
     /// Set the configuration for the agent.
     ///
     /// 设置代理的配置。
-    pub fn with_config(mut self, config: GenerateContentConfig) -> Self {
+    pub fn with_raw_config(mut self, config: GenerateContentConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Set the configuration for the agent using generic `Config`.
+    ///
+    /// 使用通用 `Config` 设置代理配置。
+    pub fn with_config(mut self, config: Config) -> Result<Self> {
+        self.config = GenerateContentConfig::try_from(config)?;
+        Ok(self)
     }
 
     /// Build a GenerateContentRequest from the raw conversation state.
@@ -92,12 +98,10 @@ impl<T: Transport> GenerateContentAgent<T> {
             }])
         };
 
-        Ok(self.config.clone().to_request(
-            messages,
-            system_instruction,
-            gemini_tools,
-            tool_choice,
-        ))
+        Ok(self
+            .config
+            .clone()
+            .to_request(messages, system_instruction, gemini_tools, tool_choice))
     }
 }
 
@@ -159,9 +163,7 @@ impl crate::stream::SseProcessor<GenerateContentResponse> for RawGeminiProcessor
     }
 }
 
-impl crate::stream::StreamMapper<GenerateContentResponse>
-    for GeminiGenerateContentStreamMapper
-{
+impl crate::stream::StreamMapper<GenerateContentResponse> for GeminiGenerateContentStreamMapper {
     fn map_item(&mut self, raw: GenerateContentResponse) -> Result<Option<DeltaMessage>> {
         self.map_response(raw).map(Some).map_err(AgentError::Mapper)
     }
@@ -175,30 +177,31 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         crate::stream::MessageStream<T::Stream, RawGeminiProcessor, GenerateContentResponse>;
     type ChatStreamRawFuture<'a>
         = crate::stream::AgentChatStreamRawFuture<
-            T::StreamFuture,
-            RawGeminiProcessor,
-            GenerateContentResponse,
-        >
+        T::StreamFuture,
+        RawGeminiProcessor,
+        GenerateContentResponse,
+    >
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, GeminiGenerateContentStreamMapper, Self::RawDelta>;
+    type Stream = crate::stream::MappedStream<
+        Self::RawStream,
+        GeminiGenerateContentStreamMapper,
+        Self::RawDelta,
+    >;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
-            Self::ChatStreamRawFuture<'a>,
-            GeminiGenerateContentStreamMapper,
-            Self::RawDelta,
-        >
+        Self::ChatStreamRawFuture<'a>,
+        GeminiGenerateContentStreamMapper,
+        Self::RawDelta,
+    >
     where
         Self: 'a;
 
     /// Send a chat request to Gemini and return raw response.
     ///
     /// 发送聊天请求到 Gemini 并返回原始响应。
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<GenerateContentResponse> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<GenerateContentResponse> {
         let request = self.build_request(state)?;
 
         let endpoint = format!("{}:generateContent", self.config.required().endpoint());
@@ -251,7 +254,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     ///
     /// 发送聊天请求到 Gemini。
     async fn chat(&self, state: ConversationState) -> Result<Message> {
-        let raw_state = GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper)?;
+        let raw_state =
+            GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper)?;
         let response = self.chat_raw(raw_state).await?;
 
         // Convert Response back to Core Message
@@ -271,7 +275,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     ) -> Self::ChatStreamFuture<'a> {
         let on_raw_delta = config.take_on_raw_delta();
         let on_delta = config.take_on_delta();
-        let raw_state_res = GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper);
+        let raw_state_res =
+            GenerateContentConversationState::try_from(state).map_err(AgentError::Mapper);
         let raw_stream_fut = match raw_state_res {
             Ok(raw_state) => self.chat_stream_raw(raw_state),
             Err(e) => crate::stream::AgentChatStreamRawFuture::with_hook(

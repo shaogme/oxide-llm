@@ -11,6 +11,7 @@ use oxide_llm_proto::openai::v1::response::{
 };
 
 use crate::ChatAgent;
+use crate::config::Config;
 use crate::error::{AgentError, Result};
 
 pub mod config;
@@ -41,9 +42,17 @@ impl<T: Transport> ResponsesAgent<T> {
     /// Set the configuration for the agent.
     ///
     /// 设置代理的配置。
-    pub fn with_config(mut self, config: ResponsesConfig) -> Self {
+    pub fn with_raw_config(mut self, config: ResponsesConfig) -> Self {
         self.config = config;
         self
+    }
+
+    /// Set the configuration for the agent using generic `Config`.
+    ///
+    /// 使用通用 `Config` 设置代理配置。
+    pub fn with_config(mut self, config: Config) -> Result<Self> {
+        self.config = ResponsesConfig::try_from(config)?;
+        Ok(self)
     }
 
     /// Get reference to the agent configuration.
@@ -59,7 +68,6 @@ impl<T: Transport> ResponsesAgent<T> {
     pub fn config_mut(&mut self) -> &mut ResponsesConfig {
         &mut self.config
     }
-
 
     /// Build a CreateResponseRequest from the raw conversation state.
     ///
@@ -163,30 +171,28 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
         crate::stream::MessageStream<T::Stream, RawOpenAIResponseProcessor, ResponseStreamEvent>;
     type ChatStreamRawFuture<'a>
         = crate::stream::AgentChatStreamRawFuture<
-            T::StreamFuture,
-            RawOpenAIResponseProcessor,
-            ResponseStreamEvent,
-        >
+        T::StreamFuture,
+        RawOpenAIResponseProcessor,
+        ResponseStreamEvent,
+    >
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, OpenAIResponseStreamMapper, Self::RawDelta>;
+    type Stream =
+        crate::stream::MappedStream<Self::RawStream, OpenAIResponseStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
-            Self::ChatStreamRawFuture<'a>,
-            OpenAIResponseStreamMapper,
-            Self::RawDelta,
-        >
+        Self::ChatStreamRawFuture<'a>,
+        OpenAIResponseStreamMapper,
+        Self::RawDelta,
+    >
     where
         Self: 'a;
 
     /// Send a response request to OpenAI and return raw response.
     ///
     /// 发送 Response 请求到 OpenAI 并返回原始响应。
-    async fn chat_raw(
-        &self,
-        state: Self::RawConversationState,
-    ) -> Result<Response> {
+    async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Response> {
         let request = self.build_request(state, false)?;
 
         let transport_req = TransportRequest::new(
@@ -268,5 +274,3 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
         )
     }
 }
-
-
