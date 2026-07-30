@@ -781,6 +781,19 @@ impl InteractionsConfig {
     }
 }
 
+impl crate::agent::builder::AgentConfigTrait for InteractionsConfig {
+    type Required = InteractionsRequiredConfig;
+    type Optional = InteractionsOptionalConfig;
+
+    fn from_required(required: Self::Required) -> Self {
+        Self::new(required)
+    }
+
+    fn with_optional(self, optional: Self::Optional) -> Self {
+        self.with_optional(optional)
+    }
+}
+
 impl TryFrom<RequiredConfig> for InteractionsRequiredConfig {
     type Error = AgentError;
 

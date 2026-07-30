@@ -10,7 +10,7 @@ use oxide_llm_proto::gemini::v1beta::interactions::{
 };
 
 use crate::{
-    ChatAgent, Config,
+    ChatAgent,
     error::{AgentError, Result},
 };
 
@@ -34,31 +34,25 @@ pub struct InteractionsAgent<T: Clone> {
     config: InteractionsConfig,
 }
 
+pub type InteractionsAgentBuilder<T> =
+    crate::agent::builder::AgentBuilder<T, InteractionsConfig, InteractionsAgent<T>>;
+
+impl<T: Transport> InteractionsAgentBuilder<T> {
+    /// Build the `InteractionsAgent`.
+    ///
+    /// 构建 `InteractionsAgent`。
+    pub fn build(self) -> Result<InteractionsAgent<T>> {
+        let (transport, config) = self.build_config()?;
+        Ok(InteractionsAgent { transport, config })
+    }
+}
+
 impl<T: Transport> InteractionsAgent<T> {
-    /// Create a new InteractionsAgent.
+    /// Create a new builder for InteractionsAgent.
     ///
-    /// 创建一个新的 InteractionsAgent。
-    pub fn new(transport: T, required: InteractionsRequiredConfig) -> Self {
-        Self {
-            transport,
-            config: InteractionsConfig::new(required),
-        }
-    }
-
-    /// Set the configuration for the agent.
-    ///
-    /// 设置代理的配置。
-    pub fn with_raw_config(mut self, config: InteractionsConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Set the configuration for the agent using generic `Config`.
-    ///
-    /// 使用通用 `Config` 设置代理配置。
-    pub fn with_config(mut self, config: Config) -> Result<Self> {
-        self.config = InteractionsConfig::try_from(config)?;
-        Ok(self)
+    /// 创建 InteractionsAgent 的构建器。
+    pub fn builder(transport: T) -> InteractionsAgentBuilder<T> {
+        InteractionsAgentBuilder::new(transport)
     }
 
     /// Build a CreateInteractionRequest from the raw conversation state.

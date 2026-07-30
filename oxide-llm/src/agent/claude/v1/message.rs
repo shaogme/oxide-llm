@@ -8,8 +8,8 @@ use oxide_llm_proto::claude::v1::messages::{
     MessageStreamEvent as ClaudeStreamEvent, MessagesRequest, MessagesResponse, SystemPrompt,
 };
 
+use crate::ChatAgent;
 use crate::error::{AgentError, Result};
-use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -31,31 +31,25 @@ pub struct MessagesAgent<T: Clone> {
     config: MessagesConfig,
 }
 
+pub type MessagesAgentBuilder<T> =
+    crate::agent::builder::AgentBuilder<T, MessagesConfig, MessagesAgent<T>>;
+
+impl<T: Transport> MessagesAgentBuilder<T> {
+    /// Build the `MessagesAgent`.
+    ///
+    /// 构建 `MessagesAgent`。
+    pub fn build(self) -> Result<MessagesAgent<T>> {
+        let (transport, config) = self.build_config()?;
+        Ok(MessagesAgent { transport, config })
+    }
+}
+
 impl<T: Transport> MessagesAgent<T> {
-    /// Create a new MessagesAgent.
+    /// Create a new builder for MessagesAgent.
     ///
-    /// 创建一个新的 MessagesAgent。
-    pub fn new(transport: T, required: MessagesRequiredConfig) -> Self {
-        Self {
-            transport,
-            config: MessagesConfig::new(required),
-        }
-    }
-
-    /// Set the configuration for the agent.
-    ///
-    /// 设置代理的配置。
-    pub fn with_raw_config(mut self, config: MessagesConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Set the configuration for the agent using generic `Config`.
-    ///
-    /// 使用通用 `Config` 设置代理配置。
-    pub fn with_config(mut self, config: Config) -> Result<Self> {
-        self.config = MessagesConfig::try_from(config)?;
-        Ok(self)
+    /// 创建 MessagesAgent 的构建器。
+    pub fn builder(transport: T) -> MessagesAgentBuilder<T> {
+        MessagesAgentBuilder::new(transport)
     }
 
     /// Build a MessagesRequest from the raw conversation state.

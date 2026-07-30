@@ -524,6 +524,19 @@ impl TryFrom<RequiredConfig> for MessagesRequiredConfig {
     }
 }
 
+impl crate::agent::builder::AgentConfigTrait for MessagesConfig {
+    type Required = MessagesRequiredConfig;
+    type Optional = MessagesOptionalConfig;
+
+    fn from_required(required: Self::Required) -> Self {
+        Self::new(required)
+    }
+
+    fn with_optional(self, optional: Self::Optional) -> Self {
+        self.with_optional(optional)
+    }
+}
+
 impl TryFrom<OptionalConfig> for MessagesOptionalConfig {
     type Error = AgentError;
 

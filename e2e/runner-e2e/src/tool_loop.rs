@@ -26,7 +26,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         // Register WeatherTool with runner
         let runner = Runner::new(agent).with_tool(WeatherTool);

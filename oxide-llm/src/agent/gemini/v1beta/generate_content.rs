@@ -9,8 +9,8 @@ use oxide_llm_proto::gemini::v1beta::generate_content::request::GenerateContentR
 use oxide_llm_proto::gemini::v1beta::generate_content::response::GenerateContentResponse;
 use oxide_llm_proto::gemini::v1beta::generate_content::{Content, Part, Tool as GeminiTool};
 
+use crate::ChatAgent;
 use crate::error::{AgentError, Result};
-use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -34,31 +34,25 @@ pub struct GenerateContentAgent<T: Clone> {
     config: GenerateContentConfig,
 }
 
+pub type GenerateContentAgentBuilder<T> =
+    crate::agent::builder::AgentBuilder<T, GenerateContentConfig, GenerateContentAgent<T>>;
+
+impl<T: Transport> GenerateContentAgentBuilder<T> {
+    /// Build the `GenerateContentAgent`.
+    ///
+    /// 构建 `GenerateContentAgent`。
+    pub fn build(self) -> Result<GenerateContentAgent<T>> {
+        let (transport, config) = self.build_config()?;
+        Ok(GenerateContentAgent { transport, config })
+    }
+}
+
 impl<T: Transport> GenerateContentAgent<T> {
-    /// Create a new GenerateContentAgent.
+    /// Create a new builder for GenerateContentAgent.
     ///
-    /// 创建一个新的 GenerateContentAgent。
-    pub fn new(transport: T, required: GenerateContentRequiredConfig) -> Self {
-        Self {
-            transport,
-            config: GenerateContentConfig::new(required),
-        }
-    }
-
-    /// Set the configuration for the agent.
-    ///
-    /// 设置代理的配置。
-    pub fn with_raw_config(mut self, config: GenerateContentConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Set the configuration for the agent using generic `Config`.
-    ///
-    /// 使用通用 `Config` 设置代理配置。
-    pub fn with_config(mut self, config: Config) -> Result<Self> {
-        self.config = GenerateContentConfig::try_from(config)?;
-        Ok(self)
+    /// 创建 GenerateContentAgent 的构建器。
+    pub fn builder(transport: T) -> GenerateContentAgentBuilder<T> {
+        GenerateContentAgentBuilder::new(transport)
     }
 
     /// Build a GenerateContentRequest from the raw conversation state.

@@ -647,6 +647,19 @@ impl ChatCompletionsConfig {
     }
 }
 
+impl crate::agent::builder::AgentConfigTrait for ChatCompletionsConfig {
+    type Required = ChatCompletionsRequiredConfig;
+    type Optional = ChatCompletionsOptionalConfig;
+
+    fn from_required(required: Self::Required) -> Self {
+        Self::new(required)
+    }
+
+    fn with_optional(self, optional: Self::Optional) -> Self {
+        self.with_optional(optional)
+    }
+}
+
 impl TryFrom<RequiredConfig> for ChatCompletionsRequiredConfig {
     type Error = AgentError;
 

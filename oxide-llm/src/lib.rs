@@ -1,4 +1,5 @@
 pub mod agent {
+    pub mod builder;
     pub mod claude;
     pub mod gemini;
     pub mod openai;

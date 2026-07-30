@@ -192,13 +192,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     model_config.model.clone(),
                     model_config.endpoint.clone(),
                 );
-                Box::new(ResponsesAgent::new(transport, agent_config))
+                Box::new(
+                    ResponsesAgent::builder(transport)
+                        .with_required_config(agent_config)
+                        .build()?,
+                )
             } else {
                 let agent_config = ChatCompletionsRequiredConfig::new(
                     model_config.model.clone(),
                     model_config.endpoint.clone(),
                 );
-                Box::new(ChatCompletionsAgent::new(transport, agent_config))
+                Box::new(
+                    ChatCompletionsAgent::builder(transport)
+                        .with_required_config(agent_config)
+                        .build()?,
+                )
             }
         }
         ProviderType::Claude => {
@@ -213,7 +221,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 max_tokens,
                 model_config.endpoint.clone(),
             );
-            Box::new(MessagesAgent::new(transport, agent_config))
+            Box::new(
+                MessagesAgent::builder(transport)
+                    .with_required_config(agent_config)
+                    .build()?,
+            )
         }
         ProviderType::Gemini => {
             println!("Loaded config for Gemini model: {}", model_config.model);
@@ -227,13 +239,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if !model_config.model.is_empty() {
                     agent_config = agent_config.with_model(model_config.model.clone());
                 }
-                Box::new(InteractionsAgent::new(transport, agent_config))
+                Box::new(
+                    InteractionsAgent::builder(transport)
+                        .with_required_config(agent_config)
+                        .build()?,
+                )
             } else {
                 let agent_config = GenerateContentRequiredConfig::new(
                     model_config.model.clone(),
                     model_config.endpoint.clone(),
                 );
-                Box::new(GenerateContentAgent::new(transport, agent_config))
+                Box::new(
+                    GenerateContentAgent::builder(transport)
+                        .with_required_config(agent_config)
+                        .build()?,
+                )
             }
         }
     };

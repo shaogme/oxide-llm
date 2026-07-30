@@ -35,7 +35,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -64,7 +67,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
-        let agent = ResponsesAgent::new(transport, agent_config);
+        let agent = ResponsesAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -95,7 +101,10 @@ mod tests {
         let required = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
         let mut agent_config = ResponsesConfig::new(required.clone());
         agent_config.optional_mut().set_store(Some(true));
-        let agent = ResponsesAgent::new(transport, required).with_raw_config(agent_config);
+        let agent = ResponsesAgent::builder(transport.clone())
+            .with_raw_config(agent_config)
+            .build()
+            .unwrap();
 
         // Step 1: Initial conversation turn with set_store(true)
         let mut state = ConversationState::new(None);
@@ -116,7 +125,10 @@ mod tests {
         updated_config
             .optional_mut()
             .set_previous_response_id(Some(previous_response_id));
-        let agent_step2 = agent.with_raw_config(updated_config);
+        let agent_step2 = ResponsesAgent::builder(transport)
+            .with_raw_config(updated_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent_step2);
         let mut state_step2 = ConversationState::new(None);
@@ -149,7 +161,10 @@ mod tests {
 
         let agent_config =
             MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
-        let agent = MessagesAgent::new(transport, agent_config);
+        let agent = MessagesAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -179,7 +194,10 @@ mod tests {
 
         let agent_config =
             GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
-        let agent = GenerateContentAgent::new(transport, agent_config);
+        let agent = GenerateContentAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -208,7 +226,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
         let mut state = ConversationState::new(None);
@@ -242,7 +263,10 @@ mod tests {
 
         let agent_config =
             MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
-        let agent = MessagesAgent::new(transport, agent_config);
+        let agent = MessagesAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
         let mut state = ConversationState::new(None);
@@ -276,7 +300,10 @@ mod tests {
 
         let agent_config =
             GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
-        let agent = GenerateContentAgent::new(transport, agent_config);
+        let agent = GenerateContentAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
         let mut state = ConversationState::new(None);
@@ -309,7 +336,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(Some(
@@ -340,7 +370,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -362,7 +395,10 @@ mod tests {
             .with_base_url(guard.base_url.clone());
 
         let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
-        let agent = ChatCompletionsAgent::new(transport, agent_config);
+        let agent = ChatCompletionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -385,7 +421,10 @@ mod tests {
 
         let agent_config =
             InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
-        let agent = InteractionsAgent::new(transport, agent_config);
+        let agent = InteractionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent);
         let mut state = ConversationState::new(None);
@@ -415,7 +454,10 @@ mod tests {
 
         let agent_config =
             InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
-        let agent = InteractionsAgent::new(transport, agent_config);
+        let agent = InteractionsAgent::builder(transport)
+            .with_required_config(agent_config)
+            .build()
+            .unwrap();
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
         let mut state = ConversationState::new(None);

@@ -549,6 +549,19 @@ impl ResponsesConfig {
     }
 }
 
+impl crate::agent::builder::AgentConfigTrait for ResponsesConfig {
+    type Required = ResponsesRequiredConfig;
+    type Optional = ResponsesOptionalConfig;
+
+    fn from_required(required: Self::Required) -> Self {
+        Self::new(required)
+    }
+
+    fn with_optional(self, optional: Self::Optional) -> Self {
+        self.with_optional(optional)
+    }
+}
+
 impl TryFrom<RequiredConfig> for ResponsesRequiredConfig {
     type Error = AgentError;
 

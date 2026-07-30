@@ -10,8 +10,8 @@ use oxide_llm_proto::openai::v1::chat_completions::{
     response::ChatCompletionResponse,
 };
 
+use crate::ChatAgent;
 use crate::error::{AgentError, Result};
-use crate::{ChatAgent, Config};
 
 pub mod config;
 
@@ -35,31 +35,25 @@ pub struct ChatCompletionsAgent<T: Clone> {
     config: ChatCompletionsConfig,
 }
 
+pub type ChatCompletionsAgentBuilder<T> =
+    crate::agent::builder::AgentBuilder<T, ChatCompletionsConfig, ChatCompletionsAgent<T>>;
+
+impl<T: Transport> ChatCompletionsAgentBuilder<T> {
+    /// Build the `ChatCompletionsAgent`.
+    ///
+    /// 构建 `ChatCompletionsAgent`。
+    pub fn build(self) -> Result<ChatCompletionsAgent<T>> {
+        let (transport, config) = self.build_config()?;
+        Ok(ChatCompletionsAgent { transport, config })
+    }
+}
+
 impl<T: Transport> ChatCompletionsAgent<T> {
-    /// Create a new ChatCompletionsAgent.
+    /// Create a new builder for ChatCompletionsAgent.
     ///
-    /// 创建一个新的 ChatCompletionsAgent。
-    pub fn new(transport: T, required: ChatCompletionsRequiredConfig) -> Self {
-        Self {
-            transport,
-            config: ChatCompletionsConfig::new(required),
-        }
-    }
-
-    /// Set the configuration for the agent.
-    ///
-    /// 设置代理的配置。
-    pub fn with_raw_config(mut self, config: ChatCompletionsConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Set the configuration for the agent using generic `Config`.
-    ///
-    /// 使用通用 `Config` 设置代理配置。
-    pub fn with_config(mut self, config: Config) -> Result<Self> {
-        self.config = ChatCompletionsConfig::try_from(config)?;
-        Ok(self)
+    /// 创建 ChatCompletionsAgent 的构建器。
+    pub fn builder(transport: T) -> ChatCompletionsAgentBuilder<T> {
+        ChatCompletionsAgentBuilder::new(transport)
     }
 
     /// Build a ChatCompletionRequest from the raw conversation state.

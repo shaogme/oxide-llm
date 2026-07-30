@@ -11,7 +11,6 @@ use oxide_llm_proto::openai::v1::response::{
 };
 
 use crate::ChatAgent;
-use crate::config::Config;
 use crate::error::{AgentError, Result};
 
 pub mod config;
@@ -28,31 +27,25 @@ pub struct ResponsesAgent<T: Clone> {
     config: ResponsesConfig,
 }
 
+pub type ResponsesAgentBuilder<T> =
+    crate::agent::builder::AgentBuilder<T, ResponsesConfig, ResponsesAgent<T>>;
+
+impl<T: Transport> ResponsesAgentBuilder<T> {
+    /// Build the `ResponsesAgent`.
+    ///
+    /// 构建 `ResponsesAgent`。
+    pub fn build(self) -> Result<ResponsesAgent<T>> {
+        let (transport, config) = self.build_config()?;
+        Ok(ResponsesAgent { transport, config })
+    }
+}
+
 impl<T: Transport> ResponsesAgent<T> {
-    /// Create a new ResponsesAgent.
+    /// Create a new builder for ResponsesAgent.
     ///
-    /// 创建一个新的 ResponsesAgent。
-    pub fn new(transport: T, required: ResponsesRequiredConfig) -> Self {
-        Self {
-            transport,
-            config: ResponsesConfig::new(required),
-        }
-    }
-
-    /// Set the configuration for the agent.
-    ///
-    /// 设置代理的配置。
-    pub fn with_raw_config(mut self, config: ResponsesConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Set the configuration for the agent using generic `Config`.
-    ///
-    /// 使用通用 `Config` 设置代理配置。
-    pub fn with_config(mut self, config: Config) -> Result<Self> {
-        self.config = ResponsesConfig::try_from(config)?;
-        Ok(self)
+    /// 创建 ResponsesAgent 的构建器。
+    pub fn builder(transport: T) -> ResponsesAgentBuilder<T> {
+        ResponsesAgentBuilder::new(transport)
     }
 
     /// Get reference to the agent configuration.
