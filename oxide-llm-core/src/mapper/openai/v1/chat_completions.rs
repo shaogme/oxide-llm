@@ -8,20 +8,16 @@ use crate::message::{
 };
 use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
-use oxide_llm_proto::openai::v1::{
-    FunctionDefinition as OpenAIFunctionDefinition,
+use oxide_llm_proto::openai::v1::chat_completions::{
+    FunctionDefinition as OpenAIFunctionDefinition, Tool as OpenAIChatCompletionsTool,
+    ToolCall as OpenAIToolCall, ToolCallFunction, ToolChoice as OpenAIChatCompletionsToolChoice,
     ToolChoiceFunction as OpenAIChatCompletionsToolChoiceFunction,
-    chat_completions::{
-        Tool as OpenAIChatCompletionsTool, ToolCall as OpenAIToolCall, ToolCallFunction,
-        ToolChoice as OpenAIChatCompletionsToolChoice,
-        ToolChoiceNamed as OpenAIChatCompletionsToolChoiceNamed,
-        chunk::ChatCompletionChunk as OpenAIStreamChunk,
-        request::{
-            ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio,
-            UserContent,
-        },
-        response::ChatCompletionResponse,
+    ToolChoiceNamed as OpenAIChatCompletionsToolChoiceNamed,
+    chunk::ChatCompletionChunk as OpenAIStreamChunk,
+    request::{
+        ChatCompletionMessage, ContentPart as OpenAIContentPart, ImageUrl, InputAudio, UserContent,
     },
+    response::ChatCompletionResponse,
 };
 
 /// Mapper for OpenAI Chat Completions protocol.
@@ -122,10 +118,11 @@ impl OpenAIChatCompletionMapper {
                             tool_calls.push(OpenAIToolCall {
                                 id: tc.id,
                                 r#type: "function".into(),
-                                function: ToolCallFunction {
+                                function: Some(ToolCallFunction {
                                     name: tc.name,
                                     arguments: arguments.into(),
-                                },
+                                }),
+                                custom: None,
                             });
                         }
                         ContentPart::Refusal { refusal: r } => {
@@ -153,6 +150,8 @@ impl OpenAIChatCompletionMapper {
                     name: msg.name,
                     tool_calls,
                     refusal,
+                    audio: None,
+                    function_call: None,
                 }])
             }
             Role::Tool => {
@@ -167,9 +166,8 @@ impl OpenAIChatCompletionMapper {
                             let content_str = if res.content.len() == 1 {
                                 match &res.content[0] {
                                     ContentPart::Text { text, signature: _ } => text.clone(),
-                                    ContentPart::Json(value) => {
-                                        serde_json::to_string(value).map_err(MapperError::JsonError)?
-                                    }
+                                    ContentPart::Json(value) => serde_json::to_string(value)
+                                        .map_err(MapperError::JsonError)?,
                                     _ => serde_json::to_string(&res.content)?,
                                 }
                             } else {
@@ -177,7 +175,7 @@ impl OpenAIChatCompletionMapper {
                             };
 
                             tool_messages.push(ChatCompletionMessage::Tool {
-                                content: content_str,
+                                content: content_str.into(),
                                 tool_call_id: res.tool_call_id,
                             });
                         }
@@ -239,18 +237,20 @@ impl OpenAIChatCompletionMapper {
         // 2. Tool Calls
         if let Some(tool_calls) = msg.tool_calls {
             for tc in tool_calls {
-                if tc.function.name.is_empty() {
-                    return Err(MapperError::MissingField {
-                        field: "tool_call.function.name".to_string(),
-                    });
+                if let Some(func) = tc.function {
+                    if func.name.is_empty() {
+                        return Err(MapperError::MissingField {
+                            field: "tool_call.function.name".to_string(),
+                        });
+                    }
+                    content_parts.push(ContentPart::ToolCall(ToolCall {
+                        id: tc.id,
+                        name: func.name,
+                        arguments: serde_json::from_str(&func.arguments)
+                            .map_err(MapperError::JsonError)?,
+                        signature: None,
+                    }));
                 }
-                content_parts.push(ContentPart::ToolCall(ToolCall {
-                    id: tc.id,
-                    name: tc.function.name,
-                    arguments: serde_json::from_str(&tc.function.arguments)
-                        .map_err(MapperError::JsonError)?,
-                    signature: None,
-                }));
             }
         }
 
@@ -286,12 +286,13 @@ impl OpenAIChatCompletionMapper {
 
         OpenAIChatCompletionsTool {
             r#type: "function".into(),
-            function: OpenAIFunctionDefinition {
+            function: Some(OpenAIFunctionDefinition {
                 name: tool.function.name.clone(),
                 description: tool.function.description.clone(),
                 parameters,
                 strict: tool.function.strict,
-            },
+            }),
+            custom: None,
         }
     }
 
@@ -306,7 +307,8 @@ impl OpenAIChatCompletionMapper {
             ToolChoice::Function { name } => {
                 OpenAIChatCompletionsToolChoice::Named(OpenAIChatCompletionsToolChoiceNamed {
                     r#type: "function".into(),
-                    function: OpenAIChatCompletionsToolChoiceFunction { name: name.clone() },
+                    function: Some(OpenAIChatCompletionsToolChoiceFunction { name: name.clone() }),
+                    custom: None,
                 })
             }
         }
@@ -318,23 +320,24 @@ impl OpenAIChatCompletionMapper {
     pub fn tool_from_openai(
         value: OpenAIChatCompletionsTool,
     ) -> Result<ToolDefinition, MapperError> {
-        if value.r#type != "function" {
+        if value.r#type != "function" || value.function.is_none() {
             return Err(MapperError::UnsupportedContent {
                 role: "Tool".to_string(),
                 protocol: format!("OpenAI tool type: {}", value.r#type),
             });
         }
-        let parameters = match value.function.parameters {
+        let func = value.function.unwrap();
+        let parameters = match func.parameters {
             Some(v) => Some(serde_json::from_value(v).map_err(MapperError::JsonError)?),
             None => None,
         };
         Ok(ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
-                name: value.function.name,
-                description: value.function.description,
+                name: func.name,
+                description: func.description,
                 parameters,
-                strict: value.function.strict,
+                strict: func.strict,
             },
         })
     }
@@ -349,9 +352,16 @@ impl OpenAIChatCompletionMapper {
                 "required" => ToolChoice::Required,
                 _ => ToolChoice::Auto,
             },
-            OpenAIChatCompletionsToolChoice::Named(named) => ToolChoice::Function {
-                name: named.function.name,
-            },
+            OpenAIChatCompletionsToolChoice::Named(named) => {
+                if let Some(func) = named.function {
+                    ToolChoice::Function { name: func.name }
+                } else if let Some(custom) = named.custom {
+                    ToolChoice::Function { name: custom.name }
+                } else {
+                    ToolChoice::Auto
+                }
+            }
+            OpenAIChatCompletionsToolChoice::Allowed(_) => ToolChoice::Auto,
         }
     }
 }
@@ -459,8 +469,6 @@ impl TryFrom<ConversationState> for ChatCompletionsConversationState {
         })
     }
 }
-
-
 
 /// A stateful mapper for OpenAI streaming responses.
 ///
@@ -585,6 +593,8 @@ impl Default for OpenAIStreamMapper {
 
 #[cfg(test)]
 mod tests {
+    use oxide_llm_proto::openai::v1::chat_completions::ToolContent;
+
     use super::*;
     use crate::tool::ToolResult;
 
@@ -625,7 +635,7 @@ mod tests {
             tool_call_id,
         } = &mapped[0]
         {
-            assert_eq!(content, "Sunny");
+            assert_eq!(content, &ToolContent::Text("Sunny".into()));
             assert_eq!(tool_call_id, "call_1");
         } else {
             panic!("Expected ChatCompletionMessage::Tool");
@@ -636,7 +646,7 @@ mod tests {
             tool_call_id,
         } = &mapped[1]
         {
-            assert_eq!(content, "$240.00");
+            assert_eq!(content, &ToolContent::Text("$240.00".into()));
             assert_eq!(tool_call_id, "call_2");
         } else {
             panic!("Expected ChatCompletionMessage::Tool");
@@ -663,7 +673,10 @@ mod tests {
         if let ChatCompletionMessage::Assistant { tool_calls, .. } = &mapped[0] {
             let calls = tool_calls.as_ref().unwrap();
             assert_eq!(calls.len(), 1);
-            assert_eq!(calls[0].function.arguments.as_str(), raw_args);
+            assert_eq!(
+                calls[0].function.as_ref().unwrap().arguments.as_str(),
+                raw_args
+            );
         } else {
             panic!("Expected ChatCompletionMessage::Assistant");
         }
@@ -683,7 +696,9 @@ mod tests {
         };
 
         let err = OpenAIChatCompletionMapper::from_core_message(msg).unwrap_err();
-        assert!(matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name"));
+        assert!(
+            matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name")
+        );
     }
 
     #[test]
@@ -718,5 +733,3 @@ mod tests {
         assert_eq!(usage.cached_input_tokens, Some(20));
     }
 }
-
-

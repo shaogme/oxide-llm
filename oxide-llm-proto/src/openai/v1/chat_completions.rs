@@ -1,39 +1,30 @@
+/// Streaming chunk structures for OpenAI v1 Chat Completions API.
+///
+/// OpenAI v1 聊天补全 API 的流式 Chunk 结构体。
 pub mod chunk;
+
+/// Log probability statistics for OpenAI v1 Chat Completions API.
+///
+/// OpenAI v1 聊天补全 API 的对数概率统计信息。
+pub mod log;
+
+/// Request structures and payload models for OpenAI v1 Chat Completions API.
+///
+/// OpenAI v1 聊天补全 API 的请求结构体与载荷模型。
 pub mod request;
+
+/// Response structures and payload models for OpenAI v1 Chat Completions API.
+///
+/// OpenAI v1 聊天补全 API 的响应结构体与载荷模型。
 pub mod response;
 
-pub use crate::openai::v1::{FunctionDefinition, ToolChoiceFunction};
-use ref_str::StaticRefStr;
-use serde::{Deserialize, Serialize};
+/// Tool definition and choice models for OpenAI v1 Chat Completions API.
+///
+/// OpenAI v1 聊天补全 API 的工具定义与选择模型。
+pub mod tool;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tool {
-    pub r#type: StaticRefStr,
-    pub function: FunctionDefinition,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ToolChoice {
-    String(StaticRefStr), // "none", "auto", "required"
-    Named(ToolChoiceNamed),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolChoiceNamed {
-    pub r#type: StaticRefStr,
-    pub function: ToolChoiceFunction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: StaticRefStr,
-    pub r#type: StaticRefStr,
-    pub function: ToolCallFunction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCallFunction {
-    pub name: StaticRefStr,
-    pub arguments: StaticRefStr,
-}
+pub use chunk::*;
+pub use log::*;
+pub use request::*;
+pub use response::*;
+pub use tool::*;

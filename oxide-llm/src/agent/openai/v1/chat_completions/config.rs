@@ -4,7 +4,9 @@ use oxide_llm_proto::openai::v1::chat_completions::request::{
     AudioOptions, ChatCompletionMessage, ChatCompletionRequest, PredictionContent, ResponseFormat,
     Stop, StreamOptions, WebSearchOptions,
 };
-use oxide_llm_proto::openai::v1::chat_completions::{FunctionDefinition, Tool, ToolChoice};
+use oxide_llm_proto::openai::v1::chat_completions::{
+    FunctionDefinition, ReasoningEffort, Tool, ToolChoice,
+};
 use ref_str::StaticRefStr;
 
 /// Configuration for OpenAI Chat Completions Agent (Required).
@@ -90,7 +92,8 @@ pub struct ChatCompletionsOptionalConfig {
     functions: Option<Vec<FunctionDefinition>>,
     web_search_options: Option<WebSearchOptions>,
     verbosity: Option<StaticRefStr>,
-    reasoning_effort: Option<StaticRefStr>,
+    reasoning_effort: Option<ReasoningEffort>,
+    metadata: Option<HashMap<StaticRefStr, StaticRefStr>>,
 }
 
 impl ChatCompletionsOptionalConfig {
@@ -511,22 +514,45 @@ impl ChatCompletionsOptionalConfig {
     }
 
     /// Get reasoning effort.
-    pub fn reasoning_effort(&self) -> Option<&str> {
-        self.reasoning_effort.as_deref()
+    pub fn reasoning_effort(&self) -> Option<&ReasoningEffort> {
+        self.reasoning_effort.as_ref()
     }
 
     /// Set reasoning effort.
     pub fn set_reasoning_effort(
         &mut self,
-        reasoning_effort: Option<impl Into<StaticRefStr>>,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> &mut Self {
-        self.reasoning_effort = reasoning_effort.map(Into::into);
+        self.reasoning_effort = reasoning_effort;
         self
     }
 
     /// Set reasoning effort (builder pattern).
-    pub fn with_reasoning_effort(mut self, reasoning_effort: impl Into<StaticRefStr>) -> Self {
-        self.reasoning_effort = Some(reasoning_effort.into());
+    pub fn with_reasoning_effort(mut self, reasoning_effort: ReasoningEffort) -> Self {
+        self.reasoning_effort = Some(reasoning_effort);
+        self
+    }
+
+    /// Get metadata.
+    pub fn metadata(&self) -> Option<&HashMap<StaticRefStr, StaticRefStr>> {
+        self.metadata.as_ref()
+    }
+
+    /// Set metadata.
+    pub fn set_metadata(
+        &mut self,
+        metadata: Option<HashMap<StaticRefStr, StaticRefStr>>,
+    ) -> &mut Self {
+        self.metadata = metadata;
+        self
+    }
+
+    /// Set metadata (builder pattern).
+    pub fn with_metadata(
+        mut self,
+        metadata: HashMap<StaticRefStr, StaticRefStr>,
+    ) -> Self {
+        self.metadata = Some(metadata);
         self
     }
 }
@@ -618,6 +644,7 @@ impl ChatCompletionsConfig {
             web_search_options: self.optional.web_search_options,
             verbosity: self.optional.verbosity,
             reasoning_effort: self.optional.reasoning_effort,
+            metadata: self.optional.metadata,
         }
     }
 }

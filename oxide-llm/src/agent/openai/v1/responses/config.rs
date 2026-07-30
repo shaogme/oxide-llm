@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use oxide_llm_proto::openai::v1::response::request::{CreateResponseRequest, InputParam};
-use oxide_llm_proto::openai::v1::response::response::{Tool, ToolChoice};
+use oxide_llm_proto::openai::v1::response::{Tool, ToolChoice};
 use ref_str::StaticRefStr;
 
 /// Configuration for OpenAI Responses Agent (Required).

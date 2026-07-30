@@ -73,7 +73,7 @@ impl<T: Transport> ChatCompletionsAgent<T> {
             messages.insert(
                 0,
                 ChatCompletionMessage::System {
-                    content: prompt,
+                    content: prompt.into(),
                     name: None,
                 },
             );
