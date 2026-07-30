@@ -1,4 +1,7 @@
+mod config;
+
 use clap::Parser;
+use config::{Config, ProviderType};
 use futures::StreamExt;
 use oxide_llm::{
     DynChatAgent, Runner,
@@ -25,7 +28,6 @@ use oxide_llm::{
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
-    fmt::{Debug, Display, Formatter, Result as FmtResult},
     fs,
     future::Future,
     io::{Write, stdout},
@@ -35,81 +37,12 @@ use std::{
 };
 use tokio::time::sleep;
 
-#[derive(Deserialize, Clone)]
-struct SecretString(String);
-
-impl Debug for SecretString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "********")
-    }
-}
-
-impl Display for SecretString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "********")
-    }
-}
-
-impl SecretString {
-    fn expose(&self) -> &str {
-        &self.0
-    }
-}
-
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Name of the agent to use
+    /// Name of the model configuration to use
     #[arg(short, long)]
     name: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Config {
-    agents: Vec<NamedAgentConfig>,
-}
-
-#[derive(Deserialize)]
-struct NamedAgentConfig {
-    name: String,
-    #[serde(flatten)]
-    config: AgentConfig,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum AgentConfig {
-    #[serde(rename = "openai")]
-    OpenAI(OpenAIConfig),
-    #[serde(rename = "claude")]
-    Claude(ClaudeConfig),
-    #[serde(rename = "gemini")]
-    Gemini(GeminiConfig),
-}
-
-#[derive(Deserialize)]
-struct OpenAIConfig {
-    base_url: String,
-    endpoint: String,
-    api_key: SecretString,
-    model: String,
-}
-
-#[derive(Deserialize)]
-struct ClaudeConfig {
-    base_url: String,
-    endpoint: String,
-    api_key: SecretString,
-    model: String,
-    max_tokens: u32,
-}
-
-#[derive(Deserialize)]
-struct GeminiConfig {
-    base_url: String,
-    endpoint: String,
-    api_key: SecretString,
-    model: String,
 }
 
 // --- Tool Definitions ---
@@ -237,65 +170,69 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config_str = fs::read_to_string(config_path)?;
     let config: Config = toml::from_str(&config_str)?;
 
-    // 2. Select Agent
-    let named_config = if let Some(name) = &cli_args.name {
-        config
-            .agents
-            .iter()
-            .find(|a| &a.name == name)
-            .ok_or_else(|| format!("Agent with name '{}' not found", name))?
-    } else {
-        config
-            .agents
-            .first()
-            .ok_or_else(|| "No agents configured".to_string())?
-    };
+    // 2. Select Model and Provider
+    let (model_config, provider_config) =
+        config.select_model_and_provider(cli_args.name.as_deref())?;
 
-    println!("Using agent: {}", named_config.name);
+    println!(
+        "Using model config: {} (provider: {})",
+        model_config.name, provider_config.id
+    );
 
     // 3. Build Agent
-    let agent: Box<dyn DynChatAgent> = match &named_config.config {
-        AgentConfig::OpenAI(c) => {
-            println!("Loaded config for OpenAI model: {}", c.model);
+    let agent: Box<dyn DynChatAgent> = match provider_config.r#type {
+        ProviderType::OpenAI => {
+            println!("Loaded config for OpenAI model: {}", model_config.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key.expose().to_string())
-                .with_base_url(c.base_url.clone());
+                .with_authorization(provider_config.api_key.expose().to_string())
+                .with_base_url(provider_config.base_url.clone());
 
-            if c.endpoint.contains("responses") {
-                let agent_config =
-                    ResponsesRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+            if model_config.endpoint.contains("responses") {
+                let agent_config = ResponsesRequiredConfig::new(
+                    model_config.model.clone(),
+                    model_config.endpoint.clone(),
+                );
                 Box::new(ResponsesAgent::new(transport, agent_config))
             } else {
-                let agent_config =
-                    ChatCompletionsRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+                let agent_config = ChatCompletionsRequiredConfig::new(
+                    model_config.model.clone(),
+                    model_config.endpoint.clone(),
+                );
                 Box::new(ChatCompletionsAgent::new(transport, agent_config))
             }
         }
-        AgentConfig::Claude(c) => {
-            println!("Loaded config for Claude model: {}", c.model);
+        ProviderType::Claude => {
+            println!("Loaded config for Claude model: {}", model_config.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key.expose().to_string())
-                .with_base_url(c.base_url.clone());
+                .with_authorization(provider_config.api_key.expose().to_string())
+                .with_base_url(provider_config.base_url.clone());
 
-            let agent_config =
-                MessagesRequiredConfig::new(c.model.clone(), c.max_tokens, c.endpoint.clone());
+            let max_tokens = model_config.max_tokens.unwrap_or(4096);
+            let agent_config = MessagesRequiredConfig::new(
+                model_config.model.clone(),
+                max_tokens,
+                model_config.endpoint.clone(),
+            );
             Box::new(MessagesAgent::new(transport, agent_config))
         }
-        AgentConfig::Gemini(c) => {
-            println!("Loaded config for Gemini model: {}", c.model);
+        ProviderType::Gemini => {
+            println!("Loaded config for Gemini model: {}", model_config.model);
             let transport = ReqwestTransport::new()
-                .with_authorization(c.api_key.expose().to_string())
-                .with_base_url(c.base_url.clone());
+                .with_authorization(provider_config.api_key.expose().to_string())
+                .with_base_url(provider_config.base_url.clone());
 
-            if c.endpoint.contains("interactions") {
-                let mut agent_config = InteractionsRequiredConfig::new(c.endpoint.clone());
-                if !c.model.is_empty() {
-                    agent_config = agent_config.with_model(c.model.clone());
+            if model_config.endpoint.contains("interactions") {
+                let mut agent_config =
+                    InteractionsRequiredConfig::new(model_config.endpoint.clone());
+                if !model_config.model.is_empty() {
+                    agent_config = agent_config.with_model(model_config.model.clone());
                 }
                 Box::new(InteractionsAgent::new(transport, agent_config))
             } else {
-                let agent_config =
-                    GenerateContentRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+                let agent_config = GenerateContentRequiredConfig::new(
+                    model_config.model.clone(),
+                    model_config.endpoint.clone(),
+                );
                 Box::new(GenerateContentAgent::new(transport, agent_config))
             }
         }

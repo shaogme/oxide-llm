@@ -1,44 +1,60 @@
-[[agents]]
-name = "my-openai-chat"
+# Set the default active model configuration name
+active_model = "my-openai-responses"
+
+# --- Provider Definitions ---
+
+[[providers]]
+id = "openai_provider"
 type = "openai"
 base_url = "https://api.openai.com/v1"
-endpoint = "chat/completions"
 api_key = "sk-..."
-model = "gpt-3.5-turbo"
 
-# Example for OpenAI Responses API
-[[agents]]
-name = "my-openai-responses"
-type = "openai"
-base_url = "https://api.openai.com/v1"
-endpoint = "responses"
-api_key = "sk-..."
-model = "gpt-4.5-preview"
-
-# Example for Claude
-[[agents]]
-name = "my-claude"
+[[providers]]
+id = "claude_provider"
 type = "claude"
 base_url = "https://api.anthropic.com/v1"
-endpoint = "messages"
 api_key = "sk-ant-..."
+
+[[providers]]
+id = "gemini_provider"
+type = "gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+api_key = "AIza..."
+
+# --- Model Definitions ---
+
+# Example for OpenAI Responses API
+[[models]]
+name = "my-openai-responses"
+provider = "openai_provider"
+model = "gpt-4.5-preview"
+endpoint = "responses"
+
+# Example for OpenAI Chat Completions
+[[models]]
+name = "my-openai-chat"
+provider = "openai_provider"
+model = "gpt-3.5-turbo"
+endpoint = "chat/completions"
+
+# Example for Claude
+[[models]]
+name = "my-claude"
+provider = "claude_provider"
 model = "claude-3-opus-20240229"
+endpoint = "messages"
 max_tokens = 1024
 
-# Example for Gemini Generate Content
-[[agents]]
-name = "my-gemini"
-type = "gemini"
-base_url = "https://generativelanguage.googleapis.com/v1beta"
-endpoint = "models/gemini-3-flash:streamGenerateContent"
-api_key = "AIza..."
-model = "gemini-3-flash"
-
 # Example for Gemini Interactions API
-[[agents]]
+[[models]]
 name = "my-gemini-interactions"
-type = "gemini"
-base_url = "https://generativelanguage.googleapis.com/v1beta"
-endpoint = "interactions"
-api_key = "AIza..."
+provider = "gemini_provider"
 model = "gemini-3.6-flash"
+endpoint = "interactions"
+
+# Example for Gemini Generate Content API
+[[models]]
+name = "my-gemini-generate"
+provider = "gemini_provider"
+model = "gemini-3-flash"
+endpoint = "models/gemini-3-flash:streamGenerateContent"
