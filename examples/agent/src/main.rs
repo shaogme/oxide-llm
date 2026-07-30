@@ -4,7 +4,10 @@ use oxide_llm::{
     DynChatAgent, Runner,
     agent::{
         claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
-        gemini::v1beta::generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
+        gemini::v1beta::{
+            generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
+            interactions::{InteractionsAgent, InteractionsRequiredConfig},
+        },
         openai::v1::{
             chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
             responses::{ResponsesAgent, ResponsesRequiredConfig},
@@ -284,9 +287,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .with_authorization(c.api_key.expose().to_string())
                 .with_base_url(c.base_url.clone());
 
-            let agent_config =
-                GenerateContentRequiredConfig::new(c.model.clone(), c.endpoint.clone());
-            Box::new(GenerateContentAgent::new(transport, agent_config))
+            if c.endpoint.contains("interactions") {
+                let mut agent_config = InteractionsRequiredConfig::new(c.endpoint.clone());
+                if !c.model.is_empty() {
+                    agent_config = agent_config.with_model(c.model.clone());
+                }
+                Box::new(InteractionsAgent::new(transport, agent_config))
+            } else {
+                let agent_config =
+                    GenerateContentRequiredConfig::new(c.model.clone(), c.endpoint.clone());
+                Box::new(GenerateContentAgent::new(transport, agent_config))
+            }
         }
     };
 

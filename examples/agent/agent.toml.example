@@ -25,7 +25,7 @@ api_key = "sk-ant-..."
 model = "claude-3-opus-20240229"
 max_tokens = 1024
 
-# Example for Gemini
+# Example for Gemini Generate Content
 [[agents]]
 name = "my-gemini"
 type = "gemini"
@@ -33,3 +33,12 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 endpoint = "models/gemini-3-flash:streamGenerateContent"
 api_key = "AIza..."
 model = "gemini-3-flash"
+
+# Example for Gemini Interactions API
+[[agents]]
+name = "my-gemini-interactions"
+type = "gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+endpoint = "interactions"
+api_key = "AIza..."
+model = "gemini-3.6-flash"
