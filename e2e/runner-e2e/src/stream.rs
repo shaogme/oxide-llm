@@ -23,6 +23,7 @@ mod tests {
             state::ConversationState,
             transport::TransportExt,
         },
+        proto::openai::v1::response::ResponseStreamEvent,
         transport::reqwest::ReqwestTransport,
     };
 
@@ -94,7 +95,6 @@ mod tests {
     #[tokio::test]
     async fn test_openai_responses_stateful_stream_e2e() {
         use oxide_llm::ChatStreamConfig;
-        use oxide_llm_proto::openai::v1::response::chunk::ResponseStreamEvent;
         use std::sync::{Arc, Mutex};
 
         let guard = MockServerGuard::start(3026);

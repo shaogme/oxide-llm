@@ -31,6 +31,10 @@ pub mod core {
     pub use oxide_llm_core::*;
 }
 
+pub mod proto {
+    pub use oxide_llm_core::reexports::oxide_llm_proto::*;
+}
+
 pub mod reexports {
     pub use ref_str;
     pub use serde_json;

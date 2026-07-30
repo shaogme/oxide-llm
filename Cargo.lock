@@ -1044,7 +1044,6 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "oxide-llm",
- "oxide-llm-proto",
  "reqwest",
  "serde",
  "serde_json",
