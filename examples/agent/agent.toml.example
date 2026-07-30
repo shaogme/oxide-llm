@@ -22,6 +22,8 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 api_key = "AIza..."
 
 # --- Model Definitions ---
+# Unified agent configuration supports required fields (`model`, `endpoint`, `max_tokens`) 
+# and optional fields (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `stop_sequences`, `seed`, `reasoning_effort`).
 
 # Example for OpenAI Responses API
 [[models]]
@@ -29,6 +31,8 @@ name = "my-openai-responses"
 provider = "openai_provider"
 model = "gpt-4.5-preview"
 endpoint = "responses"
+temperature = 0.7
+reasoning_effort = "medium"
 
 # Example for OpenAI Chat Completions
 [[models]]
@@ -36,6 +40,12 @@ name = "my-openai-chat"
 provider = "openai_provider"
 model = "gpt-3.5-turbo"
 endpoint = "chat/completions"
+temperature = 0.7
+top_p = 0.95
+frequency_penalty = 0.5
+presence_penalty = 0.5
+stop_sequences = ["\nUser:"]
+seed = 42
 
 # Example for Claude
 [[models]]
@@ -44,6 +54,8 @@ provider = "claude_provider"
 model = "claude-3-opus-20240229"
 endpoint = "messages"
 max_tokens = 1024
+temperature = 0.5
+reasoning_effort = "high"
 
 # Example for Gemini Interactions API
 [[models]]
@@ -51,6 +63,7 @@ name = "my-gemini-interactions"
 provider = "gemini_provider"
 model = "gemini-3.6-flash"
 endpoint = "interactions"
+reasoning_effort = "low"
 
 # Example for Gemini Generate Content API
 [[models]]
@@ -58,3 +71,5 @@ name = "my-gemini-generate"
 provider = "gemini_provider"
 model = "gemini-3-flash"
 endpoint = "models/gemini-3-flash:streamGenerateContent"
+temperature = 0.8
+top_k = 40

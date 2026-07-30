@@ -6,15 +6,9 @@ use futures::StreamExt;
 use oxide_llm::{
     DynChatAgent, Runner,
     agent::{
-        claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
-        gemini::v1beta::{
-            generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
-            interactions::{InteractionsAgent, InteractionsRequiredConfig},
-        },
-        openai::v1::{
-            chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
-            responses::{ResponsesAgent, ResponsesRequiredConfig},
-        },
+        claude::v1::message::MessagesAgent,
+        gemini::v1beta::{generate_content::GenerateContentAgent, interactions::InteractionsAgent},
+        openai::v1::{chat_completions::ChatCompletionsAgent, responses::ResponsesAgent},
     },
     core::{
         message::{ChatStreamEvent, Message},
@@ -180,78 +174,57 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
 
     // 3. Build Agent
+    let oxide_config = model_config.to_oxide_config();
+
     let agent: Box<dyn DynChatAgent> = match provider_config.r#type {
         ProviderType::OpenAI => {
-            println!("Loaded config for OpenAI model: {}", model_config.model);
+            println!("Loaded config for OpenAI model: {}", model_config.model());
             let transport = ReqwestTransport::new()
                 .with_authorization(provider_config.api_key.expose().to_string())
                 .with_base_url(provider_config.base_url.clone());
 
-            if model_config.endpoint.contains("responses") {
-                let agent_config = ResponsesRequiredConfig::new(
-                    model_config.model.clone(),
-                    model_config.endpoint.clone(),
-                );
+            if model_config.endpoint().contains("responses") {
                 Box::new(
                     ResponsesAgent::builder(transport)
-                        .with_required_config(agent_config)
+                        .with_config(oxide_config.clone())?
                         .build()?,
                 )
             } else {
-                let agent_config = ChatCompletionsRequiredConfig::new(
-                    model_config.model.clone(),
-                    model_config.endpoint.clone(),
-                );
                 Box::new(
                     ChatCompletionsAgent::builder(transport)
-                        .with_required_config(agent_config)
+                        .with_config(oxide_config.clone())?
                         .build()?,
                 )
             }
         }
         ProviderType::Claude => {
-            println!("Loaded config for Claude model: {}", model_config.model);
+            println!("Loaded config for Claude model: {}", model_config.model());
             let transport = ReqwestTransport::new()
                 .with_authorization(provider_config.api_key.expose().to_string())
                 .with_base_url(provider_config.base_url.clone());
 
-            let max_tokens = model_config.max_tokens.unwrap_or(4096);
-            let agent_config = MessagesRequiredConfig::new(
-                model_config.model.clone(),
-                max_tokens,
-                model_config.endpoint.clone(),
-            );
             Box::new(
                 MessagesAgent::builder(transport)
-                    .with_required_config(agent_config)
+                    .with_config(oxide_config.clone())?
                     .build()?,
             )
         }
         ProviderType::Gemini => {
-            println!("Loaded config for Gemini model: {}", model_config.model);
+            println!("Loaded config for Gemini model: {}", model_config.model());
             let transport = ReqwestTransport::new()
                 .with_authorization(provider_config.api_key.expose().to_string())
                 .with_base_url(provider_config.base_url.clone());
 
-            if model_config.endpoint.contains("interactions") {
-                let mut agent_config =
-                    InteractionsRequiredConfig::new(model_config.endpoint.clone());
-                if !model_config.model.is_empty() {
-                    agent_config = agent_config.with_model(model_config.model.clone());
-                }
+            if model_config.endpoint().contains("interactions") {
                 Box::new(
                     InteractionsAgent::builder(transport)
-                        .with_required_config(agent_config)
+                        .with_config(oxide_config.clone())?
                         .build()?,
                 )
             } else {
-                let agent_config = GenerateContentRequiredConfig::new(
-                    model_config.model.clone(),
-                    model_config.endpoint.clone(),
-                );
                 Box::new(
                     GenerateContentAgent::builder(transport)
-                        .with_required_config(agent_config)
+                        .with_config(oxide_config.clone())?
                         .build()?,
                 )
             }

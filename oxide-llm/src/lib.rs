@@ -32,5 +32,6 @@ pub mod core {
 }
 
 pub mod reexports {
+    pub use ref_str;
     pub use serde_json;
 }

@@ -1,10 +1,11 @@
 use oxide_llm_core::message::DeltaMessage;
 use ref_str::StaticRefStr;
+use serde::{Deserialize, Serialize};
 
 /// Generic required configuration options for agents.
 ///
 /// 代理的基础通用必填配置。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequiredConfig {
     model: Option<StaticRefStr>,
     max_tokens: Option<u32>,
@@ -116,7 +117,8 @@ impl RequiredConfig {
 /// Level or effort of model reasoning/thinking.
 ///
 /// 模型思考/推理的努力程度。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
     /// Disable reasoning effort.
     ///
@@ -151,7 +153,7 @@ pub enum ReasoningEffort {
 /// Generic optional configuration options for agents.
 ///
 /// 代理的基础通用选填配置。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct OptionalConfig {
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
@@ -359,9 +361,11 @@ impl OptionalConfig {
 /// Unified generic agent configuration.
 ///
 /// 统一通用代理配置。
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(flatten)]
     required: RequiredConfig,
+    #[serde(flatten)]
     optional: OptionalConfig,
 }
 

@@ -1,3 +1,4 @@
+use oxide_llm::Config as OxideConfig;
 use serde::Deserialize;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 
@@ -84,18 +85,53 @@ pub struct ModelConfig {
     ///
     /// 关联的供应商 ID。
     pub provider: String,
-    /// Actual API model name used in requests.
+    /// Unified LLM agent configuration.
     ///
-    /// 请求中使用的实际 API 模型名称。
-    pub model: String,
-    /// API endpoint specification.
+    /// 统一的 LLM 代理配置。
+    #[serde(flatten)]
+    pub config: OxideConfig,
+}
+
+impl ModelConfig {
+    /// Returns the model name or empty string if unset.
     ///
-    /// API 端点规范。
-    pub endpoint: String,
-    /// Maximum tokens limit for response generation (optional).
+    /// 返回模型名称，若未设置则返回空字符串。
+    pub fn model(&self) -> &str {
+        self.config.required().model().unwrap_or_default()
+    }
+
+    /// Returns the API endpoint or empty string if unset.
     ///
-    /// 响应生成的最大 token 限制（可选）。
-    pub max_tokens: Option<u32>,
+    /// 返回 API 端点，若未设置则返回空字符串。
+    pub fn endpoint(&self) -> &str {
+        self.config.required().endpoint().unwrap_or_default()
+    }
+
+    /// Returns reference to unified `oxide_llm::Config`.
+    ///
+    /// 返回统一 `oxide_llm::Config` 的引用。
+    pub fn oxide_config(&self) -> &OxideConfig {
+        &self.config
+    }
+
+    /// Converts this model configuration into unified `oxide_llm::Config`.
+    ///
+    /// 将此模型配置转换为统一的 `oxide_llm::Config`。
+    pub fn to_oxide_config(&self) -> OxideConfig {
+        self.config.clone()
+    }
+}
+
+impl From<&ModelConfig> for OxideConfig {
+    fn from(config: &ModelConfig) -> Self {
+        config.config.clone()
+    }
+}
+
+impl From<ModelConfig> for OxideConfig {
+    fn from(config: ModelConfig) -> Self {
+        config.config
+    }
 }
 
 /// Root configuration structure.
@@ -160,5 +196,30 @@ impl Config {
         };
 
         self.find_model_and_provider(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_example_config() {
+        let example = include_str!("../agent.toml.example");
+        let config: Config = toml::from_str(example).unwrap();
+        assert_eq!(config.active_model.as_deref(), Some("my-openai-responses"));
+        assert_eq!(config.providers.len(), 3);
+        assert_eq!(config.models.len(), 5);
+
+        let (model, _) = config
+            .find_model_and_provider("my-openai-responses")
+            .unwrap();
+        assert_eq!(model.model(), "gpt-4.5-preview");
+        assert_eq!(model.endpoint(), "responses");
+        assert_eq!(model.config.optional().temperature(), Some(0.7));
+        assert_eq!(
+            model.config.optional().reasoning_effort(),
+            Some(oxide_llm::config::ReasoningEffort::Medium)
+        );
     }
 }
