@@ -79,9 +79,7 @@ fn test_deserialize_interaction_response() {
     if let Step::ModelOutput(output) = &steps[0] {
         let contents = output.content.as_ref().expect("Content should exist");
         if let Content::Text(text_content) = &contents[0] {
-            assert!(text_content
-                .text
-                .contains("functioning perfectly"));
+            assert!(text_content.text.contains("functioning perfectly"));
         } else {
             panic!("Expected TextContent variant");
         }

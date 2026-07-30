@@ -78,5 +78,3 @@ impl ConversationState {
 pub trait ConversationStateTrait: Send + 'static {}
 
 impl ConversationStateTrait for ConversationState {}
-
-

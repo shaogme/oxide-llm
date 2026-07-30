@@ -232,7 +232,8 @@ impl ClaudeMapper {
                     name: custom.name,
                     description: custom.description,
                     parameters: Some(
-                        serde_json::from_value(custom.input_schema).map_err(MapperError::JsonError)?,
+                        serde_json::from_value(custom.input_schema)
+                            .map_err(MapperError::JsonError)?,
                     ),
                     strict: custom.strict,
                 },
@@ -361,8 +362,6 @@ impl TryFrom<ConversationState> for MessagesConversationState {
         })
     }
 }
-
-
 
 /// A stateful mapper for Claude streaming responses.
 ///

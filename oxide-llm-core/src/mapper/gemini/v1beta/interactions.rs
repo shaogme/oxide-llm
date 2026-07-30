@@ -4,22 +4,22 @@ use serde_json::Value;
 
 use crate::mapper::MapperError;
 use crate::message::{
-    Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Document, Image,
-    ImageSource, Message, Role, Usage as CoreUsage, Video,
+    Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Document,
+    Image, ImageSource, Message, Role, Usage as CoreUsage, Video,
 };
 use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{FunctionDefinition, ToolCall, ToolChoice, ToolDefinition, ToolType};
 use oxide_llm_proto::gemini::v1beta::interactions::{
-    content::{
-        AudioContent, Content, DocumentContent, ImageContent, TextContent, VideoContent,
-    },
+    content::{AudioContent, Content, DocumentContent, ImageContent, TextContent, VideoContent},
     request::{
         CreateInteractionRequest, GenerationConfig, InteractionsInput,
         ToolChoice as GeminiRequestToolChoice, Turn, TurnContent,
     },
     response::Interaction,
     sse::{InteractionSseEvent, StepDeltaData},
-    step::{FunctionCallStep, FunctionResultStep, ModelOutputStep, Step, ThoughtStep, UserInputStep},
+    step::{
+        FunctionCallStep, FunctionResultStep, ModelOutputStep, Step, ThoughtStep, UserInputStep,
+    },
     tool::{AllowedTools, FunctionTool, Tool, ToolChoiceConfig, ToolChoiceMode},
 };
 
@@ -343,10 +343,8 @@ impl GeminiInteractionsMapper {
                                                 Some(m) => m.clone(),
                                                 None => "mp3".into(),
                                             };
-                                            content_parts.push(ContentPart::Audio(Audio {
-                                                data,
-                                                format,
-                                            }));
+                                            content_parts
+                                                .push(ContentPart::Audio(Audio { data, format }));
                                         }
                                     }
                                     Content::Video(v) => {
@@ -633,8 +631,6 @@ impl TryFrom<ConversationState> for InteractionsConversationState {
     }
 }
 
-
-
 /// A stateful mapper for Gemini Interactions streaming SSE responses.
 ///
 /// 用于 Gemini Interactions 流式 SSE 响应的有状态映射器。
@@ -811,7 +807,9 @@ impl GeminiInteractionsStreamMapper {
         }
     }
 
-    fn map_gemini_usage(u: oxide_llm_proto::gemini::v1beta::interactions::response::Usage) -> CoreUsage {
+    fn map_gemini_usage(
+        u: oxide_llm_proto::gemini::v1beta::interactions::response::Usage,
+    ) -> CoreUsage {
         let reasoning_tokens = if u.total_thought_tokens > 0 {
             Some(u.total_thought_tokens as u32)
         } else {
@@ -990,7 +988,8 @@ mod tests {
 
     #[test]
     fn test_tool_conversion_bidirectional() {
-        let tool_def = ToolDefinition::function("get_weather", "Get current weather", JSONSchema::object());
+        let tool_def =
+            ToolDefinition::function("get_weather", "Get current weather", JSONSchema::object());
         let gemini_tool = GeminiInteractionsMapper::tool_to_gemini(&tool_def);
 
         if let Tool::Function(ft) = &gemini_tool {
@@ -1010,11 +1009,15 @@ mod tests {
             role: Role::User,
             content: vec![
                 ContentPart::Video(Video {
-                    source: ImageSource::Url { url: "https://example.com/video.mp4".into() },
+                    source: ImageSource::Url {
+                        url: "https://example.com/video.mp4".into(),
+                    },
                     media_type: Some("video/mp4".into()),
                 }),
                 ContentPart::Document(Document {
-                    source: ImageSource::Url { url: "https://example.com/doc.pdf".into() },
+                    source: ImageSource::Url {
+                        url: "https://example.com/doc.pdf".into(),
+                    },
                     media_type: Some("application/pdf".into()),
                 }),
             ],
@@ -1084,7 +1087,10 @@ mod tests {
         let event: InteractionSseEvent = serde_json::from_value(audio_json).unwrap();
         let delta = mapper.map_event(event).unwrap();
         let parts = delta.content.unwrap();
-        if let DeltaContentPart::Audio { data, mime_type, .. } = &parts[0] {
+        if let DeltaContentPart::Audio {
+            data, mime_type, ..
+        } = &parts[0]
+        {
             assert_eq!(data.as_deref(), Some("bWFwYXVkaW8="));
             assert_eq!(mime_type.as_deref(), Some("audio/mp3"));
         } else {

@@ -1,7 +1,5 @@
 use crate::message::ContentPart;
-use crate::tool::{
-    registry::ToolRegistry, ToolCall, ToolExecutionError, ToolGroup, ToolResult,
-};
+use crate::tool::{ToolCall, ToolExecutionError, ToolGroup, ToolResult, registry::ToolRegistry};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};

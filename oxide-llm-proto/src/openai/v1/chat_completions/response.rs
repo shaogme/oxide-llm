@@ -1,7 +1,4 @@
-use super::{
-    LogProbs,
-    ToolCall,
-};
+use super::{LogProbs, ToolCall};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 

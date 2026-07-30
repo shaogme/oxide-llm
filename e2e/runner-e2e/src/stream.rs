@@ -112,17 +112,15 @@ mod tests {
 
         let mut stream = runner.run_stream_with(&mut state, move || {
             let captured_id_inner = Arc::clone(&captured_id_clone);
-            ChatStreamConfig::new().on_raw_delta(move |event: &ResponseStreamEvent| {
-                match event {
-                    ResponseStreamEvent::Created { response, .. }
-                    | ResponseStreamEvent::Completed { response, .. } => {
-                        let mut guard = captured_id_inner.lock().unwrap();
-                        if guard.is_none() {
-                            *guard = Some(response.id.clone());
-                        }
+            ChatStreamConfig::new().on_raw_delta(move |event: &ResponseStreamEvent| match event {
+                ResponseStreamEvent::Created { response, .. }
+                | ResponseStreamEvent::Completed { response, .. } => {
+                    let mut guard = captured_id_inner.lock().unwrap();
+                    if guard.is_none() {
+                        *guard = Some(response.id.clone());
                     }
-                    _ => {}
                 }
+                _ => {}
             })
         });
 
@@ -337,8 +335,8 @@ mod tests {
             .with_authorization("mock-api-key")
             .with_base_url(guard.base_url.clone());
 
-        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
-            .with_model("gemini-3.6-flash");
+        let agent_config =
+            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
         let agent = InteractionsAgent::new(transport, agent_config);
 
         let runner = Runner::new(agent);
@@ -366,8 +364,8 @@ mod tests {
             .with_authorization("mock-api-key")
             .with_base_url(guard.base_url.clone());
 
-        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
-            .with_model("gemini-3.6-flash");
+        let agent_config =
+            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
         let agent = InteractionsAgent::new(transport, agent_config);
 
         let runner = Runner::new(agent).with_tool(WeatherTool);

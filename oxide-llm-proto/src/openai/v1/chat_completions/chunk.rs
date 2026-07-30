@@ -1,7 +1,4 @@
-use super::{
-    response::CompletionUsage,
-    LogProbs,
-};
+use super::{LogProbs, response::CompletionUsage};
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 

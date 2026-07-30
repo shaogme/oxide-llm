@@ -102,7 +102,8 @@ mod tests {
         state.add_message(Message::user("Hello Responses Non-Stream Stateful Step 1"));
 
         // Use chat_raw to retrieve raw Response structure containing response ID
-        let raw_state = ResponsesConversationState::try_from(state).expect("ResponsesConversationState try_from should succeed");
+        let raw_state = ResponsesConversationState::try_from(state)
+            .expect("ResponsesConversationState try_from should succeed");
         let response = agent
             .chat_raw(raw_state)
             .await
@@ -214,7 +215,11 @@ mod tests {
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Berlin?"));
 
-        let res_msg = runner.agent().chat(state).await.expect("Chat should succeed");
+        let res_msg = runner
+            .agent()
+            .chat(state)
+            .await
+            .expect("Chat should succeed");
 
         let tool_call_found = res_msg.content.iter().any(|part| match part {
             ContentPart::ToolCall(tc) => tc.name == "get_weather",
@@ -244,7 +249,11 @@ mod tests {
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in London?"));
 
-        let res_msg = runner.agent().chat(state).await.expect("Chat should succeed");
+        let res_msg = runner
+            .agent()
+            .chat(state)
+            .await
+            .expect("Chat should succeed");
 
         let tool_call_found = res_msg.content.iter().any(|part| match part {
             ContentPart::ToolCall(tc) => tc.name == "get_weather",
@@ -274,7 +283,11 @@ mod tests {
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Paris?"));
 
-        let res_msg = runner.agent().chat(state).await.expect("Chat should succeed");
+        let res_msg = runner
+            .agent()
+            .chat(state)
+            .await
+            .expect("Chat should succeed");
 
         let tool_call_found = res_msg.content.iter().any(|part| match part {
             ContentPart::ToolCall(tc) => tc.name == "get_weather",
@@ -370,8 +383,8 @@ mod tests {
             .with_authorization("mock-api-key")
             .with_base_url(guard.base_url.clone());
 
-        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
-            .with_model("gemini-3.6-flash");
+        let agent_config =
+            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
         let agent = InteractionsAgent::new(transport, agent_config);
 
         let runner = Runner::new(agent);
@@ -400,8 +413,8 @@ mod tests {
             .with_authorization("mock-api-key")
             .with_base_url(guard.base_url.clone());
 
-        let agent_config = InteractionsRequiredConfig::new("/v1beta/interactions")
-            .with_model("gemini-3.6-flash");
+        let agent_config =
+            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
         let agent = InteractionsAgent::new(transport, agent_config);
 
         let runner = Runner::new(agent).with_tool(WeatherTool);
@@ -409,7 +422,11 @@ mod tests {
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Shanghai?"));
 
-        let res_msg = runner.agent().chat(state).await.expect("Chat should succeed");
+        let res_msg = runner
+            .agent()
+            .chat(state)
+            .await
+            .expect("Chat should succeed");
 
         let tool_call_found = res_msg.content.iter().any(|part| match part {
             ContentPart::ToolCall(tc) => tc.name == "get_weather",

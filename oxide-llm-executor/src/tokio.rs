@@ -1,8 +1,6 @@
 use oxide_llm_core::{
     message::ContentPart,
-    tool::{
-        Executor, ToolCall, ToolExecutionError, ToolGroup, ToolRegistry, ToolResult,
-    },
+    tool::{Executor, ToolCall, ToolExecutionError, ToolGroup, ToolRegistry, ToolResult},
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -49,9 +47,8 @@ impl TokioExecutor {
 }
 
 impl<G: ToolGroup> Executor<G> for TokioExecutor {
-    type Future<'a> = Pin<
-        Box<dyn Future<Output = Result<Vec<ToolResult>, ToolExecutionError>> + Send + 'a>,
-    >
+    type Future<'a>
+        = Pin<Box<dyn Future<Output = Result<Vec<ToolResult>, ToolExecutionError>> + Send + 'a>>
     where
         Self: 'a,
         G: 'a;

@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::mapper::MapperError;
 use crate::message::{
-    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource, Message,
-    Role,
+    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource,
+    Message, Role,
 };
 use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{
@@ -214,9 +214,7 @@ impl GeminiGenerateContentMapper {
     /// Convert `ToolDefinition` to `GeminiFunctionDeclaration`.
     ///
     /// 将 `ToolDefinition` 转换为 `GeminiFunctionDeclaration`。
-    pub fn tool_to_gemini_function_declaration(
-        tool: &ToolDefinition,
-    ) -> GeminiFunctionDeclaration {
+    pub fn tool_to_gemini_function_declaration(tool: &ToolDefinition) -> GeminiFunctionDeclaration {
         let schema = tool
             .function
             .parameters
@@ -261,7 +259,10 @@ impl GeminiGenerateContentMapper {
     ///
     /// 将 `GeminiFunctionDeclaration` 转换为 `ToolDefinition`。
     pub fn tool_from_gemini(decl: GeminiFunctionDeclaration) -> ToolDefinition {
-        let parameters = decl.parameters.as_ref().map(Self::gemini_schema_to_json_schema);
+        let parameters = decl
+            .parameters
+            .as_ref()
+            .map(Self::gemini_schema_to_json_schema);
         ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
@@ -431,9 +432,11 @@ impl TryFrom<&ToolChoice> for GeminiToolConfig {
     type Error = MapperError;
 
     fn try_from(choice: &ToolChoice) -> Result<Self, Self::Error> {
-        GeminiGenerateContentMapper::tool_choice_to_gemini(choice).ok_or(MapperError::MissingField {
-            field: "tool_choice".to_string(),
-        })
+        GeminiGenerateContentMapper::tool_choice_to_gemini(choice).ok_or(
+            MapperError::MissingField {
+                field: "tool_choice".to_string(),
+            },
+        )
     }
 }
 
@@ -501,8 +504,6 @@ impl TryFrom<ConversationState> for GenerateContentConversationState {
         })
     }
 }
-
-
 
 /// A stateful mapper for Gemini streaming responses.
 ///

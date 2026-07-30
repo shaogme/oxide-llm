@@ -586,5 +586,3 @@ pub enum Task {
     ReferenceToVideo,
     Edit,
 }
-
-

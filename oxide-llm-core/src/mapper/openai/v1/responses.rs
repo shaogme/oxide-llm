@@ -351,8 +351,6 @@ impl TryFrom<ConversationState> for ResponsesConversationState {
     }
 }
 
-
-
 /// Stateful mapper for OpenAI Response API streaming events.
 ///
 /// 用于 OpenAI Response API 流式事件的有状态映射器。
@@ -629,7 +627,9 @@ mod tests {
         };
 
         let err = OpenAIResponseMapper::from_core_message(msg).unwrap_err();
-        assert!(matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name"));
+        assert!(
+            matches!(err, MapperError::MissingField { ref field } if field == "tool_call.function.name")
+        );
     }
 
     #[test]
@@ -686,7 +686,8 @@ mod tests {
             call_id,
             output,
             id: _,
-        } = &result_items[0] {
+        } = &result_items[0]
+        {
             assert_eq!(call_id, "call_101");
             assert_eq!(output, "Sunny");
         } else {

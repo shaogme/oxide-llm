@@ -7,13 +7,15 @@ pub use assembler::MessageAssembler;
 pub use delta::{
     DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, FinishReason, Usage,
 };
-pub use model::{Audio, ContentPart, Document, Image, ImageSource, Message, MessageHistory, Role, Video};
+pub use model::{
+    Audio, ContentPart, Document, Image, ImageSource, Message, MessageHistory, Role, Video,
+};
 pub use stream::{ChatStream, ChatStreamEvent};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::{executor::block_on, stream, StreamExt};
+    use futures::{StreamExt, executor::block_on, stream};
 
     #[test]
     fn test_message_and_history_builder() {
@@ -28,9 +30,7 @@ mod tests {
         );
 
         let msg2 = Message::assistant("world");
-        let history = MessageHistory::new()
-            .with_message(msg1)
-            .with_message(msg2);
+        let history = MessageHistory::new().with_message(msg1).with_message(msg2);
         assert_eq!(history.messages.len(), 2);
     }
 

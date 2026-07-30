@@ -62,4 +62,3 @@ pub enum HarmBlockMethod {
     Severity,
     Probability,
 }
-

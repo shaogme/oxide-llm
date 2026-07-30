@@ -1,6 +1,5 @@
 use super::{
-    ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Tool, ToolChoice,
-    Truncation,
+    ConversationParam, Prompt, ReasoningConf, ResponseTextParam, Tool, ToolChoice, Truncation,
 };
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};

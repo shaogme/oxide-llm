@@ -2,9 +2,9 @@ pub mod generate_content;
 pub mod interactions;
 
 pub use generate_content::{
-    GenerateContentConversationState, GeminiGenerateContentMapper, GeminiGenerateContentStreamMapper,
+    GeminiGenerateContentMapper, GeminiGenerateContentStreamMapper,
+    GenerateContentConversationState,
 };
 pub use interactions::{
     GeminiInteractionsMapper, GeminiInteractionsStreamMapper, InteractionsConversationState,
 };
-
