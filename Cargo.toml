@@ -17,12 +17,12 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Shao G. <shaogme@gmail.com>"]
 repository = "https://github.com/shaogme/oxide-llm"
-description = ""
+description = "A unified, ergonomic, and extensible Rust LLM library supporting OpenAI, Claude, Gemini, and AI agents."
 readme = "README.md"
 homepage = "https://github.com/shaogme/oxide-llm"
 documentation = "https://docs.rs/oxide-llm"
-keywords = []
-categories = []
+keywords = ["llm", "openai", "claude", "gemini", "ai"]
+categories = ["api-bindings", "asynchronous"]
 
 [workspace.lints.rust]
 warnings = "deny"
