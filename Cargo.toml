@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "oxide-llm",
-    "oxide-llm-core",
-    "oxide-llm-proto",
-    "oxide-llm-transport",
-    "oxide-llm-macros",
-    "oxide-llm-executor",
+    "crates/oxide-llm",
+    "crates/oxide-llm-core",
+    "crates/oxide-llm-proto",
+    "crates/oxide-llm-transport",
+    "crates/oxide-llm-macros",
+    "crates/oxide-llm-executor",
     "examples/agent",
     "e2e/runner-e2e",
 ]
@@ -30,12 +30,12 @@ warnings = "deny"
 [workspace.dependencies]
 
 # Internal Crates
-oxide-llm = { path = "oxide-llm" }
-oxide-llm-core = { path = "oxide-llm-core" }
-oxide-llm-proto = { path = "oxide-llm-proto" }
-oxide-llm-transport = { path = "oxide-llm-transport" }
-oxide-llm-macros = { path = "oxide-llm-macros" }
-oxide-llm-executor = { path = "oxide-llm-executor" }
+oxide-llm = { path = "crates/oxide-llm" }
+oxide-llm-core = { path = "crates/oxide-llm-core" }
+oxide-llm-proto = { path = "crates/oxide-llm-proto" }
+oxide-llm-transport = { path = "crates/oxide-llm-transport" }
+oxide-llm-macros = { path = "crates/oxide-llm-macros" }
+oxide-llm-executor = { path = "crates/oxide-llm-executor" }
 
 # External Crates
 serde = { version = "1.0", features = ["derive"] }
