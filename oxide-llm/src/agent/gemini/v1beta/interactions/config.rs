@@ -4,7 +4,8 @@ use oxide_llm_proto::gemini::v1beta::interactions::{
     agent::AgentConfig,
     request::{
         CreateInteractionRequest, GenerationConfig, InteractionsInput, SafetySetting, ServiceTier,
-        ToolChoice as GeminiRequestToolChoice,
+        SpeechConfig, ThinkingLevel, ThinkingSummaries, ToolChoice as GeminiRequestToolChoice,
+        TranscriptionConfig, VideoConfig,
     },
     tool::Tool,
     webhook::WebhookConfig,
@@ -128,7 +129,18 @@ pub struct InteractionsOptionalConfig {
     stream: Option<bool>,
     store: Option<bool>,
     background: Option<bool>,
-    generation_config: Option<GenerationConfig>,
+
+    // Generation Config fields
+    max_output_tokens: Option<i32>,
+    seed: Option<i32>,
+    speech_config: Option<SpeechConfig>,
+    stop_sequences: Option<Vec<StaticRefStr>>,
+    thinking_level: Option<ThinkingLevel>,
+    thinking_summaries: Option<ThinkingSummaries>,
+    tool_choice: Option<GeminiRequestToolChoice>,
+    transcription_config: Option<TranscriptionConfig>,
+    video_config: Option<VideoConfig>,
+
     agent_config: Option<AgentConfig>,
     environment: Option<Value>,
     labels: Option<HashMap<String, String>>,
@@ -261,29 +273,222 @@ impl InteractionsOptionalConfig {
         self
     }
 
-    /// Get generation config.
+    /// Get max output tokens.
     ///
-    /// 获取生成配置。
-    pub fn generation_config(&self) -> Option<&GenerationConfig> {
-        self.generation_config.as_ref()
+    /// 获取最大输出 Token 数。
+    pub fn max_output_tokens(&self) -> Option<i32> {
+        self.max_output_tokens
     }
 
-    /// Set generation config.
+    /// Set max output tokens.
     ///
-    /// 设置生成配置。
-    pub fn set_generation_config(
-        &mut self,
-        generation_config: Option<GenerationConfig>,
-    ) -> &mut Self {
-        self.generation_config = generation_config;
+    /// 设置最大输出 Token 数。
+    pub fn set_max_output_tokens(&mut self, max_output_tokens: Option<i32>) -> &mut Self {
+        self.max_output_tokens = max_output_tokens;
         self
     }
 
-    /// Set generation config (builder pattern).
+    /// Set max output tokens (builder pattern).
     ///
-    /// 设置生成配置（构建器模式）。
-    pub fn with_generation_config(mut self, generation_config: GenerationConfig) -> Self {
-        self.generation_config = Some(generation_config);
+    /// 设置最大输出 Token 数（构建器模式）。
+    pub fn with_max_output_tokens(mut self, max_output_tokens: i32) -> Self {
+        self.max_output_tokens = Some(max_output_tokens);
+        self
+    }
+
+    /// Get seed.
+    ///
+    /// 获取解码种子。
+    pub fn seed(&self) -> Option<i32> {
+        self.seed
+    }
+
+    /// Set seed.
+    ///
+    /// 设置解码种子。
+    pub fn set_seed(&mut self, seed: Option<i32>) -> &mut Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Set seed (builder pattern).
+    ///
+    /// 设置解码种子（构建器模式）。
+    pub fn with_seed(mut self, seed: i32) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Get speech config.
+    ///
+    /// 获取语音生成配置。
+    pub fn speech_config(&self) -> Option<&SpeechConfig> {
+        self.speech_config.as_ref()
+    }
+
+    /// Set speech config.
+    ///
+    /// 设置语音生成配置。
+    pub fn set_speech_config(&mut self, speech_config: Option<SpeechConfig>) -> &mut Self {
+        self.speech_config = speech_config;
+        self
+    }
+
+    /// Set speech config (builder pattern).
+    ///
+    /// 设置语音生成配置（构建器模式）。
+    pub fn with_speech_config(mut self, speech_config: SpeechConfig) -> Self {
+        self.speech_config = Some(speech_config);
+        self
+    }
+
+    /// Get stop sequences.
+    ///
+    /// 获取停止字符序列。
+    pub fn stop_sequences(&self) -> Option<&[StaticRefStr]> {
+        self.stop_sequences.as_deref()
+    }
+
+    /// Set stop sequences.
+    ///
+    /// 设置停止字符序列。
+    pub fn set_stop_sequences(&mut self, stop_sequences: Option<Vec<StaticRefStr>>) -> &mut Self {
+        self.stop_sequences = stop_sequences;
+        self
+    }
+
+    /// Set stop sequences (builder pattern).
+    ///
+    /// 设置停止字符序列（构建器模式）。
+    pub fn with_stop_sequences(mut self, stop_sequences: Vec<StaticRefStr>) -> Self {
+        self.stop_sequences = Some(stop_sequences);
+        self
+    }
+
+    /// Get thinking level.
+    ///
+    /// 获取思考 Token 级别。
+    pub fn thinking_level(&self) -> Option<&ThinkingLevel> {
+        self.thinking_level.as_ref()
+    }
+
+    /// Set thinking level.
+    ///
+    /// 设置思考 Token 级别。
+    pub fn set_thinking_level(&mut self, thinking_level: Option<ThinkingLevel>) -> &mut Self {
+        self.thinking_level = thinking_level;
+        self
+    }
+
+    /// Set thinking level (builder pattern).
+    ///
+    /// 设置思考 Token 级别（构建器模式）。
+    pub fn with_thinking_level(mut self, thinking_level: ThinkingLevel) -> Self {
+        self.thinking_level = Some(thinking_level);
+        self
+    }
+
+    /// Get thinking summaries.
+    ///
+    /// 获取思考摘要配置。
+    pub fn thinking_summaries(&self) -> Option<&ThinkingSummaries> {
+        self.thinking_summaries.as_ref()
+    }
+
+    /// Set thinking summaries.
+    ///
+    /// 设置思考摘要配置。
+    pub fn set_thinking_summaries(
+        &mut self,
+        thinking_summaries: Option<ThinkingSummaries>,
+    ) -> &mut Self {
+        self.thinking_summaries = thinking_summaries;
+        self
+    }
+
+    /// Set thinking summaries (builder pattern).
+    ///
+    /// 设置思考摘要配置（构建器模式）。
+    pub fn with_thinking_summaries(mut self, thinking_summaries: ThinkingSummaries) -> Self {
+        self.thinking_summaries = Some(thinking_summaries);
+        self
+    }
+
+    /// Get tool choice.
+    ///
+    /// 获取工具选择配置。
+    pub fn tool_choice(&self) -> Option<&GeminiRequestToolChoice> {
+        self.tool_choice.as_ref()
+    }
+
+    /// Set tool choice.
+    ///
+    /// 设置工具选择配置。
+    pub fn set_tool_choice(
+        &mut self,
+        tool_choice: Option<GeminiRequestToolChoice>,
+    ) -> &mut Self {
+        self.tool_choice = tool_choice;
+        self
+    }
+
+    /// Set tool choice (builder pattern).
+    ///
+    /// 设置工具选择配置（构建器模式）。
+    pub fn with_tool_choice(mut self, tool_choice: GeminiRequestToolChoice) -> Self {
+        self.tool_choice = Some(tool_choice);
+        self
+    }
+
+    /// Get transcription config.
+    ///
+    /// 获取语音识别（转录）配置。
+    pub fn transcription_config(&self) -> Option<&TranscriptionConfig> {
+        self.transcription_config.as_ref()
+    }
+
+    /// Set transcription config.
+    ///
+    /// 设置语音识别（转录）配置。
+    pub fn set_transcription_config(
+        &mut self,
+        transcription_config: Option<TranscriptionConfig>,
+    ) -> &mut Self {
+        self.transcription_config = transcription_config;
+        self
+    }
+
+    /// Set transcription config (builder pattern).
+    ///
+    /// 设置语音识别（转录）配置（构建器模式）。
+    pub fn with_transcription_config(
+        mut self,
+        transcription_config: TranscriptionConfig,
+    ) -> Self {
+        self.transcription_config = Some(transcription_config);
+        self
+    }
+
+    /// Get video config.
+    ///
+    /// 获取视频生成配置。
+    pub fn video_config(&self) -> Option<&VideoConfig> {
+        self.video_config.as_ref()
+    }
+
+    /// Set video config.
+    ///
+    /// 设置视频生成配置。
+    pub fn set_video_config(&mut self, video_config: Option<VideoConfig>) -> &mut Self {
+        self.video_config = video_config;
+        self
+    }
+
+    /// Set video config (builder pattern).
+    ///
+    /// 设置视频生成配置（构建器模式）。
+    pub fn with_video_config(mut self, video_config: VideoConfig) -> Self {
+        self.video_config = Some(video_config);
         self
     }
 
@@ -529,24 +734,31 @@ impl InteractionsConfig {
             .map(|s| s.to_string())
             .or_else(|| self.optional.system_instruction.clone());
 
-        let generation_config = match (self.optional.generation_config.clone(), tool_choice) {
-            (Some(mut gen_cfg), Some(tc)) => {
-                gen_cfg.tool_choice = Some(tc);
-                Some(gen_cfg)
-            }
-            (Some(gen_cfg), None) => Some(gen_cfg),
-            (None, Some(tc)) => Some(GenerationConfig {
-                max_output_tokens: None,
-                seed: None,
-                speech_config: None,
-                stop_sequences: None,
-                thinking_level: None,
-                thinking_summaries: None,
-                tool_choice: Some(tc),
-                transcription_config: None,
-                video_config: None,
-            }),
-            (None, None) => None,
+        let effective_tool_choice = tool_choice.or_else(|| self.optional.tool_choice.clone());
+
+        let generation_config = if self.optional.max_output_tokens.is_some()
+            || self.optional.seed.is_some()
+            || self.optional.speech_config.is_some()
+            || self.optional.stop_sequences.is_some()
+            || self.optional.thinking_level.is_some()
+            || self.optional.thinking_summaries.is_some()
+            || effective_tool_choice.is_some()
+            || self.optional.transcription_config.is_some()
+            || self.optional.video_config.is_some()
+        {
+            Some(GenerationConfig {
+                max_output_tokens: self.optional.max_output_tokens,
+                seed: self.optional.seed,
+                speech_config: self.optional.speech_config.clone(),
+                stop_sequences: self.optional.stop_sequences.clone(),
+                thinking_level: self.optional.thinking_level.clone(),
+                thinking_summaries: self.optional.thinking_summaries.clone(),
+                tool_choice: effective_tool_choice,
+                transcription_config: self.optional.transcription_config.clone(),
+                video_config: self.optional.video_config.clone(),
+            })
+        } else {
+            None
         };
 
         CreateInteractionRequest {
