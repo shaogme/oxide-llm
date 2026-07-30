@@ -1,9 +1,15 @@
-use std::future::{Future, Ready};
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::{
+    error::Error,
+    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    future::{Future, Ready},
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use crate::message::ContentPart;
-use crate::tool::model::{FunctionDefinition, Schema, ToolDefinition, ToolType};
+use crate::{
+    message::ContentPart,
+    tool::model::{FunctionDefinition, Schema, ToolDefinition, ToolType},
+};
 use diagweave::set;
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -11,18 +17,18 @@ set! {
     /// Errors that can occur during tool execution or argument parsing.
     ///
     /// 工具执行或参数解析过程中可能发生的错误。
-    pub ToolError = {
+    pub ToolError<E: Debug + Display + Send + Sync + 'static> = {
         #[display("Invalid arguments: {0}")]
         InvalidArguments(String),
         #[display("Serialization error: {0}")]
         Serialization(String),
         #[display("{0}")]
-        Custom(String),
+        Custom(E),
     }
 }
 
-impl From<ToolError> for String {
-    fn from(err: ToolError) -> Self {
+impl<E: Debug + Display + Send + Sync + 'static> From<ToolError<E>> for String {
+    fn from(err: ToolError<E>) -> Self {
         err.to_string()
     }
 }
@@ -34,12 +40,12 @@ pub trait ToolRunnable: Send + Sync {
     /// The error type returned by tool execution.
     ///
     /// 工具执行返回的错误类型。
-    type Error: std::fmt::Display + Send;
+    type Error: Debug + Display + Send + Sync + 'static;
 
     /// The future type returned by tool execution.
     ///
     /// 工具执行返回的 Future 类型。
-    type Future: Future<Output = Result<Vec<ContentPart>, Self::Error>> + Send;
+    type Future: Future<Output = Result<Vec<ContentPart>, ToolError<Self::Error>>> + Send;
 
     /// Returns the definition of the tool.
     ///
@@ -54,7 +60,7 @@ pub trait ToolRunnable: Send + Sync {
     /// Handles an error occurred during tool execution.
     ///
     /// 处理工具执行过程中产生的错误，返回可传给 LLM 的内容段落或返回致命错误以中断执行。
-    fn handle_error(&self, err: Self::Error) -> Result<Vec<ContentPart>, Self::Error> {
+    fn handle_error(&self, err: ToolError<Self::Error>) -> Result<Vec<ContentPart>, Self::Error> {
         Ok(vec![ContentPart::Text {
             text: format!("Error executing tool: {}", err),
             signature: None,
@@ -80,7 +86,7 @@ pub trait Tool: Send + Sync + Clone + 'static {
     type Output: Serialize + Send;
 
     /// The error type returned by the tool.
-    type Error: std::fmt::Display + From<ToolError> + Send;
+    type Error: Debug + Display + Send + Sync + 'static;
 
     /// The future type returned by tool execution.
     ///
@@ -93,7 +99,7 @@ pub trait Tool: Send + Sync + Clone + 'static {
     /// Handles an error occurred during tool execution.
     ///
     /// 处理工具执行过程中产生的错误，返回可传给 LLM 的内容段落或返回致命错误以中断执行。
-    fn handle_error(&self, err: Self::Error) -> Result<Vec<ContentPart>, Self::Error> {
+    fn handle_error(&self, err: ToolError<Self::Error>) -> Result<Vec<ContentPart>, Self::Error> {
         Ok(vec![ContentPart::Text {
             text: format!("Error executing tool: {}", err),
             signature: None,
@@ -106,13 +112,13 @@ pub trait Tool: Send + Sync + Clone + 'static {
 /// 由 `Tool` 的 `ToolRunnable` 通用实现返回的零内存分配 Future。
 pub enum AutoToolFuture<T: Tool> {
     /// Holds a deferred error during argument parsing or serialization failure.
-    Failed(Option<T::Error>),
+    Failed(Option<ToolError<T::Error>>),
     /// Holds the inner future of the tool execution.
     Executing(T::Future),
 }
 
 impl<T: Tool> Future for AutoToolFuture<T> {
-    type Output = Result<Vec<ContentPart>, T::Error>;
+    type Output = Result<Vec<ContentPart>, ToolError<T::Error>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = unsafe { self.get_unchecked_mut() };
@@ -132,11 +138,11 @@ impl<T: Tool> Future for AutoToolFuture<T> {
                             signature: None,
                         }])),
                         Err(e) => {
-                            let err = ToolError::Serialization(e.to_string()).into();
+                            let err = ToolError::Serialization(e.to_string());
                             Poll::Ready(Err(err))
                         }
                     },
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+                    Poll::Ready(Err(err)) => Poll::Ready(Err(ToolError::Custom(err))),
                     Poll::Pending => Poll::Pending,
                 }
             }
@@ -179,14 +185,13 @@ impl<T: Tool> ToolRunnable for T {
                     "Invalid arguments for tool {}: {}",
                     Self::NAME,
                     e
-                ))
-                .into();
+                ));
                 AutoToolFuture::Failed(Some(err))
             }
         }
     }
 
-    fn handle_error(&self, err: Self::Error) -> Result<Vec<ContentPart>, Self::Error> {
+    fn handle_error(&self, err: ToolError<Self::Error>) -> Result<Vec<ContentPart>, Self::Error> {
         T::handle_error(self, err)
     }
 }
@@ -206,8 +211,8 @@ pub enum ToolExecutionError {
     Fatal(String),
 }
 
-impl std::fmt::Display for ToolExecutionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ToolExecutionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             ToolExecutionError::Handled(_) => write!(f, "Tool execution returned handled error"),
             ToolExecutionError::Fatal(err) => write!(f, "Tool execution failed fatally: {}", err),
@@ -215,7 +220,7 @@ impl std::fmt::Display for ToolExecutionError {
     }
 }
 
-impl std::error::Error for ToolExecutionError {}
+impl Error for ToolExecutionError {}
 
 /// A static branching future that delegates polling to either Left or Right.
 ///

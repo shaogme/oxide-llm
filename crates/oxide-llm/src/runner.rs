@@ -393,7 +393,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxide_llm_core::tool::{ExecuteToolsFuture, ToolDefinition, ToolExecutionError};
+    use oxide_llm_core::tool::{
+        ExecuteToolsFuture, JSONSchema, Schema, Tool, ToolDefinition, ToolError, ToolExecutionError,
+    };
     use std::sync::Arc;
 
     #[derive(Clone)]
@@ -401,7 +403,7 @@ mod tests {
 
     impl ToolRunnable for DummyTool {
         type Error = String;
-        type Future = std::future::Ready<Result<Vec<ContentPart>, String>>;
+        type Future = std::future::Ready<Result<Vec<ContentPart>, ToolError<String>>>;
 
         fn definition(&self) -> ToolDefinition {
             ToolDefinition {
@@ -571,7 +573,7 @@ mod tests {
 
     impl ToolRunnable for FatalTool {
         type Error = String;
-        type Future = std::future::Ready<Result<Vec<ContentPart>, String>>;
+        type Future = std::future::Ready<Result<Vec<ContentPart>, ToolError<String>>>;
 
         fn definition(&self) -> ToolDefinition {
             ToolDefinition {
@@ -586,11 +588,17 @@ mod tests {
         }
 
         fn run(&self, _args: serde_json::Value) -> Self::Future {
-            std::future::ready(Err("database unreachable".to_string()))
+            std::future::ready(Err(ToolError::Custom("database unreachable".to_string())))
         }
 
-        fn handle_error(&self, err: Self::Error) -> Result<Vec<ContentPart>, Self::Error> {
-            Err(err)
+        fn handle_error(
+            &self,
+            err: ToolError<Self::Error>,
+        ) -> Result<Vec<ContentPart>, Self::Error> {
+            match err {
+                ToolError::Custom(e) => Err(e),
+                other => Err(other.to_string()),
+            }
         }
     }
 
@@ -638,5 +646,70 @@ mod tests {
 
         let mut state = ConversationState::new();
         let _stream = runner.run_stream(&mut state);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TypedArgs {
+        count: i32,
+    }
+
+    impl Schema for TypedArgs {
+        fn json_schema() -> JSONSchema {
+            JSONSchema::object().required_property("count", JSONSchema::integer())
+        }
+    }
+
+    #[derive(Clone)]
+    struct TypedTool;
+
+    impl Tool for TypedTool {
+        const NAME: &'static str = "typed_tool";
+        type Args = TypedArgs;
+        type Output = String;
+        type Error = String;
+        type Future = std::future::Ready<Result<Self::Output, Self::Error>>;
+
+        fn run(&self, args: Self::Args) -> Self::Future {
+            std::future::ready(Ok(format!("count: {}", args.count)))
+        }
+
+        fn handle_error(
+            &self,
+            err: ToolError<Self::Error>,
+        ) -> Result<Vec<ContentPart>, Self::Error> {
+            match err {
+                ToolError::InvalidArguments(msg) => Ok(vec![ContentPart::Text {
+                    text: format!("Custom invalid args handler: {}", msg),
+                    signature: None,
+                }]),
+                other => Ok(vec![ContentPart::Text {
+                    text: format!("Other error: {}", other),
+                    signature: None,
+                }]),
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_invalid_arguments_handled_by_user() {
+        let registry = ToolRegistry::new().register(TypedTool);
+        let tool_call = ToolCall {
+            id: "call_bad_arg".into(),
+            name: "typed_tool".into(),
+            arguments: serde_json::json!({"count": "invalid_number"}),
+            signature: None,
+        };
+
+        let exec_fut = ExecuteToolsFuture::new(registry, vec![tool_call]);
+        let res = futures::executor::block_on(exec_fut);
+        assert!(res.is_ok());
+        let results = res.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_error);
+        if let ContentPart::Text { ref text, .. } = results[0].content[0] {
+            assert!(text.contains("Custom invalid args handler:"));
+        } else {
+            panic!("Expected ContentPart::Text");
+        }
     }
 }

@@ -140,8 +140,9 @@ impl<G: ToolGroup> Executor<G> for TokioExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use oxide_llm_core::tool::{FunctionDefinition, ToolDefinition, ToolRunnable, ToolType};
+    use oxide_llm_core::tool::{
+        FunctionDefinition, ToolDefinition, ToolError, ToolRunnable, ToolType,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::time::sleep;
@@ -155,7 +156,7 @@ mod tests {
 
     impl ToolRunnable for SlowTool {
         type Error = String;
-        type Future = Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, String>> + Send>>;
+        type Future = Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolError<String>>> + Send>>;
 
         fn definition(&self) -> ToolDefinition {
             ToolDefinition {
