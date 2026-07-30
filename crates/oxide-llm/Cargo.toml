@@ -27,11 +27,14 @@ bytes.workspace = true
 trait-morph.workspace = true
 
 oxide-llm-transport = { workspace = true, optional = true }
+oxide-llm-executor = { workspace = true, optional = true }
 
 [features]
 default = []
 transport = ["oxide-llm-transport"]
 transport-reqwest = ["transport", "oxide-llm-transport/reqwest"]
+executor = ["oxide-llm-executor"]
+executor-tokio = ["executor", "oxide-llm-executor/tokio"]
 
 [lints]
 workspace = true

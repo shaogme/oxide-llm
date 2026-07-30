@@ -23,6 +23,7 @@ mod tests {
             state::ConversationState,
             transport::TransportExt,
         },
+        executor::TokioToolRegistry,
         transport::reqwest::ReqwestTransport,
     };
 
@@ -231,7 +232,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let registry = TokioToolRegistry::new().with_tool(WeatherTool);
+        let runner = Runner::new(agent).with_registry(registry);
         let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Berlin?"));
@@ -268,7 +270,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let registry = TokioToolRegistry::new().with_tool(WeatherTool);
+        let runner = Runner::new(agent).with_registry(registry);
         let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in London?"));
@@ -305,7 +308,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let registry = TokioToolRegistry::new().with_tool(WeatherTool);
+        let runner = Runner::new(agent).with_registry(registry);
         let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Paris?"));
@@ -458,7 +462,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let runner = Runner::new(agent).with_tool(WeatherTool);
+        let registry = TokioToolRegistry::new().with_tool(WeatherTool);
+        let runner = Runner::new(agent).with_registry(registry);
         let mut state = ConversationState::new();
         runner.sync_tools(&mut state);
         state.add_message(Message::user("What is the weather in Shanghai?"));

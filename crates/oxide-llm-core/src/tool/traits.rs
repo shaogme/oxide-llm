@@ -276,28 +276,64 @@ impl<T: ToolRunnable> Future for ToolExecutionFuture<T> {
     }
 }
 
-/// A trait for static tool groups composed of heterogeneous tools.
+/// A type-erased trait for tools, enabling dynamic dispatch (`dyn DynTool`).
 ///
-/// 用于由异构工具组成的静态工具组的 Trait。
-pub trait ToolGroup: Send + Sync + Clone + 'static {
-    /// The combined execution future type of all tools in the group.
+/// 用于工具的类型擦除 Trait，允许动态分发 (`dyn DynTool`)。
+pub trait DynTool: Send + Sync {
+    /// Returns the definition of the tool.
     ///
-    /// 组内所有工具组合的执行 Future 类型。
+    /// 返回工具的定义。
+    fn definition(&self) -> ToolDefinition;
+
+    /// Executes the tool with JSON arguments, returning a heap-allocated pinned Future.
+    ///
+    /// 使用 JSON 参数执行工具，返回堆分配的固定 Future。
+    fn execute(
+        &self,
+        args: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>>;
+}
+
+impl<T> DynTool for T
+where
+    T: ToolRunnable + Clone + 'static,
+{
+    fn definition(&self) -> ToolDefinition {
+        ToolRunnable::definition(self)
+    }
+
+    fn execute(
+        &self,
+        args: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>> {
+        Box::pin(ToolExecutionFuture::new(self.clone(), args))
+    }
+}
+
+/// A trait for managing and executing tools.
+///
+/// 用于管理和执行工具的 Trait。
+pub trait ToolRegistry: Send + Sync + 'static {
+    /// The future type returned by tool execution.
+    ///
+    /// 工具执行返回的 Future 类型。
     type ExecFuture: Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send;
 
-    /// Returns definitions for all tools in the group.
+    /// Get all tool definitions.
     ///
-    /// 返回组内所有工具的定义。
+    /// 获取所有工具的定义。
     fn definitions(&self) -> Vec<ToolDefinition>;
 
-    /// Executes a tool by name if present in the group.
+    /// Execute a tool by name.
     ///
-    /// 若名称匹配组内工具，则执行该工具。
+    /// Returns `None` if the tool is not found.
+    ///
+    /// 按名称执行工具。若未找到对应工具则返回 `None`。
     fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture>;
 }
 
 // Termination node ()
-impl ToolGroup for () {
+impl ToolRegistry for () {
     type ExecFuture = Ready<Result<Vec<ContentPart>, ToolExecutionError>>;
 
     fn definitions(&self) -> Vec<ToolDefinition> {
@@ -306,40 +342,5 @@ impl ToolGroup for () {
 
     fn execute(&self, _name: &str, _args: serde_json::Value) -> Option<Self::ExecFuture> {
         None
-    }
-}
-
-/// A recursive static node in a tool group chain.
-///
-/// 工具组链中的递归静态节点。
-#[derive(Clone, Default)]
-pub struct ToolSet<Head, Tail> {
-    pub head: Head,
-    pub tail: Tail,
-}
-
-impl<Head, Tail> ToolGroup for ToolSet<Head, Tail>
-where
-    Head: ToolGroup,
-    Tail: ToolRunnable + Clone + 'static,
-{
-    type ExecFuture = EitherFuture<ToolExecutionFuture<Tail>, Head::ExecFuture>;
-
-    fn definitions(&self) -> Vec<ToolDefinition> {
-        let mut defs = self.head.definitions();
-        defs.push(self.tail.definition());
-        defs
-    }
-
-    fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture> {
-        let tail_def = self.tail.definition();
-        if tail_def.function.name == name {
-            Some(EitherFuture::Left(ToolExecutionFuture::new(
-                self.tail.clone(),
-                args,
-            )))
-        } else {
-            self.head.execute(name, args).map(EitherFuture::Right)
-        }
     }
 }

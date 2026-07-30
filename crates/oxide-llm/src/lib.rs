@@ -27,6 +27,12 @@ pub mod transport {
     pub use oxide_llm_transport::reqwest;
 }
 
+#[cfg(feature = "executor")]
+pub mod executor {
+    #[cfg(feature = "executor-tokio")]
+    pub use oxide_llm_executor::*;
+}
+
 pub mod core {
     pub use oxide_llm_core::*;
 }

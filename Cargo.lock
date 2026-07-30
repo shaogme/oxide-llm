@@ -821,6 +821,7 @@ dependencies = [
  "diagweave",
  "futures",
  "oxide-llm-core",
+ "oxide-llm-executor",
  "oxide-llm-macros",
  "oxide-llm-proto",
  "oxide-llm-transport",

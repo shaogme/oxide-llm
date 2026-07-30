@@ -6,7 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-oxide-llm = { workspace = true, features = ["transport-reqwest"] }
+oxide-llm = { workspace = true, features = ["transport-reqwest", "executor-tokio"] }
 futures = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 reqwest = "0.12"

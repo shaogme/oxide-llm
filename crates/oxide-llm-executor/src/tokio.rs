@@ -1,12 +1,72 @@
 use oxide_llm_core::{
     message::ContentPart,
-    tool::{Executor, ToolCall, ToolExecutionError, ToolGroup, ToolRegistry, ToolResult},
+    tool::{
+        DynTool, Executor, ToolCall, ToolDefinition, ToolExecutionError, ToolRegistry,
+        ToolResult, ToolRunnable,
+    },
 };
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
+use tokio::{sync::Semaphore, task::JoinSet};
+
+/// A Tokio-based dynamic tool registry based on `HashMap`.
+///
+/// 基于 `HashMap` 的 Tokio 动态工具注册表。
+#[derive(Default, Clone)]
+pub struct TokioToolRegistry {
+    tools: Arc<HashMap<String, Arc<dyn DynTool>>>,
+}
+
+impl TokioToolRegistry {
+    /// Create a new empty `TokioToolRegistry`.
+    ///
+    /// 创建一个新的空 `TokioToolRegistry`。
+    pub fn new() -> Self {
+        Self {
+            tools: Arc::new(HashMap::new()),
+        }
+    }
+
+    /// Register a tool into the registry.
+    ///
+    /// 向注册表注册一个工具。
+    pub fn register<T>(&mut self, tool: T)
+    where
+        T: ToolRunnable + Clone + 'static,
+    {
+        let def = tool.definition();
+        let name = def.function.name.to_string();
+        Arc::make_mut(&mut self.tools).insert(name, Arc::new(tool));
+    }
+
+    /// Builder-style method to register a tool into the registry.
+    ///
+    /// 构建器风格的工具注册方法。
+    pub fn with_tool<T>(mut self, tool: T) -> Self
+    where
+        T: ToolRunnable + Clone + 'static,
+    {
+        self.register(tool);
+        self
+    }
+}
+
+impl ToolRegistry for TokioToolRegistry {
+    type ExecFuture
+        = Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>>;
+
+    fn definitions(&self) -> Vec<ToolDefinition> {
+        self.tools.values().map(|t| t.definition()).collect()
+    }
+
+    fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture> {
+        self.tools.get(name).map(|t| t.execute(args))
+    }
+}
 
 /// A Tokio-based parallel tool executor with configurable concurrency limit.
 ///
@@ -46,16 +106,16 @@ impl TokioExecutor {
     }
 }
 
-impl<G: ToolGroup> Executor<G> for TokioExecutor {
+impl<R: ToolRegistry> Executor<R> for TokioExecutor {
     type Future<'a>
         = Pin<Box<dyn Future<Output = Result<Vec<ToolResult>, ToolExecutionError>> + Send + 'a>>
     where
         Self: 'a,
-        G: 'a;
+        R: 'a;
 
     fn execute<'a>(
         &'a self,
-        registry: &'a ToolRegistry<G>,
+        registry: &'a R,
         tool_calls: Vec<ToolCall>,
     ) -> Self::Future<'a> {
         let max_concurrency = self.max_concurrency;
@@ -64,7 +124,6 @@ impl<G: ToolGroup> Executor<G> for TokioExecutor {
             let mut join_set = JoinSet::new();
 
             for (index, tool_call) in tool_calls.into_iter().enumerate() {
-                let registry = registry.clone();
                 let sem = semaphore.clone();
 
                 if let Some(fut) = registry.execute(&tool_call.name, tool_call.arguments.clone()) {
@@ -140,6 +199,7 @@ impl<G: ToolGroup> Executor<G> for TokioExecutor {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use oxide_llm_core::tool::{
         FunctionDefinition, ToolDefinition, ToolError, ToolRunnable, ToolType,
     };
@@ -207,10 +267,10 @@ mod tests {
             max_seen: max_seen.clone(),
         };
 
-        let registry = ToolRegistry::new()
-            .register(tool1)
-            .register(tool2)
-            .register(tool3);
+        let registry = TokioToolRegistry::new()
+            .with_tool(tool1)
+            .with_tool(tool2)
+            .with_tool(tool3);
 
         let executor = TokioExecutor::new().with_max_concurrency(2);
         assert_eq!(executor.max_concurrency(), Some(2));

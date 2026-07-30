@@ -1,27 +1,31 @@
-use crate::message::ContentPart;
-use crate::tool::{ToolCall, ToolExecutionError, ToolGroup, ToolResult, registry::ToolRegistry};
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use crate::{
+    message::ContentPart,
+    tool::{ToolCall, ToolExecutionError, ToolRegistry, ToolResult},
+};
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-/// A trait for executing tool calls within a `ToolRegistry`.
+/// A trait for executing tool calls using a `ToolRegistry`.
 ///
 /// 用于在 `ToolRegistry` 中执行工具调用的 Trait。
-pub trait Executor<G: ToolGroup>: Send + Sync + 'static {
+pub trait Executor<R: ToolRegistry>: Send + Sync + 'static {
     /// The future type returned by tool execution.
     ///
     /// 工具执行返回的 Future 类型。
     type Future<'a>: Future<Output = Result<Vec<ToolResult>, ToolExecutionError>> + Send + 'a
     where
         Self: 'a,
-        G: 'a;
+        R: 'a;
 
     /// Executes tool calls using the provided tool registry.
     ///
     /// 使用提供的工具注册表执行工具调用。
     fn execute<'a>(
         &'a self,
-        registry: &'a ToolRegistry<G>,
+        registry: &'a R,
         tool_calls: Vec<ToolCall>,
     ) -> Self::Future<'a>;
 }
@@ -37,33 +41,33 @@ pub struct DefaultExecutor;
 /// `DefaultExecutor` 的别名。
 pub type SequentialExecutor = DefaultExecutor;
 
-impl<G: ToolGroup> Executor<G> for DefaultExecutor {
-    type Future<'a> = ExecuteToolsFuture<G>;
+impl<R: ToolRegistry> Executor<R> for DefaultExecutor {
+    type Future<'a> = ExecuteToolsFuture<'a, R>;
 
     fn execute<'a>(
         &'a self,
-        registry: &'a ToolRegistry<G>,
+        registry: &'a R,
         tool_calls: Vec<ToolCall>,
     ) -> Self::Future<'a> {
-        ExecuteToolsFuture::new(registry.clone(), tool_calls)
+        ExecuteToolsFuture::new(registry, tool_calls)
     }
 }
 
 /// Future that executes a series of tool calls sequentially.
 ///
 /// 顺序执行一系列工具调用的 Future。
-pub struct ExecuteToolsFuture<G: ToolGroup> {
-    registry: ToolRegistry<G>,
+pub struct ExecuteToolsFuture<'a, R: ToolRegistry> {
+    registry: &'a R,
     tool_calls: std::vec::IntoIter<ToolCall>,
-    current_exec: Option<(ToolCall, G::ExecFuture)>,
+    current_exec: Option<(ToolCall, R::ExecFuture)>,
     results: Vec<ToolResult>,
 }
 
-impl<G: ToolGroup> ExecuteToolsFuture<G> {
+impl<'a, R: ToolRegistry> ExecuteToolsFuture<'a, R> {
     /// Creates a new `ExecuteToolsFuture`.
     ///
     /// 创建一个新的 `ExecuteToolsFuture`。
-    pub fn new(registry: ToolRegistry<G>, tool_calls: Vec<ToolCall>) -> Self {
+    pub fn new(registry: &'a R, tool_calls: Vec<ToolCall>) -> Self {
         Self {
             registry,
             tool_calls: tool_calls.into_iter(),
@@ -73,9 +77,9 @@ impl<G: ToolGroup> ExecuteToolsFuture<G> {
     }
 }
 
-impl<G: ToolGroup> Unpin for ExecuteToolsFuture<G> {}
+impl<'a, R: ToolRegistry> Unpin for ExecuteToolsFuture<'a, R> {}
 
-impl<G: ToolGroup> Future for ExecuteToolsFuture<G> {
+impl<'a, R: ToolRegistry> Future for ExecuteToolsFuture<'a, R> {
     type Output = Result<Vec<ToolResult>, ToolExecutionError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

@@ -2,8 +2,7 @@ use crate::ChatAgent;
 use crate::core::message::{ChatStream, ChatStreamEvent, ContentPart, Message, Role};
 use crate::core::state::ConversationState;
 pub use crate::core::tool::{
-    DefaultExecutor, Executor, SequentialExecutor, ToolCall, ToolGroup, ToolRegistry, ToolRunnable,
-    ToolSet,
+    DefaultExecutor, Executor, SequentialExecutor, ToolCall, ToolRegistry, ToolRunnable,
 };
 use crate::error::AgentError;
 use futures::Stream;
@@ -15,9 +14,9 @@ use std::task::{Context, Poll};
 ///
 /// 用于协调 Agent 交互和工具执行的高级 Runner。
 #[derive(Clone, Default)]
-pub struct Runner<A, G = (), E = DefaultExecutor> {
+pub struct Runner<A, R = (), E = DefaultExecutor> {
     agent: A,
-    registry: ToolRegistry<G>,
+    registry: R,
     executor: E,
     max_turns: usize,
     auto_sync_tools: bool,
@@ -30,7 +29,7 @@ impl<A> Runner<A, (), DefaultExecutor> {
     pub fn new(agent: A) -> Self {
         Self {
             agent,
-            registry: ToolRegistry::new(),
+            registry: (),
             executor: DefaultExecutor,
             max_turns: 5,
             auto_sync_tools: false,
@@ -38,7 +37,7 @@ impl<A> Runner<A, (), DefaultExecutor> {
     }
 }
 
-impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
+impl<A, R: ToolRegistry, E: Executor<R>> Runner<A, R, E> {
     /// Sets the maximum number of turns for interaction loops.
     ///
     /// 设置交互循环的最大轮次数。
@@ -58,7 +57,7 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     /// Sets the custom executor for tool executions.
     ///
     /// 设置自定义的工具执行器。
-    pub fn with_executor<E2: Executor<G>>(self, executor: E2) -> Runner<A, G, E2> {
+    pub fn with_executor<E2: Executor<R>>(self, executor: E2) -> Runner<A, R, E2> {
         Runner {
             agent: self.agent,
             registry: self.registry,
@@ -68,29 +67,12 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
         }
     }
 
-    /// Registers a tool with the runner.
-    ///
-    /// 向 Runner 注册一个工具。
-    pub fn with_tool<T>(self, tool: T) -> Runner<A, ToolSet<G, T>, E>
-    where
-        T: ToolRunnable + Clone + 'static,
-        E: Executor<ToolSet<G, T>>,
-    {
-        Runner {
-            agent: self.agent,
-            registry: self.registry.register(tool),
-            executor: self.executor,
-            max_turns: self.max_turns,
-            auto_sync_tools: self.auto_sync_tools,
-        }
-    }
-
     /// Sets the tool registry for the runner.
     ///
     /// 设置 Runner 的工具注册表。
-    pub fn with_registry<G2: ToolGroup>(self, registry: ToolRegistry<G2>) -> Runner<A, G2, E>
+    pub fn with_registry<R2: ToolRegistry>(self, registry: R2) -> Runner<A, R2, E>
     where
-        E: Executor<G2>,
+        E: Executor<R2>,
     {
         Runner {
             agent: self.agent,
@@ -127,7 +109,7 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     /// Returns a reference to the tool registry.
     ///
     /// 返回工具注册表的引用。
-    pub fn registry(&self) -> &ToolRegistry<G> {
+    pub fn registry(&self) -> &R {
         &self.registry
     }
 
@@ -146,7 +128,7 @@ impl<A, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     }
 }
 
-impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
+impl<A: ChatAgent, R: ToolRegistry, E: Executor<R>> Runner<A, R, E> {
     /// Runs the agent interaction loop synchronously/non-streamingly until completion or max turns reached.
     ///
     /// 非流式运行 Agent 交互循环和工具执行，直到完成或达到最大轮次数。
@@ -206,7 +188,7 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
     /// Creates a stream that manages the agent interaction loop and tool execution.
     ///
     /// 创建管理 Agent 交互循环和工具执行的流。
-    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, G, E> {
+    pub fn run_stream<'a>(&'a self, state: &'a mut ConversationState) -> RunnerStream<'a, A, R, E> {
         self.run_stream_with(state, crate::ChatStreamConfig::default)
     }
 
@@ -217,7 +199,7 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
         &'a self,
         state: &'a mut ConversationState,
         config_fn: F,
-    ) -> RunnerStream<'a, A, G, E>
+    ) -> RunnerStream<'a, A, R, E>
     where
         F: Fn() -> crate::ChatStreamConfig<A::RawDelta> + Send + Sync + 'a,
     {
@@ -241,22 +223,22 @@ impl<A: ChatAgent, G: ToolGroup, E: Executor<G>> Runner<A, G, E> {
 pub struct RunnerStream<
     'a,
     A: ChatAgent + ?Sized + 'a,
-    G: ToolGroup = (),
-    E: Executor<G> = DefaultExecutor,
+    R: ToolRegistry = (),
+    E: Executor<R> = DefaultExecutor,
 > {
     agent: &'a A,
-    registry: &'a ToolRegistry<G>,
+    registry: &'a R,
     executor: &'a E,
     state: &'a mut ConversationState,
     max_turns: usize,
     config_fn: Option<Box<dyn Fn() -> crate::ChatStreamConfig<A::RawDelta> + Send + Sync + 'a>>,
 
-    phase: Phase<'a, A, G, E>,
+    phase: Phase<'a, A, R, E>,
     current_turn: usize,
     collected_events: Vec<ChatStreamEvent>,
 }
 
-enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> {
+enum Phase<'a, A: ChatAgent + ?Sized + 'a, R: ToolRegistry, E: Executor<R>> {
     Start,
     Initializing(A::ChatStreamFuture<'a>),
     Streaming(Box<ChatStream<A::Stream, AgentError>>),
@@ -264,13 +246,13 @@ enum Phase<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> {
     Done,
 }
 
-impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> RunnerStream<'a, A, G, E> {
+impl<'a, A: ChatAgent + ?Sized + 'a, R: ToolRegistry, E: Executor<R>> RunnerStream<'a, A, R, E> {
     /// Creates a new `RunnerStream`.
     ///
     /// 创建一个新的 `RunnerStream`。
     pub fn new(
         agent: &'a A,
-        registry: &'a ToolRegistry<G>,
+        registry: &'a R,
         executor: &'a E,
         state: &'a mut ConversationState,
         max_turns: usize,
@@ -290,13 +272,13 @@ impl<'a, A: ChatAgent + ?Sized + 'a, G: ToolGroup, E: Executor<G>> RunnerStream<
     }
 }
 
-impl<'a, A, G, E> Stream for RunnerStream<'a, A, G, E>
+impl<'a, A, R, E> Stream for RunnerStream<'a, A, R, E>
 where
     A: ChatAgent + ?Sized + 'a,
     A::Stream: Unpin,
     A::ChatStreamFuture<'a>: Unpin,
-    G: ToolGroup,
-    E: Executor<G>,
+    R: ToolRegistry,
+    E: Executor<R>,
 {
     type Item = Result<ChatStreamEvent, AgentError>;
 
@@ -394,9 +376,36 @@ where
 mod tests {
     use super::*;
     use oxide_llm_core::tool::{
-        ExecuteToolsFuture, JSONSchema, Schema, Tool, ToolDefinition, ToolError, ToolExecutionError,
+        EitherFuture, ExecuteToolsFuture, JSONSchema, Schema, Tool, ToolDefinition, ToolError,
+        ToolExecutionError, ToolExecutionFuture,
     };
     use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct SingleToolRegistry<T>(T);
+
+    impl<T: ToolRunnable + Clone + 'static> ToolRegistry for SingleToolRegistry<T> {
+        type ExecFuture = EitherFuture<
+            ToolExecutionFuture<T>,
+            std::future::Ready<Result<Vec<ContentPart>, ToolExecutionError>>,
+        >;
+
+        fn definitions(&self) -> Vec<ToolDefinition> {
+            vec![self.0.definition()]
+        }
+
+        fn execute(&self, name: &str, args: serde_json::Value) -> Option<Self::ExecFuture> {
+            let def = self.0.definition();
+            if def.function.name == name {
+                Some(EitherFuture::Left(ToolExecutionFuture::new(
+                    self.0.clone(),
+                    args,
+                )))
+            } else {
+                None
+            }
+        }
+    }
 
     #[derive(Clone)]
     struct DummyTool;
@@ -476,7 +485,10 @@ mod tests {
     #[test]
     fn test_runner_no_implicit_sync_by_default() {
         let agent = DummyAgent;
-        let runner = Runner::new(agent).with_tool(DummyTool).with_max_turns(10);
+        let registry = SingleToolRegistry(DummyTool);
+        let runner = Runner::new(agent)
+            .with_registry(registry)
+            .with_max_turns(10);
 
         assert_eq!(runner.max_turns(), 10);
         assert_eq!(runner.registry().definitions().len(), 1);
@@ -498,8 +510,9 @@ mod tests {
     #[test]
     fn test_runner_opt_in_auto_sync() {
         let agent = DummyAgent;
+        let registry = SingleToolRegistry(DummyTool);
         let runner = Runner::new(agent)
-            .with_tool(DummyTool)
+            .with_registry(registry)
             .with_auto_sync_tools(true);
 
         let mut state = ConversationState::new();
@@ -514,8 +527,9 @@ mod tests {
     #[test]
     fn test_runner_run_method() {
         let agent = DummyAgent;
+        let registry = SingleToolRegistry(DummyTool);
         let runner = Runner::new(agent)
-            .with_tool(DummyTool)
+            .with_registry(registry)
             .with_auto_sync_tools(true);
 
         let mut state = ConversationState::new();
@@ -529,7 +543,8 @@ mod tests {
     #[test]
     fn test_runner_with_smart_pointers() {
         let agent = Arc::new(DummyAgent);
-        let runner = Runner::new(agent).with_tool(DummyTool);
+        let registry = SingleToolRegistry(DummyTool);
+        let runner = Runner::new(agent).with_registry(registry);
 
         let mut state = ConversationState::new();
         let stream = runner.run_stream(&mut state);
@@ -604,7 +619,7 @@ mod tests {
 
     #[test]
     fn test_fatal_tool_execution_error_exits_runner() {
-        let registry = ToolRegistry::new().register(FatalTool);
+        let registry = SingleToolRegistry(FatalTool);
         let tool_call = ToolCall {
             id: "call_1".into(),
             name: "fatal_tool".into(),
@@ -612,7 +627,7 @@ mod tests {
             signature: None,
         };
 
-        let exec_fut = ExecuteToolsFuture::new(registry, vec![tool_call]);
+        let exec_fut = ExecuteToolsFuture::new(&registry, vec![tool_call]);
         let res = futures::executor::block_on(exec_fut);
         assert!(res.is_err());
         if let Err(ToolExecutionError::Fatal(msg)) = res {
@@ -624,24 +639,25 @@ mod tests {
 
     struct SortingExecutor;
 
-    impl<G: ToolGroup> Executor<G> for SortingExecutor {
-        type Future<'a> = ExecuteToolsFuture<G>;
+    impl<R: ToolRegistry> Executor<R> for SortingExecutor {
+        type Future<'a> = ExecuteToolsFuture<'a, R>;
 
         fn execute<'a>(
             &'a self,
-            registry: &'a ToolRegistry<G>,
+            registry: &'a R,
             mut tool_calls: Vec<ToolCall>,
         ) -> Self::Future<'a> {
             tool_calls.sort_by(|a, b| a.name.cmp(&b.name));
-            ExecuteToolsFuture::new(registry.clone(), tool_calls)
+            ExecuteToolsFuture::new(registry, tool_calls)
         }
     }
 
     #[test]
     fn test_custom_sorting_executor() {
         let agent = DummyAgent;
+        let registry = SingleToolRegistry(DummyTool);
         let runner = Runner::new(agent)
-            .with_tool(DummyTool)
+            .with_registry(registry)
             .with_executor(SortingExecutor);
 
         let mut state = ConversationState::new();
@@ -692,7 +708,7 @@ mod tests {
 
     #[test]
     fn test_tool_invalid_arguments_handled_by_user() {
-        let registry = ToolRegistry::new().register(TypedTool);
+        let registry = SingleToolRegistry(TypedTool);
         let tool_call = ToolCall {
             id: "call_bad_arg".into(),
             name: "typed_tool".into(),
@@ -700,7 +716,7 @@ mod tests {
             signature: None,
         };
 
-        let exec_fut = ExecuteToolsFuture::new(registry, vec![tool_call]);
+        let exec_fut = ExecuteToolsFuture::new(&registry, vec![tool_call]);
         let res = futures::executor::block_on(exec_fut);
         assert!(res.is_ok());
         let results = res.unwrap();

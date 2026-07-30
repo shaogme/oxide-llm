@@ -16,6 +16,7 @@ use oxide_llm::{
         tool::Tool,
         transport::TransportExt,
     },
+    executor::TokioToolRegistry,
     macros::Schema,
     transport::reqwest::ReqwestTransport,
 };
@@ -237,9 +238,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let stock_tool = StockTool;
 
-    let runner = Runner::new(agent)
+    let registry = TokioToolRegistry::new()
         .with_tool(weather_tool)
-        .with_tool(stock_tool)
+        .with_tool(stock_tool);
+
+    let runner = Runner::new(agent)
+        .with_registry(registry)
         .with_max_turns(5);
 
     // 5. Prepare Conversation State
