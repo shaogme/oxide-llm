@@ -446,7 +446,7 @@ impl ClaudeMessagesStreamMapper {
         Self
     }
 
-    pub fn map_response(&mut self, event: ClaudeStreamEvent) -> Result<DeltaMessage, MapperError> {
+    pub fn map_response(&mut self, event: ClaudeStreamEvent) -> Result<Option<DeltaMessage>, MapperError> {
         use oxide_llm_proto::claude::v1::messages::chunk::{
             ChunkContentBlock, ChunkContentBlockDelta, MessageStreamEvent,
         };
@@ -471,13 +471,13 @@ impl ClaudeMessagesStreamMapper {
                     tool_use_tokens: None,
                 };
 
-                Ok(DeltaMessage {
+                Ok(Some(DeltaMessage {
                     role: Some(role),
                     content: None,
                     name: None,
                     finish_reason: None,
                     usage: Some(usage),
-                })
+                }))
             }
             MessageStreamEvent::ContentBlockStart {
                 index,
@@ -576,13 +576,13 @@ impl ClaudeMessagesStreamMapper {
                     }
                 };
 
-                Ok(DeltaMessage {
+                Ok(part.map(|p| DeltaMessage {
                     role: None,
-                    content: part.map(|p| vec![p]),
+                    content: Some(vec![p]),
                     name: None,
                     finish_reason: None,
                     usage: None,
-                })
+                }))
             }
             MessageStreamEvent::ContentBlockDelta { index, delta } => {
                 let part = match delta {
@@ -620,19 +620,17 @@ impl ClaudeMessagesStreamMapper {
                     ChunkContentBlockDelta::CitationsDelta { .. } => None,
                 };
 
-                Ok(DeltaMessage {
+                Ok(part.map(|p| DeltaMessage {
                     role: None,
-                    content: part.map(|p| vec![p]),
+                    content: Some(vec![p]),
                     name: None,
                     finish_reason: None,
                     usage: None,
-                })
+                }))
             }
             MessageStreamEvent::ContentBlockStop { .. } => {
                 // Usually no data needed for stop
-                Err(MapperError::IgnoredEvent {
-                    event_type: "content_block_stop".to_string(),
-                })
+                Ok(None)
             }
             MessageStreamEvent::MessageDelta { delta, usage } => {
                 let finish_reason = delta.stop_reason.map(|r| match r {
@@ -652,20 +650,15 @@ impl ClaudeMessagesStreamMapper {
                     ..Default::default()
                 };
 
-                Ok(DeltaMessage {
+                Ok(Some(DeltaMessage {
                     role: None,
                     content: None,
                     name: None,
                     finish_reason,
                     usage: Some(usage),
-                })
+                }))
             }
-            MessageStreamEvent::MessageStop => Err(MapperError::IgnoredEvent {
-                event_type: "message_stop".to_string(),
-            }),
-            MessageStreamEvent::Ping => Err(MapperError::IgnoredEvent {
-                event_type: "ping".to_string(),
-            }),
+            MessageStreamEvent::MessageStop | MessageStreamEvent::Ping => Ok(None),
             MessageStreamEvent::Error { error } => Err(MapperError::UnsupportedContent {
                 role: "System".to_string(),
                 protocol: format!("Claude Error: {}", error.message),

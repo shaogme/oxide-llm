@@ -116,16 +116,7 @@ impl crate::stream::SseProcessor<ClaudeStreamEvent> for RawClaudeProcessor {
 
 impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeMessagesStreamMapper {
     fn map_item(&mut self, raw: ClaudeStreamEvent) -> Result<Option<DeltaMessage>> {
-        match self.map_response(raw) {
-            Ok(delta) => Ok(Some(delta)),
-            Err(e) => {
-                if matches!(e, oxide_llm_core::mapper::MapperError::IgnoredEvent { .. }) {
-                    Ok(None)
-                } else {
-                    Err(AgentError::Mapper(e))
-                }
-            }
-        }
+        self.map_response(raw).map_err(AgentError::Mapper)
     }
 }
 
