@@ -65,6 +65,7 @@ impl Drop for MockServerGuard {
     }
 }
 
+use std::borrow::Cow;
 use oxide_llm::{core::tool::Tool, macros::Schema};
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +85,10 @@ pub struct WeatherTool;
 
 impl Tool for WeatherTool {
     const NAME: &'static str = "get_weather";
-    const DESCRIPTION: &'static str = "Get current weather";
+
+    fn description(&self) -> Cow<'static, str> {
+        Cow::Borrowed("Get current weather")
+    }
 
     type Args = WeatherArgs;
     type Output = WeatherOutput;

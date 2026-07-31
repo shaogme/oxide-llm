@@ -21,6 +21,7 @@ use oxide_llm::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::Cow,
     error::Error,
     fs,
     future::Future,
@@ -70,7 +71,10 @@ pub struct WeatherTool {
 
 impl Tool for WeatherTool {
     const NAME: &'static str = "get_weather";
-    const DESCRIPTION: &'static str = "Get the current weather in a given location";
+
+    fn description(&self) -> Cow<'static, str> {
+        Cow::Borrowed("Get the current weather in a given location")
+    }
 
     type Args = WeatherArgs;
     type Output = WeatherOutput;
@@ -118,7 +122,10 @@ pub struct StockTool;
 
 impl Tool for StockTool {
     const NAME: &'static str = "get_stock_price";
-    const DESCRIPTION: &'static str = "Get the stock price for a given symbol";
+
+    fn description(&self) -> Cow<'static, str> {
+        Cow::Borrowed("Get the stock price for a given symbol")
+    }
 
     type Args = StockArgs;
     type Output = StockOutput;

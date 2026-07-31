@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     error::Error,
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     future::{Future, Ready},
@@ -79,7 +80,9 @@ pub trait Tool: Send + Sync + Clone + 'static {
     const NAME: &'static str;
 
     /// A description of what the tool does.
-    const DESCRIPTION: &'static str = "";
+    fn description(&self) -> Cow<'static, str> {
+        Cow::Borrowed("")
+    }
 
     /// The argument type for the tool.
     type Args: DeserializeOwned + Schema + Send;
@@ -169,15 +172,16 @@ impl<T: Tool> ToolRunnable for T {
     fn definition(&self) -> ToolDefinition {
         // Generate JSON Schema from the Args type using the Schema trait
         let parameters = T::Args::json_schema();
+        let description = self.description();
 
         ToolDefinition {
             r#type: ToolType::Function,
             function: FunctionDefinition {
                 name: Self::NAME.into(),
-                description: if Self::DESCRIPTION.is_empty() {
+                description: if description.is_empty() {
                     None
                 } else {
-                    Some(Self::DESCRIPTION.into())
+                    Some(description.into())
                 },
                 parameters: Some(parameters),
                 strict: None,
