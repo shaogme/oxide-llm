@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 use crate::error::{AgentError, Result};
 
@@ -9,24 +11,80 @@ use crate::error::{AgentError, Result};
 ///
 /// Tracing 日志的配置与状态管理器。
 pub struct TraceState {
-    log_dir: PathBuf,
-    enabled: bool,
+    log_dir: OnceLock<PathBuf>,
+    enabled: AtomicBool,
     turn_counter: AtomicUsize,
     block_counter: AtomicUsize,
 }
 
 impl TraceState {
-    fn new(log_dir: PathBuf, enabled: bool) -> Self {
+    /// Creates a new `TraceState` instance.
+    ///
+    /// 创建一个新的 `TraceState` 实例。
+    pub const fn new() -> Self {
         Self {
-            log_dir,
-            enabled,
+            log_dir: OnceLock::new(),
+            enabled: AtomicBool::new(true),
             turn_counter: AtomicUsize::new(0),
             block_counter: AtomicUsize::new(0),
         }
     }
+
+    /// Returns whether tracing is enabled.
+    ///
+    /// 返回 tracing 是否已启用。
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
+    /// Sets whether tracing is enabled.
+    ///
+    /// 设置 tracing 是否启用。
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+
+    /// Returns the current turn counter.
+    ///
+    /// 返回当前对话轮次计数。
+    pub fn turn_counter(&self) -> usize {
+        self.turn_counter.load(Ordering::Acquire)
+    }
+
+    /// Advances to a new conversation turn and resets the block counter.
+    ///
+    /// 递增对话轮次计数并重置数据块计数。
+    pub fn start_new_turn(&self) {
+        self.turn_counter.fetch_add(1, Ordering::AcqRel);
+        self.block_counter.store(0, Ordering::Release);
+    }
+
+    /// Increments and returns the next block index.
+    ///
+    /// 递增并返回下一个数据块索引。
+    pub fn next_block_index(&self) -> usize {
+        self.block_counter.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// Returns or initializes the log directory.
+    ///
+    /// 获取或初始化日志目录。
+    pub fn log_dir(&self) -> &PathBuf {
+        self.log_dir.get_or_init(|| {
+            let path = PathBuf::from("./tracing_logs");
+            let _ = fs::create_dir_all(&path);
+            path
+        })
+    }
 }
 
-static TRACE_STATE: RwLock<Option<TraceState>> = RwLock::new(None);
+impl Default for TraceState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static TRACE_STATE: TraceState = TraceState::new();
 
 /// Initializes the tracing directory and configures logging state.
 ///
@@ -38,10 +96,8 @@ pub fn init_trace_dir(dir: impl AsRef<Path>, clean_existing: bool) -> Result<()>
     }
     fs::create_dir_all(path).map_err(AgentError::Io)?;
 
-    let mut state_guard = TRACE_STATE
-        .write()
-        .map_err(|e| AgentError::Trace(e.to_string()))?;
-    *state_guard = Some(TraceState::new(path.to_path_buf(), true));
+    let _ = TRACE_STATE.log_dir.set(path.to_path_buf());
+    TRACE_STATE.set_enabled(true);
     Ok(())
 }
 
@@ -49,12 +105,7 @@ pub fn init_trace_dir(dir: impl AsRef<Path>, clean_existing: bool) -> Result<()>
 ///
 /// 切换至新一轮对话并重置 block 计数器。
 pub fn start_new_turn() {
-    if let Ok(guard) = get_or_init_state() {
-        if let Some(state) = guard.as_ref() {
-            state.turn_counter.fetch_add(1, Ordering::SeqCst);
-            state.block_counter.store(0, Ordering::SeqCst);
-        }
-    }
+    TRACE_STATE.start_new_turn();
 }
 
 /// Dumps an SSE raw block into a separate file and returns the file path.
@@ -67,21 +118,15 @@ pub fn dump_sse_raw_block(block: &str) -> Result<PathBuf> {
         ));
     }
 
-    let guard = get_or_init_state()?;
-
-    let state = guard
-        .as_ref()
-        .ok_or_else(|| AgentError::Trace("TraceState unavailable".to_string()))?;
-
-    if !state.enabled {
+    if !TRACE_STATE.is_enabled() {
         return Err(AgentError::Trace("Tracing disabled".to_string()));
     }
 
-    let turn_idx = state.turn_counter.load(Ordering::SeqCst);
-    let block_idx = state.block_counter.fetch_add(1, Ordering::SeqCst) + 1;
+    let log_dir = TRACE_STATE.log_dir();
+    let turn_idx = TRACE_STATE.turn_counter();
+    let block_idx = TRACE_STATE.next_block_index();
 
-    let sse_blocks_dir = state
-        .log_dir
+    let sse_blocks_dir = log_dir
         .join(format!("turn_{:03}", turn_idx))
         .join("sse_blocks");
     if !sse_blocks_dir.exists() {
@@ -94,25 +139,13 @@ pub fn dump_sse_raw_block(block: &str) -> Result<PathBuf> {
     Ok(file_path)
 }
 
-fn get_or_init_state() -> Result<std::sync::RwLockReadGuard<'static, Option<TraceState>>> {
-    let guard = TRACE_STATE
-        .read()
-        .map_err(|e| AgentError::Trace(e.to_string()))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    if guard.is_none() {
-        drop(guard);
-        let mut write_guard = TRACE_STATE
-            .write()
-            .map_err(|e| AgentError::Trace(e.to_string()))?;
-        if write_guard.is_none() {
-            let path = PathBuf::from("./tracing_logs");
-            let _ = fs::create_dir_all(&path);
-            *write_guard = Some(TraceState::new(path, true));
-        }
-        drop(write_guard);
-        return TRACE_STATE
-            .read()
-            .map_err(|e| AgentError::Trace(e.to_string()));
+    #[test]
+    fn test_trace_state() {
+        start_new_turn();
+        assert!(TRACE_STATE.turn_counter() >= 1);
     }
-    Ok(guard)
 }
