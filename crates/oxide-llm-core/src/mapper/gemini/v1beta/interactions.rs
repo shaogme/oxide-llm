@@ -296,7 +296,13 @@ impl GeminiInteractionsMapper {
                     annotations: None,
                 })))
             }
-            _ => Ok(None),
+            ContentPart::Reasoning { text, .. } => Ok(Some(Content::Text(TextContent {
+                text,
+                annotations: None,
+            }))),
+            ContentPart::ToolCall(_) | ContentPart::ToolResult(_) | ContentPart::Refusal { .. } => {
+                Ok(None)
+            }
         }
     }
 
@@ -409,7 +415,19 @@ impl GeminiInteractionsMapper {
                             signature: cec.signature,
                         }));
                     }
-                    _ => {}
+                    Step::UserInput(_)
+                    | Step::FunctionResult(_)
+                    | Step::CodeExecutionResult(_)
+                    | Step::GoogleSearchCall(_)
+                    | Step::GoogleSearchResult(_)
+                    | Step::GoogleMapsCall(_)
+                    | Step::GoogleMapsResult(_)
+                    | Step::UrlContextCall(_)
+                    | Step::UrlContextResult(_)
+                    | Step::FileSearchCall(_)
+                    | Step::FileSearchResult(_)
+                    | Step::McpServerToolCall(_)
+                    | Step::McpServerToolResult(_) => {}
                 }
             }
         } else if let Some(output_text) = interaction.output_text {

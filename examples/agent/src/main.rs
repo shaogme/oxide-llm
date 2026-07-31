@@ -6,7 +6,7 @@ use futures::StreamExt;
 use oxide_llm::{
     DynChatAgent, Runner, TransportBuilder,
     agent::{
-        claude::v1::message::MessagesAgent,
+        claude::v1::messages::MessagesAgent,
         gemini::v1beta::{generate_content::GenerateContentAgent, interactions::InteractionsAgent},
         openai::v1::{chat_completions::ChatCompletionsAgent, responses::ResponsesAgent},
     },

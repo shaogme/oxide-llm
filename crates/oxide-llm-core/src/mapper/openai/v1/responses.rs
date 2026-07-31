@@ -61,7 +61,7 @@ impl OpenAIResponseMapper {
                             id: None,
                         });
                     }
-                    _ => return Err(MapperError::MissingToolResult),
+                    _ => return Err(MapperError::UnexpectedContentInToolMessage),
                 }
             }
             return Ok(items);
@@ -123,7 +123,10 @@ impl OpenAIResponseMapper {
                 ContentPart::Reasoning { text, signature: _ } => {
                     parts.push(InputContentPart::InputText { text });
                 }
-                _ => {}
+                ContentPart::ToolResult(_) => {
+                    return Err(MapperError::InvalidToolResultLocation);
+                }
+                ContentPart::Video(_) | ContentPart::Document(_) => {}
             }
         }
 
@@ -209,7 +212,21 @@ impl OpenAIResponseMapper {
                         }
                     }
                 }
-                _ => {}
+                OutputItem::FileSearchCall(_)
+                | OutputItem::WebSearchCall(_)
+                | OutputItem::ComputerCall(_)
+                | OutputItem::CompactionBody(_)
+                | OutputItem::ImageGenCall(_)
+                | OutputItem::CodeInterpreterCall(_)
+                | OutputItem::LocalShellCall(_)
+                | OutputItem::FunctionShellCall(_)
+                | OutputItem::FunctionShellCallOutput(_)
+                | OutputItem::ApplyPatchCall(_)
+                | OutputItem::ApplyPatchCallOutput(_)
+                | OutputItem::McpToolCall(_)
+                | OutputItem::McpListTools(_)
+                | OutputItem::McpApprovalRequest(_)
+                | OutputItem::CustomToolCall(_) => {}
             }
         }
 

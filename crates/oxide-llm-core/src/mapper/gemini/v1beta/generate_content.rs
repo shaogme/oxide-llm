@@ -2,20 +2,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::mapper::MapperError;
 use crate::message::{
-    ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, ImageSource,
-    Message, Role,
+    Audio, ContentPart, DeltaContentPart, DeltaFunction, DeltaMessage, DeltaToolCall, Document,
+    FinishReason as CoreFinishReason, Image, ImageSource, Message, Role, Video,
 };
 use crate::state::{ConversationState, ConversationStateTrait};
 use crate::tool::{
-    FunctionDefinition, JSONSchema, JSONSchemaType, ToolCall, ToolChoice, ToolDefinition, ToolType,
+    FunctionDefinition, JSONSchema, JSONSchemaType, ToolCall, ToolChoice, ToolDefinition,
+    ToolResult, ToolType,
 };
 use oxide_llm_proto::gemini::v1beta::generate_content::{
-    Blob, Content as GeminiContent, FileData, FunctionCall,
+    Blob, CodeExecutionOutcome, CodeLanguage, Content as GeminiContent, FileData, FunctionCall,
     FunctionCallingConfig as GeminiFunctionCallingConfig,
     FunctionCallingConfigMode as GeminiFunctionCallingConfigMode,
     FunctionDeclaration as GeminiFunctionDeclaration, FunctionResponse, Part as GeminiPart,
     Schema as GeminiSchema, ToolConfig as GeminiToolConfig, Type as GeminiType,
-    response::GenerateContentResponse,
+    response::{FinishReason as GeminiFinishReason, GenerateContentResponse},
 };
 use ref_str::StaticRefStr;
 
@@ -155,7 +156,7 @@ impl GeminiGenerateContentMapper {
                         ..Default::default()
                     });
                 }
-                _ => {
+                ContentPart::Document(_) | ContentPart::Video(_) | ContentPart::Refusal { .. } => {
                     return Err(MapperError::UnsupportedContent {
                         role: "Any".to_string(),
                         protocol: "Gemini".to_string(),
@@ -193,6 +194,66 @@ impl GeminiGenerateContentMapper {
                         signature: sig,
                     });
                 }
+            } else if let Some(inline_data) = &part.inline_data {
+                let mime = inline_data.mime_type.as_str();
+                if mime.starts_with("image/") {
+                    content_parts.push(ContentPart::Image(Image {
+                        source: ImageSource::Base64 {
+                            data: inline_data.data.clone(),
+                        },
+                        media_type: Some(inline_data.mime_type.clone()),
+                        detail: None,
+                    }));
+                } else if mime.starts_with("audio/") {
+                    let format = mime.strip_prefix("audio/").unwrap_or(mime);
+                    content_parts.push(ContentPart::Audio(Audio {
+                        data: inline_data.data.clone(),
+                        format: format.to_string().into(),
+                    }));
+                } else if mime.starts_with("video/") {
+                    content_parts.push(ContentPart::Video(Video {
+                        source: ImageSource::Base64 {
+                            data: inline_data.data.clone(),
+                        },
+                        media_type: Some(inline_data.mime_type.clone()),
+                    }));
+                } else {
+                    content_parts.push(ContentPart::Document(Document {
+                        source: ImageSource::Base64 {
+                            data: inline_data.data.clone(),
+                        },
+                        media_type: Some(inline_data.mime_type.clone()),
+                    }));
+                }
+            } else if let Some(file_data) = &part.file_data {
+                let mime = file_data
+                    .mime_type
+                    .as_ref()
+                    .map(|m| m.as_str())
+                    .unwrap_or("");
+                if mime.starts_with("image/") {
+                    content_parts.push(ContentPart::Image(Image {
+                        source: ImageSource::Url {
+                            url: file_data.file_uri.clone(),
+                        },
+                        media_type: file_data.mime_type.clone(),
+                        detail: None,
+                    }));
+                } else if mime.starts_with("video/") {
+                    content_parts.push(ContentPart::Video(Video {
+                        source: ImageSource::Url {
+                            url: file_data.file_uri.clone(),
+                        },
+                        media_type: file_data.mime_type.clone(),
+                    }));
+                } else {
+                    content_parts.push(ContentPart::Document(Document {
+                        source: ImageSource::Url {
+                            url: file_data.file_uri.clone(),
+                        },
+                        media_type: file_data.mime_type.clone(),
+                    }));
+                }
             } else if let Some(fc) = &part.function_call {
                 // Interoperability: Gemini doesn't have call_id, so use name as ID.
                 content_parts.push(ContentPart::ToolCall(ToolCall {
@@ -201,11 +262,57 @@ impl GeminiGenerateContentMapper {
                     arguments: fc.args.clone(),
                     signature: sig,
                 }));
+            } else if let Some(fr) = &part.function_response {
+                content_parts.push(ContentPart::ToolResult(ToolResult {
+                    tool_call_id: fr.id.clone().unwrap_or_else(|| fr.name.clone()),
+                    name: fr.name.clone(),
+                    content: vec![ContentPart::Json(fr.response.clone())],
+                    is_error: false,
+                    signature: sig,
+                }));
+            } else if let Some(exec_code) = &part.executable_code {
+                let lang_str = match exec_code.language {
+                    CodeLanguage::Python => "python",
+                    _ => "",
+                };
+                let text = format!("```{}\n{}\n```", lang_str, exec_code.code);
+                content_parts.push(ContentPart::Text {
+                    text,
+                    signature: sig,
+                });
+            } else if let Some(code_res) = &part.code_execution_result {
+                let outcome_str = match code_res.outcome {
+                    CodeExecutionOutcome::OutcomeOk => "ok",
+                    CodeExecutionOutcome::OutcomeFailed => "failed",
+                    CodeExecutionOutcome::OutcomeDeadlineExceeded => "deadline_exceeded",
+                    _ => "unspecified",
+                };
+                let text = format!(
+                    "Outcome: {}\nOutput: {}",
+                    outcome_str,
+                    code_res.output.as_deref().unwrap_or_default()
+                );
+                content_parts.push(ContentPart::Text {
+                    text,
+                    signature: sig,
+                });
             }
         }
 
+        let role = candidate
+            .content
+            .role
+            .as_deref()
+            .map(|r| match r {
+                "user" => Role::User,
+                "model" => Role::Assistant,
+                "function" => Role::Tool,
+                _ => Role::Assistant,
+            })
+            .unwrap_or(Role::Assistant);
+
         Ok(Message {
-            role: Role::Assistant,
+            role,
             content: content_parts,
             name: None,
         })
@@ -564,22 +671,13 @@ impl GeminiGenerateContentStreamMapper {
         let candidate = candidate.unwrap();
 
         let finish_reason = candidate.finish_reason.as_ref().map(|r| match r {
-            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Stop => {
-                crate::message::FinishReason::Stop
+            GeminiFinishReason::Stop => CoreFinishReason::Stop,
+            GeminiFinishReason::MaxTokens => CoreFinishReason::Length,
+            GeminiFinishReason::Safety | GeminiFinishReason::Recitation => {
+                CoreFinishReason::ContentFilter
             }
-            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::MaxTokens => {
-                crate::message::FinishReason::Length
-            }
-            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Safety => {
-                crate::message::FinishReason::ContentFilter
-            }
-            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Recitation => {
-                crate::message::FinishReason::ContentFilter
-            }
-            oxide_llm_proto::gemini::v1beta::generate_content::response::FinishReason::Other => {
-                crate::message::FinishReason::Other("Other".into())
-            }
-            _ => crate::message::FinishReason::Other(format!("{:?}", r).into()),
+            GeminiFinishReason::Other => CoreFinishReason::Other("Other".into()),
+            _ => CoreFinishReason::Other(format!("{r:?}").into()),
         });
 
         let mut content_parts = Vec::new();
@@ -644,5 +742,133 @@ impl GeminiGenerateContentStreamMapper {
             finish_reason,
             usage,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxide_llm_proto::gemini::v1beta::generate_content::{
+        content::{Blob, Content as GeminiContent, FileData, FunctionCall, FunctionResponse, Part},
+        response::Candidate,
+    };
+
+    #[test]
+    fn test_to_core_message_comprehensive() {
+        let parts = vec![
+            Part {
+                text: Some("Hello".to_string()),
+                thought: Some(true),
+                thought_signature: Some("sig1".into()),
+                ..Default::default()
+            },
+            Part {
+                text: Some("World".to_string()),
+                ..Default::default()
+            },
+            Part {
+                inline_data: Some(Blob {
+                    mime_type: "image/png".into(),
+                    data: "base64image".into(),
+                }),
+                ..Default::default()
+            },
+            Part {
+                inline_data: Some(Blob {
+                    mime_type: "audio/mp3".into(),
+                    data: "base64audio".into(),
+                }),
+                ..Default::default()
+            },
+            Part {
+                file_data: Some(FileData {
+                    mime_type: Some("video/mp4".into()),
+                    file_uri: "https://example.com/video.mp4".into(),
+                }),
+                ..Default::default()
+            },
+            Part {
+                function_call: Some(FunctionCall {
+                    id: Some("call_1".into()),
+                    name: "get_weather".into(),
+                    args: serde_json::json!({"location": "Beijing"}),
+                }),
+                ..Default::default()
+            },
+            Part {
+                function_response: Some(FunctionResponse {
+                    id: Some("call_1".into()),
+                    name: "get_weather".into(),
+                    response: serde_json::json!({"temperature": 25}),
+                    parts: None,
+                    will_continue: None,
+                    scheduling: None,
+                }),
+                ..Default::default()
+            },
+        ];
+
+        let resp = GenerateContentResponse {
+            candidates: vec![Candidate {
+                content: GeminiContent {
+                    parts,
+                    role: Some("model".into()),
+                },
+                finish_reason: None,
+                safety_ratings: None,
+                citation_metadata: None,
+                token_count: None,
+                grounding_attributions: None,
+                grounding_metadata: None,
+                avg_logprobs: None,
+                logprobs_result: None,
+                index: Some(0),
+                finish_message: None,
+                url_context_metadata: None,
+            }],
+            prompt_feedback: None,
+            usage_metadata: None,
+            model_version: None,
+            response_id: None,
+            model_status: None,
+        };
+
+        let msg = GeminiGenerateContentMapper::to_core_message(resp).unwrap();
+        assert_eq!(msg.role, Role::Assistant);
+        assert_eq!(msg.content.len(), 7);
+
+        assert!(matches!(
+            &msg.content[0],
+            ContentPart::Reasoning { text, signature } if text == "Hello" && signature.as_deref() == Some("sig1")
+        ));
+        assert!(matches!(
+            &msg.content[1],
+            ContentPart::Text { text, signature } if text == "World" && signature.as_deref() == Some("sig1")
+        ));
+        assert!(matches!(
+            &msg.content[2],
+            ContentPart::Image(Image { source: ImageSource::Base64 { data }, media_type, .. })
+                if data == "base64image" && media_type.as_deref() == Some("image/png")
+        ));
+        assert!(matches!(
+            &msg.content[3],
+            ContentPart::Audio(Audio { data, format })
+                if data == "base64audio" && format == "mp3"
+        ));
+        assert!(matches!(
+            &msg.content[4],
+            ContentPart::Video(Video { source: ImageSource::Url { url }, media_type })
+                if url == "https://example.com/video.mp4" && media_type.as_deref() == Some("video/mp4")
+        ));
+        assert!(matches!(
+            &msg.content[5],
+            ContentPart::ToolCall(ToolCall { id, name, .. })
+                if id == "call_1" && name == "get_weather"
+        ));
+        assert!(matches!(
+            &msg.content[6],
+            ContentPart::ToolResult(ToolResult { tool_call_id, name, .. })
+                if tool_call_id == "call_1" && name == "get_weather"
+        ));
     }
 }

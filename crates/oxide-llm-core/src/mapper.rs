@@ -17,8 +17,10 @@ set! {
         InvalidMediaType,
         #[display("OpenAI Tool messages must correspond to exactly one ToolResult")]
         InvalidOpenAIToolMessage,
-        #[display("Message with Tool role must contain ToolResult")]
-        MissingToolResult,
+        #[display("ToolResult content part found in non-Tool role message")]
+        InvalidToolResultLocation,
+        #[display("Tool role message contains non-ToolResult content part")]
+        UnexpectedContentInToolMessage,
         #[display("No choices/candidates found in response")]
         EmptyResponse,
         #[display("Ignored stream event: {event_type}")]

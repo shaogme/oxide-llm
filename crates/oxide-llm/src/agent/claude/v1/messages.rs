@@ -1,5 +1,5 @@
 use oxide_llm_core::mapper::claude::v1::{
-    ClaudeMapper, ClaudeStreamMapper, MessagesConversationState,
+    ClaudeMessagesMapper, ClaudeMessagesStreamMapper, MessagesConversationState,
 };
 use oxide_llm_core::message::{DeltaMessage, Message};
 use oxide_llm_core::state::ConversationState;
@@ -114,7 +114,7 @@ impl crate::stream::SseProcessor<ClaudeStreamEvent> for RawClaudeProcessor {
     }
 }
 
-impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeStreamMapper {
+impl crate::stream::StreamMapper<ClaudeStreamEvent> for ClaudeMessagesStreamMapper {
     fn map_item(&mut self, raw: ClaudeStreamEvent) -> Result<Option<DeltaMessage>> {
         match self.map_response(raw) {
             Ok(delta) => Ok(Some(delta)),
@@ -143,11 +143,11 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
     where
         Self: 'a;
 
-    type Stream = crate::stream::MappedStream<Self::RawStream, ClaudeStreamMapper, Self::RawDelta>;
+    type Stream = crate::stream::MappedStream<Self::RawStream, ClaudeMessagesStreamMapper, Self::RawDelta>;
     type ChatStreamFuture<'a>
         = crate::stream::AgentChatStreamFuture<
         Self::ChatStreamRawFuture<'a>,
-        ClaudeStreamMapper,
+        ClaudeMessagesStreamMapper,
         Self::RawDelta,
     >
     where
@@ -203,7 +203,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
 
         // Convert Response back to Core Message
         let core_message: Message =
-            ClaudeMapper::to_core_message(response).map_err(AgentError::Mapper)?;
+            ClaudeMessagesMapper::to_core_message(response).map_err(AgentError::Mapper)?;
 
         Ok(core_message)
     }
@@ -229,7 +229,7 @@ impl<T: Transport> ChatAgent for MessagesAgent<T> {
         };
         crate::stream::AgentChatStreamFuture::with_hooks(
             raw_stream_fut,
-            ClaudeStreamMapper::new(),
+            ClaudeMessagesStreamMapper::new(),
             on_raw_delta,
             on_delta,
         )

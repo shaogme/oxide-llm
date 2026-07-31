@@ -62,7 +62,12 @@ impl OpenAIChatCompletionMapper {
                                 serde_json::to_string(&value).map_err(MapperError::JsonError)?;
                             parts.push(OpenAIContentPart::Text { text });
                         }
-                        _ => {
+                        ContentPart::Video(_)
+                        | ContentPart::Document(_)
+                        | ContentPart::ToolCall(_)
+                        | ContentPart::ToolResult(_)
+                        | ContentPart::Refusal { .. }
+                        | ContentPart::Reasoning { .. } => {
                             return Err(MapperError::UnsupportedContent {
                                 role: "User".to_string(),
                                 protocol: "OpenAI".to_string(),
@@ -105,6 +110,13 @@ impl OpenAIChatCompletionMapper {
                             }
                             None => content = Some(text),
                         },
+                        ContentPart::Reasoning { text, signature: _ } => match content {
+                            Some(ref mut c) => {
+                                c.push_str("\n\n");
+                                c.push_str(&text);
+                            }
+                            None => content = Some(text),
+                        },
                         ContentPart::ToolCall(tc) => {
                             if tc.name.is_empty() {
                                 return Err(MapperError::MissingField {
@@ -128,7 +140,11 @@ impl OpenAIChatCompletionMapper {
                         ContentPart::Refusal { refusal: r } => {
                             refusal = Some(r);
                         }
-                        _ => {
+                        ContentPart::Image(_)
+                        | ContentPart::Audio(_)
+                        | ContentPart::Video(_)
+                        | ContentPart::Document(_)
+                        | ContentPart::ToolResult(_) => {
                             return Err(MapperError::UnsupportedContent {
                                 role: "Assistant".to_string(),
                                 protocol: "OpenAI".to_string(),
@@ -156,7 +172,7 @@ impl OpenAIChatCompletionMapper {
             }
             Role::Tool => {
                 if msg.content.is_empty() {
-                    return Err(MapperError::MissingToolResult);
+                    return Err(MapperError::UnexpectedContentInToolMessage);
                 }
 
                 let mut tool_messages = Vec::with_capacity(msg.content.len());
@@ -179,7 +195,17 @@ impl OpenAIChatCompletionMapper {
                                 tool_call_id: res.tool_call_id,
                             });
                         }
-                        _ => return Err(MapperError::MissingToolResult),
+                        ContentPart::Text { .. }
+                        | ContentPart::Image(_)
+                        | ContentPart::Audio(_)
+                        | ContentPart::Video(_)
+                        | ContentPart::Document(_)
+                        | ContentPart::ToolCall(_)
+                        | ContentPart::Refusal { .. }
+                        | ContentPart::Json(_)
+                        | ContentPart::Reasoning { .. } => {
+                            return Err(MapperError::UnexpectedContentInToolMessage);
+                        }
                     }
                 }
 
@@ -252,6 +278,19 @@ impl OpenAIChatCompletionMapper {
                     }));
                 }
             }
+        } else if let Some(func_call) = msg.function_call {
+            if func_call.name.is_empty() {
+                return Err(MapperError::MissingField {
+                    field: "function_call.name".to_string(),
+                });
+            }
+            content_parts.push(ContentPart::ToolCall(ToolCall {
+                id: "call_deprecated_function".into(),
+                name: func_call.name.into(),
+                arguments: serde_json::from_str(&func_call.arguments)
+                    .map_err(MapperError::JsonError)?,
+                signature: None,
+            }));
         }
 
         // 3. Refusal
@@ -525,12 +564,15 @@ impl OpenAIStreamMapper {
             _ => None,
         };
 
-        let finish_reason = choice.finish_reason.map(|r| match r.as_ref() {
-            "stop" => crate::message::FinishReason::Stop,
-            "length" => crate::message::FinishReason::Length,
-            "tool_calls" | "function_call" => crate::message::FinishReason::ToolCalls,
-            "content_filter" => crate::message::FinishReason::ContentFilter,
-            _ => crate::message::FinishReason::Other(r),
+        use oxide_llm_proto::openai::v1::chat_completions::FinishReason as OpenAIFinishReason;
+
+        let finish_reason = choice.finish_reason.map(|r| match r {
+            OpenAIFinishReason::Stop => crate::message::FinishReason::Stop,
+            OpenAIFinishReason::Length => crate::message::FinishReason::Length,
+            OpenAIFinishReason::ToolCalls | OpenAIFinishReason::FunctionCall => {
+                crate::message::FinishReason::ToolCalls
+            }
+            OpenAIFinishReason::ContentFilter => crate::message::FinishReason::ContentFilter,
         });
 
         let mut content_parts = Vec::new();

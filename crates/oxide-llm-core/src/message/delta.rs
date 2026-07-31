@@ -204,6 +204,14 @@ pub enum FinishReason {
     ///
     /// 内容被安全过滤器拦截。
     ContentFilter,
+    /// Conversation turn paused.
+    ///
+    /// 对话轮次被暂停。
+    PauseTurn,
+    /// Model refused to respond.
+    ///
+    /// 模型拒绝回答。
+    Refusal,
     /// Other reasons.
     ///
     /// 其他原因。

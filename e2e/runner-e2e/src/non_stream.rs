@@ -7,7 +7,7 @@ mod tests {
     use oxide_llm::{
         ChatAgent, Runner, TransportBuilder,
         agent::{
-            claude::v1::message::{MessagesAgent, MessagesConfig},
+            claude::v1::messages::{MessagesAgent, MessagesConfig},
             gemini::v1beta::{
                 generate_content::{GenerateContentAgent, GenerateContentConfig},
                 interactions::{InteractionsAgent, InteractionsConfig},
