@@ -59,6 +59,7 @@ pub struct Config {
     pub(crate) presence_penalty: Option<f32>,
     pub(crate) stop_sequences: Option<Vec<StaticRefStr>>,
     pub(crate) seed: Option<i64>,
+    #[serde(alias = "effort")]
     pub(crate) reasoning_effort: Option<ReasoningEffort>,
 }
 
