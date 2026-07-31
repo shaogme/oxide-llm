@@ -295,45 +295,61 @@ pub struct RefusalContent {
     pub refusal: StaticRefStr,
 }
 
-/// 特定词元类型的详细使用统计。
+/// Detailed breakdown of input tokens.
+///
+/// 输入词元的详细分解。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenDetails {
+pub struct ResponseInputTokenDetails {
+    /// Tokens retrieved from prompt cache.
+    ///
     /// 从提示词缓存中获取的词元数量。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_tokens: Option<u32>,
+}
 
+/// Detailed breakdown of output tokens.
+///
+/// 输出词元的详细分解。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseOutputTokenDetails {
+    /// Tokens used for reasoning.
+    ///
     /// 模型用于思考/推理的词元数量。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
-
-    /// 生成的文本词元数量。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text_tokens: Option<u32>,
-
-    /// 生成或消耗的音频词元数量。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub audio_tokens: Option<u32>,
 }
 
+/// Token usage details for the response.
+///
 /// 响应词元用量详细统计。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseUsage {
+    /// Total tokens used (input + output).
+    ///
     /// 请求使用的词元总数（输入 + 输出）。
     pub total_tokens: u32,
 
+    /// Number of input tokens processed.
+    ///
     /// 处理的输入词元数量。
     pub input_tokens: u32,
 
+    /// Number of output tokens generated.
+    ///
     /// 生成的输出词元数量。
     pub output_tokens: u32,
 
+    /// Detailed breakdown of input tokens.
+    ///
     /// 输入词元的详细分解。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_token_details: Option<TokenDetails>,
+    pub input_tokens_details: Option<ResponseInputTokenDetails>,
 
+    /// Detailed breakdown of output tokens.
+    ///
     /// 输出词元的详细分解。
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_token_details: Option<TokenDetails>,
+    pub output_tokens_details: Option<ResponseOutputTokenDetails>,
 }
 
 /// 网络搜索工具调用项输出。
