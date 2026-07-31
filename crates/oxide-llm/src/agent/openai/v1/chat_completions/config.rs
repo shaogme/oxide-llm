@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, ReasoningEffort as ConfigReasoningEffort},
+    config::{Config, ReasoningEffort as ConfigReasoningEffort, ThinkingConfig},
     error::AgentError,
 };
 use oxide_llm_proto::openai::v1::chat_completions::{
@@ -634,6 +634,7 @@ impl TryFrom<Config> for ChatCompletionsConfig {
             stop_sequences,
             seed,
             reasoning_effort,
+            thinking,
         } = config;
 
         let stop = stop_sequences.map(|stop| {
@@ -644,15 +645,28 @@ impl TryFrom<Config> for ChatCompletionsConfig {
             }
         });
 
-        let reasoning_effort = reasoning_effort.map(|effort| match effort {
-            ConfigReasoningEffort::None => ReasoningEffort::None,
-            ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
-            ConfigReasoningEffort::Low => ReasoningEffort::Low,
-            ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
-            ConfigReasoningEffort::High => ReasoningEffort::High,
-            ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
-            ConfigReasoningEffort::Max => ReasoningEffort::High,
-        });
+        let reasoning_effort = reasoning_effort
+            .map(|effort| match effort {
+                ConfigReasoningEffort::None => ReasoningEffort::None,
+                ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
+                ConfigReasoningEffort::Low => ReasoningEffort::Low,
+                ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
+                ConfigReasoningEffort::High => ReasoningEffort::High,
+                ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
+                ConfigReasoningEffort::Max => ReasoningEffort::High,
+            })
+            .or_else(|| {
+                thinking.and_then(|t| match t {
+                    ThinkingConfig::Bool(true) => Some(ReasoningEffort::Medium),
+                    ThinkingConfig::Bool(false) => Some(ReasoningEffort::None),
+                    ThinkingConfig::Budget(_) => Some(ReasoningEffort::Medium),
+                    ThinkingConfig::Full { enabled, .. } => match enabled {
+                        Some(true) => Some(ReasoningEffort::Medium),
+                        Some(false) => Some(ReasoningEffort::None),
+                        None => None,
+                    },
+                })
+            });
 
         Ok(Self {
             model,

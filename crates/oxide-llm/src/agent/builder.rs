@@ -115,6 +115,7 @@ mod tests {
                 stop_sequences: _,
                 seed: _,
                 reasoning_effort: _,
+                thinking: _,
             } = config;
 
             Ok(Self {

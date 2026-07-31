@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, ReasoningEffort},
+    config::{Config, ReasoningEffort, ThinkingConfig as ConfigThinkingConfig},
     error::AgentError,
 };
 use oxide_llm_proto::gemini::v1beta::generate_content::{
@@ -50,7 +50,6 @@ pub struct GenerateContentConfig {
     enable_affective_dialog: Option<bool>,
     response_format: Option<ResponseFormatConfig>,
     translation_config: Option<TranslationConfig>,
-    thinking_level: Option<ThinkingLevel>,
     thinking_summaries: Option<ThinkingSummaries>,
     video_config: Option<VideoConfig>,
 }
@@ -91,7 +90,6 @@ impl GenerateContentConfig {
             enable_affective_dialog: None,
             response_format: None,
             translation_config: None,
-            thinking_level: None,
             thinking_summaries: None,
             video_config: None,
         }
@@ -661,18 +659,32 @@ impl GenerateContentConfig {
 
     /// Get thinking level.
     pub fn thinking_level(&self) -> Option<&ThinkingLevel> {
-        self.thinking_level.as_ref()
+        self.thinking_config
+            .as_ref()
+            .and_then(|c| c.thinking_level.as_ref())
     }
 
     /// Set thinking level.
     pub fn set_thinking_level(&mut self, thinking_level: Option<ThinkingLevel>) -> &mut Self {
-        self.thinking_level = thinking_level;
+        if let Some(level) = thinking_level {
+            if let Some(ref mut config) = self.thinking_config {
+                config.thinking_level = Some(level);
+            } else {
+                self.thinking_config = Some(ThinkingConfig {
+                    include_thoughts: None,
+                    thinking_budget: None,
+                    thinking_level: Some(level),
+                });
+            }
+        } else if let Some(ref mut config) = self.thinking_config {
+            config.thinking_level = None;
+        }
         self
     }
 
     /// Set thinking level (builder pattern).
     pub fn with_thinking_level(mut self, thinking_level: ThinkingLevel) -> Self {
-        self.thinking_level = Some(thinking_level);
+        self.set_thinking_level(Some(thinking_level));
         self
     }
 
@@ -723,6 +735,15 @@ impl GenerateContentConfig {
         tools: Option<Vec<GeminiTool>>,
         tool_config_override: Option<ToolConfig>,
     ) -> GenerateContentRequest {
+        let (thinking_config, thinking_level) = match self.thinking_config {
+            Some(ThinkingConfig {
+                include_thoughts: None,
+                thinking_budget: None,
+                thinking_level: Some(level),
+            }) => (None, Some(level)),
+            cfg => (cfg, None),
+        };
+
         let generation_config = Some(GenerationConfig {
             stop_sequences: self.stop_sequences,
             response_mime_type: self.response_mime_type,
@@ -738,7 +759,7 @@ impl GenerateContentConfig {
             response_logprobs: self.response_logprobs,
             logprobs: self.logprobs,
             speech_config: self.speech_config,
-            thinking_config: self.thinking_config,
+            thinking_config,
             image_config: self.image_config,
             media_resolution: self.media_resolution,
             response_json_schema: self.response_json_schema,
@@ -747,7 +768,7 @@ impl GenerateContentConfig {
             enable_affective_dialog: self.enable_affective_dialog,
             response_format: self.response_format,
             translation_config: self.translation_config,
-            thinking_level: self.thinking_level,
+            thinking_level,
             thinking_summaries: self.thinking_summaries,
             video_config: self.video_config,
         });
@@ -782,6 +803,7 @@ impl TryFrom<Config> for GenerateContentConfig {
             stop_sequences,
             seed,
             reasoning_effort,
+            thinking,
         } = config;
 
         let thinking_level = reasoning_effort.map(|effort| match effort {
@@ -793,6 +815,35 @@ impl TryFrom<Config> for GenerateContentConfig {
             ReasoningEffort::Xhigh => ThinkingLevel::High,
             ReasoningEffort::Max => ThinkingLevel::High,
         });
+
+        let thinking_config = thinking
+            .map(|t| match t {
+                ConfigThinkingConfig::Bool(enabled) => ThinkingConfig {
+                    include_thoughts: Some(enabled),
+                    thinking_budget: None,
+                    thinking_level: thinking_level.clone(),
+                },
+                ConfigThinkingConfig::Budget(budget) => ThinkingConfig {
+                    include_thoughts: Some(true),
+                    thinking_budget: Some(budget as i32),
+                    thinking_level: thinking_level.clone(),
+                },
+                ConfigThinkingConfig::Full {
+                    enabled,
+                    budget_tokens,
+                } => ThinkingConfig {
+                    include_thoughts: enabled,
+                    thinking_budget: budget_tokens.map(|b| b as i32),
+                    thinking_level: thinking_level.clone(),
+                },
+            })
+            .or_else(|| {
+                thinking_level.map(|level| ThinkingConfig {
+                    include_thoughts: None,
+                    thinking_budget: None,
+                    thinking_level: Some(level),
+                })
+            });
 
         Ok(Self {
             model,
@@ -818,7 +869,7 @@ impl TryFrom<Config> for GenerateContentConfig {
             response_logprobs: None,
             logprobs: None,
             speech_config: None,
-            thinking_config: None,
+            thinking_config,
             image_config: None,
             media_resolution: None,
             response_json_schema: None,
@@ -827,7 +878,6 @@ impl TryFrom<Config> for GenerateContentConfig {
             enable_affective_dialog: None,
             response_format: None,
             translation_config: None,
-            thinking_level,
             thinking_summaries: None,
             video_config: None,
         })

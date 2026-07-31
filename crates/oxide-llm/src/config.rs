@@ -38,6 +38,27 @@ pub enum ReasoningEffort {
     Max,
 }
 
+/// Thinking configuration.
+///
+/// 思考配置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ThinkingConfig {
+    /// 纯布尔控制
+    Bool(bool),
+    /// Token 预算数值控制
+    Budget(u64),
+    /// 结构化控制对象
+    Full {
+        /// 是否开启思考
+        #[serde(default)]
+        enabled: Option<bool>,
+        /// 思考 Token 预算
+        #[serde(default)]
+        budget_tokens: Option<u64>,
+    },
+}
+
 /// Unified generic agent configuration.
 ///
 /// 统一通用代理配置。
@@ -61,6 +82,7 @@ pub struct Config {
     pub(crate) seed: Option<i64>,
     #[serde(alias = "effort")]
     pub(crate) reasoning_effort: Option<ReasoningEffort>,
+    pub(crate) thinking: Option<ThinkingConfig>,
 }
 
 impl Config {
@@ -80,6 +102,7 @@ impl Config {
             stop_sequences: None,
             seed: None,
             reasoning_effort: None,
+            thinking: None,
         }
     }
 
@@ -347,6 +370,29 @@ impl Config {
     /// 设置思考/推理努力程度（构建器模式）。
     pub fn with_reasoning_effort(mut self, reasoning_effort: ReasoningEffort) -> Self {
         self.reasoning_effort = Some(reasoning_effort);
+        self
+    }
+
+    /// Get thinking config.
+    ///
+    /// 获取思考配置。
+    pub fn thinking(&self) -> Option<&ThinkingConfig> {
+        self.thinking.as_ref()
+    }
+
+    /// Set thinking config.
+    ///
+    /// 设置思考配置。
+    pub fn set_thinking(&mut self, thinking: Option<ThinkingConfig>) -> &mut Self {
+        self.thinking = thinking;
+        self
+    }
+
+    /// Set thinking config (builder pattern).
+    ///
+    /// 设置思考配置（构建器模式）。
+    pub fn with_thinking(mut self, thinking: ThinkingConfig) -> Self {
+        self.thinking = Some(thinking);
         self
     }
 }

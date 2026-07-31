@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, ReasoningEffort},
+    config::{Config, ReasoningEffort, ThinkingConfig},
     error::AgentError,
 };
 use oxide_llm_proto::claude::v1::messages::{
@@ -463,6 +463,7 @@ impl TryFrom<Config> for MessagesConfig {
             stop_sequences,
             seed: _,
             reasoning_effort,
+            thinking,
         } = config;
 
         let max_tokens = max_tokens.ok_or_else(|| {
@@ -479,6 +480,28 @@ impl TryFrom<Config> for MessagesConfig {
             ReasoningEffort::Max => OutputEffort::Max,
         });
 
+        let thinking_param = thinking.map(|t| match t {
+            ThinkingConfig::Bool(true) => ThinkingConfigParam::Adaptive { display: None },
+            ThinkingConfig::Bool(false) => ThinkingConfigParam::Disabled,
+            ThinkingConfig::Budget(budget) => ThinkingConfigParam::Enabled {
+                budget_tokens: budget as u32,
+                display: None,
+            },
+            ThinkingConfig::Full {
+                enabled,
+                budget_tokens,
+            } => match enabled {
+                Some(false) => ThinkingConfigParam::Disabled,
+                _ => match budget_tokens {
+                    Some(budget) => ThinkingConfigParam::Enabled {
+                        budget_tokens: budget as u32,
+                        display: None,
+                    },
+                    None => ThinkingConfigParam::Adaptive { display: None },
+                },
+            },
+        });
+
         Ok(Self {
             model,
             max_tokens,
@@ -490,7 +513,7 @@ impl TryFrom<Config> for MessagesConfig {
             tool_choice: None,
             top_k,
             top_p,
-            thinking_param: None,
+            thinking_param,
             output_effort,
             output_format: None,
             output_config: None,

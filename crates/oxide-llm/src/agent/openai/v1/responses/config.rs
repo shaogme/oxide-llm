@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, ReasoningEffort as ConfigReasoningEffort},
+    config::{Config, ReasoningEffort as ConfigReasoningEffort, ThinkingConfig},
     error::AgentError,
 };
 use oxide_llm_proto::openai::v1::response::{
@@ -531,10 +531,11 @@ impl TryFrom<Config> for ResponsesConfig {
             stop_sequences: _,
             seed: _,
             reasoning_effort,
+            thinking,
         } = config;
 
-        let reasoning = reasoning_effort.map(|effort| {
-            let reasoning_effort = match effort {
+        let reasoning_effort = reasoning_effort
+            .map(|effort| match effort {
                 ConfigReasoningEffort::None => ReasoningEffort::None,
                 ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
                 ConfigReasoningEffort::Low => ReasoningEffort::Low,
@@ -542,12 +543,24 @@ impl TryFrom<Config> for ResponsesConfig {
                 ConfigReasoningEffort::High => ReasoningEffort::High,
                 ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
                 ConfigReasoningEffort::Max => ReasoningEffort::High,
-            };
-            ReasoningConf {
-                effort: Some(reasoning_effort),
-                summary: None,
-                generate_summary: None,
-            }
+            })
+            .or_else(|| {
+                thinking.and_then(|t| match t {
+                    ThinkingConfig::Bool(true) => Some(ReasoningEffort::Medium),
+                    ThinkingConfig::Bool(false) => Some(ReasoningEffort::None),
+                    ThinkingConfig::Budget(_) => Some(ReasoningEffort::Medium),
+                    ThinkingConfig::Full { enabled, .. } => match enabled {
+                        Some(true) => Some(ReasoningEffort::Medium),
+                        Some(false) => Some(ReasoningEffort::None),
+                        None => None,
+                    },
+                })
+            });
+
+        let reasoning = reasoning_effort.map(|effort| ReasoningConf {
+            effort: Some(effort),
+            summary: None,
+            generate_summary: None,
         });
 
         Ok(Self {

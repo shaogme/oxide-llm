@@ -47,7 +47,11 @@ pub enum ModelType {
     /// Claude Messages API model.
     ///
     /// Claude Messages API 模型。
-    #[serde(rename = "claude-messages", alias = "claude_messages", alias = "claude")]
+    #[serde(
+        rename = "claude-messages",
+        alias = "claude_messages",
+        alias = "claude"
+    )]
     ClaudeMessages,
     /// Gemini Interactions API model.
     ///

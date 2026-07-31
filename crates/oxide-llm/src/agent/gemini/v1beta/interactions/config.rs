@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, ReasoningEffort},
+    config::{Config, ReasoningEffort, ThinkingConfig},
     error::AgentError,
 };
 use oxide_llm_proto::gemini::v1beta::interactions::{
@@ -727,17 +727,31 @@ impl TryFrom<Config> for InteractionsConfig {
             stop_sequences,
             seed,
             reasoning_effort,
+            thinking,
         } = config;
 
-        let thinking_level = reasoning_effort.map(|effort| match effort {
-            ReasoningEffort::None => ThinkingLevel::Minimal,
-            ReasoningEffort::Minimal => ThinkingLevel::Minimal,
-            ReasoningEffort::Low => ThinkingLevel::Low,
-            ReasoningEffort::Medium => ThinkingLevel::Medium,
-            ReasoningEffort::High => ThinkingLevel::High,
-            ReasoningEffort::Xhigh => ThinkingLevel::High,
-            ReasoningEffort::Max => ThinkingLevel::High,
-        });
+        let thinking_level = reasoning_effort
+            .map(|effort| match effort {
+                ReasoningEffort::None => ThinkingLevel::Minimal,
+                ReasoningEffort::Minimal => ThinkingLevel::Minimal,
+                ReasoningEffort::Low => ThinkingLevel::Low,
+                ReasoningEffort::Medium => ThinkingLevel::Medium,
+                ReasoningEffort::High => ThinkingLevel::High,
+                ReasoningEffort::Xhigh => ThinkingLevel::High,
+                ReasoningEffort::Max => ThinkingLevel::High,
+            })
+            .or_else(|| {
+                thinking.and_then(|t| match t {
+                    ThinkingConfig::Bool(true) => Some(ThinkingLevel::Medium),
+                    ThinkingConfig::Bool(false) => Some(ThinkingLevel::Minimal),
+                    ThinkingConfig::Budget(_) => Some(ThinkingLevel::Medium),
+                    ThinkingConfig::Full { enabled, .. } => match enabled {
+                        Some(true) => Some(ThinkingLevel::Medium),
+                        Some(false) => Some(ThinkingLevel::Minimal),
+                        None => None,
+                    },
+                })
+            });
 
         Ok(Self {
             model: Some(model),
