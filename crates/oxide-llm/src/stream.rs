@@ -10,6 +10,82 @@ use oxide_llm_core::transport::TransportError;
 
 use crate::config::{DeltaHook, RawDeltaHook};
 use crate::error::{AgentError, Result};
+use tracing::{debug, warn};
+
+/// Helper function to parse standard JSON SSE blocks into typed stream items.
+///
+/// 将标准 JSON SSE 数据块解析为强类型流项的辅助函数。
+pub fn parse_json_sse_block<T, F>(
+    block: &[u8],
+    mut is_terminal_event: F,
+) -> (Option<Result<T>>, bool)
+where
+    T: serde::de::DeserializeOwned,
+    F: FnMut(&T) -> bool,
+{
+    let s = match std::str::from_utf8(block) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("UTF-8 decode error in SSE block: {}", e);
+            return (Some(Err(AgentError::Utf8(e))), false);
+        }
+    };
+
+    debug!("Processing SSE raw block: {:?}", s);
+
+    let mut chunk_to_yield = None;
+    let mut done = false;
+    let mut has_sse_header = false;
+    let mut has_invalid_line = false;
+
+    for line in s.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with(':') {
+            continue;
+        }
+
+        if line.starts_with("event:") || line.starts_with("id:") || line.starts_with("retry:") {
+            has_sse_header = true;
+            continue;
+        }
+
+        if let Some(data) = line.strip_prefix("data:") {
+            has_sse_header = true;
+            let data = data.trim();
+            if data == "[DONE]" {
+                done = true;
+                break;
+            }
+            match serde_json::from_str::<T>(data) {
+                Ok(item) => {
+                    if is_terminal_event(&item) {
+                        done = true;
+                    }
+                    chunk_to_yield = Some(Ok(item));
+                }
+                Err(e) => {
+                    warn!("Failed to parse SSE JSON: {}. Data: {}", e, data);
+                    return (Some(Err(AgentError::Json(e))), false);
+                }
+            }
+        } else {
+            has_invalid_line = true;
+        }
+    }
+
+    if has_invalid_line && !has_sse_header {
+        warn!("Unexpected non-SSE block: {}", s);
+        return (
+            Some(Err(AgentError::StreamData(format!(
+                "Unexpected response block: {}",
+                s.trim()
+            )))),
+            false,
+        );
+    }
+
+    (chunk_to_yield, done)
+}
 
 /// Trait for processing SSE data blocks into raw stream items.
 ///
@@ -390,5 +466,81 @@ where
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    struct DummyEvent {
+        val: String,
+        stop: Option<bool>,
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_valid() {
+        let block = b"data: {\"val\":\"hello\"}\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |_| false);
+        assert!(!done);
+        assert!(item.is_some());
+        let event = item.unwrap().unwrap();
+        assert_eq!(
+            event,
+            DummyEvent {
+                val: "hello".into(),
+                stop: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_done_keyword() {
+        let block = b"data: [DONE]\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |_| false);
+        assert!(done);
+        assert!(item.is_none());
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_terminal_closure() {
+        let block = b"data: {\"val\":\"end\",\"stop\":true}\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |ev| ev.stop == Some(true));
+        assert!(done);
+        assert!(item.is_some());
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_unexpected_html() {
+        let block = b"<!doctype html>\n<html lang=\"en\">\n<head></head>\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |_| false);
+        assert!(!done);
+        assert!(item.is_some());
+        let err = item.unwrap().unwrap_err();
+        if let AgentError::StreamData(msg) = err {
+            assert!(msg.contains("<!doctype html>"));
+        } else {
+            panic!("Expected AgentError::StreamData, got {:?}", err);
+        }
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_invalid_json() {
+        let block = b"data: {invalid json}\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |_| false);
+        assert!(!done);
+        assert!(item.is_some());
+        let err = item.unwrap().unwrap_err();
+        assert!(matches!(err, AgentError::Json(_)));
+    }
+
+    #[test]
+    fn test_parse_json_sse_block_comments_and_empty_lines() {
+        let block = b": keep-alive\n: comment line\n\n";
+        let (item, done) = parse_json_sse_block::<DummyEvent, _>(block, |_| false);
+        assert!(!done);
+        assert!(item.is_none());
     }
 }

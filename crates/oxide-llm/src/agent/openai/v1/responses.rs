@@ -118,35 +118,7 @@ impl Default for RawOpenAIResponseProcessor {
 
 impl crate::stream::SseProcessor<ResponseStreamEvent> for RawOpenAIResponseProcessor {
     fn process(&mut self, block: &[u8]) -> (Option<Result<ResponseStreamEvent>>, bool) {
-        let s = match std::str::from_utf8(block) {
-            Ok(s) => s,
-            Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-        };
-
-        let mut chunk_to_yield = None;
-        let mut done = false;
-
-        for line in s.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                let data = data.trim();
-                if data == "[DONE]" {
-                    done = true;
-                    break;
-                }
-                match serde_json::from_str::<ResponseStreamEvent>(data) {
-                    Ok(event) => {
-                        chunk_to_yield = Some(Ok(event));
-                    }
-                    Err(e) => return (Some(Err(AgentError::Json(e))), false),
-                }
-            }
-        }
-
-        if done {
-            return (chunk_to_yield, true);
-        }
-
-        (chunk_to_yield, false)
+        crate::stream::parse_json_sse_block(block, |_| false)
     }
 }
 

@@ -105,35 +105,12 @@ impl Default for RawClaudeProcessor {
 
 impl crate::stream::SseProcessor<ClaudeStreamEvent> for RawClaudeProcessor {
     fn process(&mut self, block: &[u8]) -> (Option<Result<ClaudeStreamEvent>>, bool) {
-        let s = match std::str::from_utf8(block) {
-            Ok(s) => s,
-            Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-        };
-
-        let mut chunk_to_yield = None;
-        let mut stop = false;
-
-        for line in s.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                let data = data.trim();
-
-                match serde_json::from_str::<ClaudeStreamEvent>(data) {
-                    Ok(event) => {
-                        if matches!(&event, ClaudeStreamEvent::MessageStop) {
-                            stop = true;
-                        }
-                        if let ClaudeStreamEvent::Error { .. } = &event {
-                            stop = true;
-                        }
-
-                        chunk_to_yield = Some(Ok(event));
-                    }
-                    Err(e) => return (Some(Err(AgentError::Json(e))), false),
-                }
-            }
-        }
-
-        (chunk_to_yield, stop)
+        crate::stream::parse_json_sse_block(block, |event| {
+            matches!(
+                event,
+                ClaudeStreamEvent::MessageStop | ClaudeStreamEvent::Error { .. }
+            )
+        })
     }
 }
 

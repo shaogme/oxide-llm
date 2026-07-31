@@ -25,6 +25,7 @@ ref_str.workspace = true
 futures.workspace = true
 bytes.workspace = true
 trait-morph.workspace = true
+tracing.workspace = true
 
 oxide-llm-transport = { workspace = true, optional = true }
 oxide-llm-executor = { workspace = true, optional = true }

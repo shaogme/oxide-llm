@@ -18,6 +18,8 @@ set! {
         ToolExecution(String),
         #[display("Configuration error: {0}")]
         Config(String),
+        #[display("Invalid stream data error: {0}")]
+        StreamData(String),
     }
 }
 

@@ -38,6 +38,10 @@ struct Args {
     /// Name of the model configuration to use
     #[arg(short, long)]
     name: Option<String>,
+
+    /// Enable verbose debug logging
+    #[arg(short, long)]
+    debug: bool,
 }
 
 // --- Tool Definitions ---
@@ -155,6 +159,15 @@ impl Tool for StockTool {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli_args = Args::parse();
+
+    let filter = if cli_args.debug {
+        tracing_subscriber::EnvFilter::new("debug")
+    } else {
+        tracing_subscriber::EnvFilter::from_default_env()
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .try_init();
 
     // 1. Load configuration
     let config_path = if Path::new("agent.toml").exists() {

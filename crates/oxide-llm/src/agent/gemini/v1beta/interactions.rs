@@ -107,38 +107,13 @@ impl Default for RawInteractionsProcessor {
 
 impl crate::stream::SseProcessor<InteractionSseEvent> for RawInteractionsProcessor {
     fn process(&mut self, block: &[u8]) -> (Option<Result<InteractionSseEvent>>, bool) {
-        let s = match std::str::from_utf8(block) {
-            Ok(s) => s,
-            Err(e) => return (Some(Err(AgentError::Utf8(e))), false),
-        };
-
-        let mut chunk_to_yield = None;
-        let mut done = false;
-
-        for line in s.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                let data = data.trim();
-                if data == "[DONE]" {
-                    done = true;
-                    break;
-                }
-                match serde_json::from_str::<InteractionSseEvent>(data) {
-                    Ok(event) => {
-                        if matches!(
-                            &event,
-                            InteractionSseEvent::InteractionCompleted(_)
-                                | InteractionSseEvent::Error(_)
-                        ) {
-                            done = true;
-                        }
-                        chunk_to_yield = Some(Ok(event));
-                    }
-                    Err(e) => return (Some(Err(AgentError::Json(e))), false),
-                }
-            }
-        }
-
-        (chunk_to_yield, done)
+        crate::stream::parse_json_sse_block(block, |event| {
+            matches!(
+                event,
+                InteractionSseEvent::InteractionCompleted(_)
+                    | InteractionSseEvent::Error(_)
+            )
+        })
     }
 }
 

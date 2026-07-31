@@ -319,6 +319,7 @@ where
                         return Poll::Ready(Some(Ok(event)));
                     }
                     Poll::Ready(Some(Err(e))) => {
+                        this.phase = Phase::Done;
                         return Poll::Ready(Some(Err(e)));
                     }
                     Poll::Ready(None) => {

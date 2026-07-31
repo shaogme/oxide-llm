@@ -7,6 +7,7 @@ use oxide_llm_core::transport::{
 };
 use reqwest::{Client, RequestBuilder};
 use serde::{Serialize, de::DeserializeOwned};
+use tracing::{debug, warn};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Builder
@@ -109,6 +110,7 @@ impl ReqwestTransport {
             format!("{}/{}", self.base_url, endpoint)
         };
 
+        debug!("Preparing HTTP request: {} {}", method, url);
         let mut builder = self.client.request(method, &url);
 
         // Inject Authorization header when an API key is configured.
@@ -219,11 +221,13 @@ impl Transport for ReqwestTransport {
         let resp = builder.send().await.map_err(map_reqwest_error)?;
 
         let status = resp.status();
+        debug!("HTTP response status: {}", status);
         if !status.is_success() {
             let message = resp
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
+            warn!("HTTP response error [{}]: {}", status.as_u16(), message);
             return Err(TransportError::Api {
                 status: status.as_u16(),
                 message,
@@ -244,11 +248,17 @@ impl Transport for ReqwestTransport {
                 let resp = builder.send().await.map_err(map_reqwest_error)?;
 
                 let status = resp.status();
+                debug!("HTTP stream response status: {}", status);
                 if !status.is_success() {
                     let message = resp
                         .text()
                         .await
                         .unwrap_or_else(|_| "Unknown error".to_string());
+                    warn!(
+                        "HTTP stream response error [{}]: {}",
+                        status.as_u16(),
+                        message
+                    );
                     return Err(TransportError::Api {
                         status: status.as_u16(),
                         message,
