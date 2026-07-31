@@ -1,7 +1,7 @@
 mod config;
 
 use clap::Parser;
-use config::{Config, ProviderType};
+use config::{Config, ModelType};
 use futures::StreamExt;
 use oxide_llm::{
     DynChatAgent, Runner, TransportBuilder,
@@ -176,61 +176,63 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 3. Build Agent
     let oxide_config = model_config.to_oxide_config();
 
-    let agent: Box<dyn DynChatAgent> = match provider_config.r#type {
-        ProviderType::OpenAI => {
-            println!("Loaded config for OpenAI model: {}", model_config.model());
-            let transport = ReqwestTransport::builder()
-                .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone())
-                .build()?;
+    let transport = ReqwestTransport::builder()
+        .with_authorization(provider_config.api_key.expose().to_string())
+        .with_base_url(provider_config.base_url.clone())
+        .build()?;
 
-            if model_config.endpoint().contains("responses") {
-                Box::new(
-                    ResponsesAgent::builder(transport)
-                        .with_config(oxide_config.clone())?
-                        .build()?,
-                )
-            } else {
-                Box::new(
-                    ChatCompletionsAgent::builder(transport)
-                        .with_config(oxide_config.clone())?
-                        .build()?,
-                )
-            }
+    let agent: Box<dyn DynChatAgent> = match model_config.r#type {
+        ModelType::OpenAiResponses => {
+            println!(
+                "Loaded config for OpenAI Responses model: {}",
+                model_config.model()
+            );
+            Box::new(
+                ResponsesAgent::builder(transport)
+                    .with_config(oxide_config.clone())?
+                    .build()?,
+            )
         }
-        ProviderType::Claude => {
+        ModelType::OpenAiChatCompletions => {
+            println!(
+                "Loaded config for OpenAI Chat Completions model: {}",
+                model_config.model()
+            );
+            Box::new(
+                ChatCompletionsAgent::builder(transport)
+                    .with_config(oxide_config.clone())?
+                    .build()?,
+            )
+        }
+        ModelType::ClaudeMessages => {
             println!("Loaded config for Claude model: {}", model_config.model());
-            let transport = ReqwestTransport::builder()
-                .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone())
-                .build()?;
-
             Box::new(
                 MessagesAgent::builder(transport)
                     .with_config(oxide_config.clone())?
                     .build()?,
             )
         }
-        ProviderType::Gemini => {
-            println!("Loaded config for Gemini model: {}", model_config.model());
-            let transport = ReqwestTransport::builder()
-                .with_authorization(provider_config.api_key.expose().to_string())
-                .with_base_url(provider_config.base_url.clone())
-                .build()?;
-
-            if model_config.endpoint().contains("interactions") {
-                Box::new(
-                    InteractionsAgent::builder(transport)
-                        .with_config(oxide_config.clone())?
-                        .build()?,
-                )
-            } else {
-                Box::new(
-                    GenerateContentAgent::builder(transport)
-                        .with_config(oxide_config.clone())?
-                        .build()?,
-                )
-            }
+        ModelType::GeminiInteractions => {
+            println!(
+                "Loaded config for Gemini Interactions model: {}",
+                model_config.model()
+            );
+            Box::new(
+                InteractionsAgent::builder(transport)
+                    .with_config(oxide_config.clone())?
+                    .build()?,
+            )
+        }
+        ModelType::GeminiGenerateContent => {
+            println!(
+                "Loaded config for Gemini Generate Content model: {}",
+                model_config.model()
+            );
+            Box::new(
+                GenerateContentAgent::builder(transport)
+                    .with_config(oxide_config.clone())?
+                    .build()?,
+            )
         }
     };
 

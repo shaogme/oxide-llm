@@ -29,24 +29,36 @@ impl SecretString {
     }
 }
 
-/// Provider configuration type enum.
+/// Model configuration type enum.
 ///
-/// 供应商配置类型枚举。
+/// 模型配置类型枚举。
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum ProviderType {
-    /// OpenAI API provider.
+pub enum ModelType {
+    /// OpenAI Responses API model.
     ///
-    /// OpenAI API 供应商。
-    OpenAI,
-    /// Claude API provider.
+    /// OpenAI Responses API 模型。
+    #[serde(rename = "openai-responses", alias = "openai_responses")]
+    OpenAiResponses,
+    /// OpenAI Chat Completions API model.
     ///
-    /// Claude API 供应商。
-    Claude,
-    /// Gemini API provider.
+    /// OpenAI Chat Completions API 模型。
+    #[serde(rename = "openai-chat-completions", alias = "openai_chat_completions")]
+    OpenAiChatCompletions,
+    /// Claude Messages API model.
     ///
-    /// Gemini API 供应商。
-    Gemini,
+    /// Claude Messages API 模型。
+    #[serde(rename = "claude-messages", alias = "claude_messages", alias = "claude")]
+    ClaudeMessages,
+    /// Gemini Interactions API model.
+    ///
+    /// Gemini Interactions API 模型。
+    #[serde(rename = "gemini-interactions", alias = "gemini_interactions")]
+    GeminiInteractions,
+    /// Gemini Generate Content API model.
+    ///
+    /// Gemini Generate Content API 模型。
+    #[serde(rename = "gemini-generate-content", alias = "gemini_generate_content")]
+    GeminiGenerateContent,
 }
 
 /// Configuration structure for a provider.
@@ -58,10 +70,6 @@ pub struct ProviderConfig {
     ///
     /// 供应商唯一标识符。
     pub id: String,
-    /// Type of provider API.
-    ///
-    /// 供应商 API 类型。
-    pub r#type: ProviderType,
     /// Base URL for API requests.
     ///
     /// API 请求的基础 URL。
@@ -85,6 +93,10 @@ pub struct ModelConfig {
     ///
     /// 关联的供应商 ID。
     pub provider: String,
+    /// Type of model API.
+    ///
+    /// 模型 API 类型。
+    pub r#type: ModelType,
     /// Unified LLM agent configuration.
     ///
     /// 统一的 LLM 代理配置。
@@ -214,6 +226,7 @@ mod tests {
         let (model, _) = config
             .find_model_and_provider("my-openai-responses")
             .unwrap();
+        assert_eq!(model.r#type, ModelType::OpenAiResponses);
         assert_eq!(model.model(), "gpt-4.5-preview");
         assert_eq!(model.endpoint(), "responses");
         assert_eq!(model.config.temperature(), Some(0.7));

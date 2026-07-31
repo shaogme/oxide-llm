@@ -5,24 +5,21 @@ active_model = "my-openai-responses"
 
 [[providers]]
 id = "openai_provider"
-type = "openai"
 base_url = "https://api.openai.com/v1"
 api_key = "sk-..."
 
 [[providers]]
 id = "claude_provider"
-type = "claude"
 base_url = "https://api.anthropic.com/v1"
 api_key = "sk-ant-..."
 
 [[providers]]
 id = "gemini_provider"
-type = "gemini"
 base_url = "https://generativelanguage.googleapis.com/v1beta"
 api_key = "AIza..."
 
 # --- Model Definitions ---
-# Unified agent configuration supports required field (`model`), optional fields (`endpoint`, `max_tokens`),
+# Unified agent configuration supports required fields (`type`, `model`), optional fields (`endpoint`, `max_tokens`),
 # and optional tuning parameters (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `stop_sequences`, `seed`, `reasoning_effort`).
 # Note: `endpoint` defaults automatically if omitted ("chat/completions", "responses", "messages", "interactions", or "models/{model}").
 
@@ -30,6 +27,7 @@ api_key = "AIza..."
 [[models]]
 name = "my-openai-responses"
 provider = "openai_provider"
+type = "openai-responses"
 model = "gpt-4.5-preview"
 endpoint = "responses"
 temperature = 0.7
@@ -39,6 +37,7 @@ reasoning_effort = "medium"
 [[models]]
 name = "my-openai-chat"
 provider = "openai_provider"
+type = "openai-chat-completions"
 model = "gpt-3.5-turbo"
 endpoint = "chat/completions"
 temperature = 0.7
@@ -52,6 +51,7 @@ seed = 42
 [[models]]
 name = "my-claude"
 provider = "claude_provider"
+type = "claude-messages"
 model = "claude-3-opus-20240229"
 endpoint = "messages"
 max_tokens = 1024
@@ -62,6 +62,7 @@ reasoning_effort = "high"
 [[models]]
 name = "my-gemini-interactions"
 provider = "gemini_provider"
+type = "gemini-interactions"
 model = "gemini-3.6-flash"
 endpoint = "interactions"
 reasoning_effort = "low"
@@ -70,6 +71,7 @@ reasoning_effort = "low"
 [[models]]
 name = "my-gemini-generate"
 provider = "gemini_provider"
+type = "gemini-generate-content"
 model = "gemini-3-flash"
 endpoint = "models/gemini-3-flash:streamGenerateContent"
 temperature = 0.8
