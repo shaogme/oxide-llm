@@ -577,7 +577,9 @@ mod tests {
         }
 
         fn run(&self, _args: serde_json::Value) -> Self::Future {
-            std::future::ready(Err(ToolError::Custom("database unreachable".to_string())))
+            std::future::ready(Err(ToolError::Execution(
+                "database unreachable".to_string(),
+            )))
         }
 
         fn handle_error(
@@ -585,7 +587,7 @@ mod tests {
             err: ToolError<Self::Error>,
         ) -> Result<Vec<ContentPart>, Self::Error> {
             match err {
-                ToolError::Custom(e) => Err(e),
+                ToolError::Execution(e) => Err(e),
                 other => Err(other.to_string()),
             }
         }
@@ -672,6 +674,10 @@ mod tests {
                     text: format!("Custom invalid args handler: {}", msg),
                     signature: None,
                 }]),
+                ToolError::Parse(err_msg) => Ok(vec![ContentPart::Text {
+                    text: format!("Custom parse error handler: {}", err_msg),
+                    signature: None,
+                }]),
                 other => Ok(vec![ContentPart::Text {
                     text: format!("Other error: {}", other),
                     signature: None,
@@ -698,6 +704,76 @@ mod tests {
         assert!(results[0].is_error);
         if let ContentPart::Text { ref text, .. } = results[0].content[0] {
             assert!(text.contains("Custom invalid args handler:"));
+        } else {
+            panic!("Expected ContentPart::Text");
+        }
+    }
+
+    #[derive(Clone)]
+    struct CustomParseTool;
+
+    impl Tool for CustomParseTool {
+        const NAME: &'static str = "custom_parse_tool";
+        type Args = TypedArgs;
+        type Output = String;
+        type Error = String;
+        type Future = std::future::Ready<Result<Self::Output, Self::Error>>;
+
+        fn parse_args(
+            &self,
+            args: serde_json::Value,
+        ) -> Result<Self::Args, ToolError<Self::Error>> {
+            let count = args.get("count").and_then(|v| v.as_i64()).ok_or_else(|| {
+                ToolError::Parse("Field 'count' must be a valid integer".to_string())
+            })?;
+
+            Ok(TypedArgs {
+                count: count as i32,
+            })
+        }
+
+        fn run(&self, args: Self::Args) -> Self::Future {
+            std::future::ready(Ok(format!("count: {}", args.count)))
+        }
+
+        fn handle_error(
+            &self,
+            err: ToolError<Self::Error>,
+        ) -> Result<Vec<ContentPart>, Self::Error> {
+            match err {
+                ToolError::Parse(e) => Ok(vec![ContentPart::Text {
+                    text: format!("Handled custom parse error: {}", e),
+                    signature: None,
+                }]),
+                other => Ok(vec![ContentPart::Text {
+                    text: format!("Other error: {}", other),
+                    signature: None,
+                }]),
+            }
+        }
+    }
+
+    #[test]
+    fn test_custom_parse_args_and_handle_error_parse() {
+        let registry = DynToolRegistry::new().with(CustomParseTool);
+        let tool_call = ToolCall {
+            id: "call_custom_parse".into(),
+            name: "custom_parse_tool".into(),
+            arguments: serde_json::json!({"count": "not_an_int"}),
+            signature: None,
+        };
+
+        let exec_fut = ExecuteToolsFuture::new(&registry, vec![tool_call]);
+        let res = futures::executor::block_on(exec_fut);
+        assert!(res.is_ok());
+        let results = res.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_error);
+        if let ContentPart::Text { ref text, .. } = results[0].content[0] {
+            assert_eq!(
+                text,
+                "Handled custom parse error: Field 'count' must be a valid integer"
+            );
         } else {
             panic!("Expected ContentPart::Text");
         }

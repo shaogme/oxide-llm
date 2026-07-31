@@ -22,8 +22,10 @@ set! {
         InvalidArguments(String),
         #[display("Serialization error: {0}")]
         Serialization(String),
-        #[display("{0}")]
-        Custom(E),
+        #[display("Execution failure: {0}")]
+        Execution(E),
+        #[display("Parse failure: {0}")]
+        Parse(E),
     }
 }
 
@@ -96,6 +98,15 @@ pub trait Tool: Send + Sync + Clone + 'static {
     /// Executes the tool.
     fn run(&self, args: Self::Args) -> Self::Future;
 
+    /// Parses JSON arguments into the strongly-typed `Args` structure.
+    ///
+    /// 将 JSON 参数解析为强类型的 `Args` 结构体。允许自定义覆写 JSON 解析逻辑。
+    fn parse_args(&self, args: serde_json::Value) -> Result<Self::Args, ToolError<Self::Error>> {
+        serde_json::from_value(args).map_err(|e| {
+            ToolError::InvalidArguments(format!("Invalid arguments for tool {}: {}", Self::NAME, e))
+        })
+    }
+
     /// Handles an error occurred during tool execution.
     ///
     /// 处理工具执行过程中产生的错误，返回可传给 LLM 的内容段落或返回致命错误以中断执行。
@@ -142,7 +153,7 @@ impl<T: Tool> Future for AutoToolFuture<T> {
                             Poll::Ready(Err(err))
                         }
                     },
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(ToolError::Custom(err))),
+                    Poll::Ready(Err(err)) => Poll::Ready(Err(ToolError::Execution(err))),
                     Poll::Pending => Poll::Pending,
                 }
             }
@@ -175,19 +186,12 @@ impl<T: Tool> ToolRunnable for T {
     }
 
     fn run(&self, args: serde_json::Value) -> Self::Future {
-        // Deserialize arguments
-        let args_parsed: Result<T::Args, _> = serde_json::from_value(args);
+        // Deserialize arguments using `parse_args`
+        let args_parsed = self.parse_args(args);
 
         match args_parsed {
             Ok(a) => AutoToolFuture::Executing(self.run(a)),
-            Err(e) => {
-                let err = ToolError::InvalidArguments(format!(
-                    "Invalid arguments for tool {}: {}",
-                    Self::NAME,
-                    e
-                ));
-                AutoToolFuture::Failed(Some(err))
-            }
+            Err(e) => AutoToolFuture::Failed(Some(e)),
         }
     }
 
