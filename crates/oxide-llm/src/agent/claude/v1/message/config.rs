@@ -451,40 +451,50 @@ impl TryFrom<Config> for MessagesConfig {
     type Error = AgentError;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let max_tokens = config.max_tokens().ok_or_else(|| {
+        let Config {
+            model,
+            max_tokens,
+            endpoint,
+            temperature,
+            top_p,
+            top_k,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences,
+            seed: _,
+            reasoning_effort,
+        } = config;
+
+        let max_tokens = max_tokens.ok_or_else(|| {
             AgentError::Config("max_tokens is required for Anthropic protocol".into())
         })?;
 
-        let mut msg_config = Self::new(config.model_static(), max_tokens);
+        let output_effort = reasoning_effort.map(|effort| match effort {
+            ReasoningEffort::None => OutputEffort::Low,
+            ReasoningEffort::Minimal => OutputEffort::Low,
+            ReasoningEffort::Low => OutputEffort::Low,
+            ReasoningEffort::Medium => OutputEffort::Medium,
+            ReasoningEffort::High => OutputEffort::High,
+            ReasoningEffort::Xhigh => OutputEffort::Xhigh,
+            ReasoningEffort::Max => OutputEffort::Max,
+        });
 
-        if let Some(ep) = config.endpoint_static() {
-            msg_config.set_endpoint(Some(ep));
-        }
-        if let Some(temp) = config.temperature() {
-            msg_config.set_temperature(Some(temp));
-        }
-        if let Some(top_p) = config.top_p() {
-            msg_config.set_top_p(Some(top_p));
-        }
-        if let Some(top_k) = config.top_k() {
-            msg_config.set_top_k(Some(top_k));
-        }
-        if let Some(stop) = config.stop_sequences() {
-            msg_config.set_stop_sequences(Some(stop.to_vec()));
-        }
-        if let Some(effort) = config.reasoning_effort() {
-            let output_effort = match effort {
-                ReasoningEffort::None => OutputEffort::Low,
-                ReasoningEffort::Minimal => OutputEffort::Low,
-                ReasoningEffort::Low => OutputEffort::Low,
-                ReasoningEffort::Medium => OutputEffort::Medium,
-                ReasoningEffort::High => OutputEffort::High,
-                ReasoningEffort::Xhigh => OutputEffort::Xhigh,
-                ReasoningEffort::Max => OutputEffort::Max,
-            };
-            msg_config.set_output_effort(Some(output_effort));
-        }
-
-        Ok(msg_config)
+        Ok(Self {
+            model,
+            max_tokens,
+            endpoint,
+            metadata: None,
+            container: None,
+            stop_sequences,
+            temperature,
+            tool_choice: None,
+            top_k,
+            top_p,
+            thinking_param: None,
+            output_effort,
+            output_format: None,
+            output_config: None,
+            service_tier: None,
+        })
     }
 }

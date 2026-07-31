@@ -519,17 +519,21 @@ impl TryFrom<Config> for ResponsesConfig {
     type Error = AgentError;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let mut resp_config = Self::new(config.model_static());
-        if let Some(ep) = config.endpoint_static() {
-            resp_config.set_endpoint(Some(ep));
-        }
-        if let Some(temp) = config.temperature() {
-            resp_config.set_temperature(Some(temp));
-        }
-        if let Some(top_p) = config.top_p() {
-            resp_config.set_top_p(Some(top_p));
-        }
-        if let Some(effort) = config.reasoning_effort() {
+        let Config {
+            model,
+            max_tokens,
+            endpoint,
+            temperature,
+            top_p,
+            top_k: _,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences: _,
+            seed: _,
+            reasoning_effort,
+        } = config;
+
+        let reasoning = reasoning_effort.map(|effort| {
             let reasoning_effort = match effort {
                 ConfigReasoningEffort::None => ReasoningEffort::None,
                 ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
@@ -539,16 +543,36 @@ impl TryFrom<Config> for ResponsesConfig {
                 ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
                 ConfigReasoningEffort::Max => ReasoningEffort::High,
             };
-            resp_config.set_reasoning(Some(ReasoningConf {
+            ReasoningConf {
                 effort: Some(reasoning_effort),
                 summary: None,
                 generate_summary: None,
-            }));
-        }
-        if let Some(max_tokens) = config.max_tokens() {
-            resp_config.set_max_output_tokens(Some(max_tokens));
-        }
+            }
+        });
 
-        Ok(resp_config)
+        Ok(Self {
+            model,
+            endpoint,
+            include: None,
+            parallel_tool_calls: None,
+            store: None,
+            instructions: None,
+            metadata: None,
+            top_logprobs: None,
+            temperature,
+            top_p,
+            user: None,
+            safety_identifier: None,
+            prompt_cache_key: None,
+            service_tier: None,
+            prompt_cache_retention: None,
+            max_output_tokens: max_tokens,
+            max_tool_calls: None,
+            previous_response_id: None,
+            stream_options: None,
+            conversation: None,
+            background: None,
+            reasoning,
+        })
     }
 }

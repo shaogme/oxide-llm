@@ -622,49 +622,67 @@ impl TryFrom<Config> for ChatCompletionsConfig {
     type Error = AgentError;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let mut cc_config = Self::new(config.model_static());
-        if let Some(ep) = config.endpoint_static() {
-            cc_config.set_endpoint(Some(ep));
-        }
-        if let Some(temp) = config.temperature() {
-            cc_config.set_temperature(Some(temp));
-        }
-        if let Some(top_p) = config.top_p() {
-            cc_config.set_top_p(Some(top_p));
-        }
-        if let Some(freq_pen) = config.frequency_penalty() {
-            cc_config.set_frequency_penalty(Some(freq_pen));
-        }
-        if let Some(pres_pen) = config.presence_penalty() {
-            cc_config.set_presence_penalty(Some(pres_pen));
-        }
-        if let Some(stop) = config.stop_sequences() {
-            let stop_val = if stop.len() == 1 {
+        let Config {
+            model,
+            max_tokens,
+            endpoint,
+            temperature,
+            top_p,
+            top_k: _,
+            frequency_penalty,
+            presence_penalty,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
+
+        let stop = stop_sequences.map(|stop| {
+            if stop.len() == 1 {
                 Stop::String(stop[0].clone())
             } else {
-                Stop::Array(stop.to_vec())
-            };
-            cc_config.set_stop(Some(stop_val));
-        }
-        if let Some(seed) = config.seed() {
-            cc_config.set_seed(Some(seed));
-        }
-        if let Some(effort) = config.reasoning_effort() {
-            let reasoning_effort = match effort {
-                ConfigReasoningEffort::None => ReasoningEffort::None,
-                ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
-                ConfigReasoningEffort::Low => ReasoningEffort::Low,
-                ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
-                ConfigReasoningEffort::High => ReasoningEffort::High,
-                ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
-                ConfigReasoningEffort::Max => ReasoningEffort::High,
-            };
-            cc_config.set_reasoning_effort(Some(reasoning_effort));
-        }
-        if let Some(max_tokens) = config.max_tokens() {
-            cc_config.set_max_tokens(Some(max_tokens));
-        }
+                Stop::Array(stop)
+            }
+        });
 
-        Ok(cc_config)
+        let reasoning_effort = reasoning_effort.map(|effort| match effort {
+            ConfigReasoningEffort::None => ReasoningEffort::None,
+            ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
+            ConfigReasoningEffort::Low => ReasoningEffort::Low,
+            ConfigReasoningEffort::Medium => ReasoningEffort::Medium,
+            ConfigReasoningEffort::High => ReasoningEffort::High,
+            ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
+            ConfigReasoningEffort::Max => ReasoningEffort::High,
+        });
+
+        Ok(Self {
+            model,
+            endpoint,
+            frequency_penalty,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            max_tokens,
+            max_completion_tokens: None,
+            n: None,
+            modalities: None,
+            prediction: None,
+            audio: None,
+            presence_penalty,
+            response_format: None,
+            seed,
+            service_tier: None,
+            stop,
+            store: None,
+            temperature,
+            top_p,
+            parallel_tool_calls: None,
+            user: None,
+            function_call: None,
+            functions: None,
+            web_search_options: None,
+            verbosity: None,
+            reasoning_effort,
+            metadata: None,
+        })
     }
 }

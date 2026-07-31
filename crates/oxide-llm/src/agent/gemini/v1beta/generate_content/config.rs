@@ -770,47 +770,66 @@ impl TryFrom<Config> for GenerateContentConfig {
     type Error = AgentError;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let mut gc_config = Self::new(config.model_static());
-        if let Some(ep) = config.endpoint_static() {
-            gc_config.set_endpoint(Some(ep));
-        }
-        if let Some(temp) = config.temperature() {
-            gc_config.set_temperature(Some(temp));
-        }
-        if let Some(top_p) = config.top_p() {
-            gc_config.set_top_p(Some(top_p));
-        }
-        if let Some(top_k) = config.top_k() {
-            gc_config.set_top_k(Some(top_k as i32));
-        }
-        if let Some(freq_pen) = config.frequency_penalty() {
-            gc_config.set_frequency_penalty(Some(freq_pen));
-        }
-        if let Some(pres_pen) = config.presence_penalty() {
-            gc_config.set_presence_penalty(Some(pres_pen));
-        }
-        if let Some(stop) = config.stop_sequences() {
-            gc_config.set_stop_sequences(Some(stop.to_vec()));
-        }
-        if let Some(seed) = config.seed() {
-            gc_config.set_seed(Some(seed as i32));
-        }
-        if let Some(effort) = config.reasoning_effort() {
-            let level = match effort {
-                ReasoningEffort::None => ThinkingLevel::Minimal,
-                ReasoningEffort::Minimal => ThinkingLevel::Minimal,
-                ReasoningEffort::Low => ThinkingLevel::Low,
-                ReasoningEffort::Medium => ThinkingLevel::Medium,
-                ReasoningEffort::High => ThinkingLevel::High,
-                ReasoningEffort::Xhigh => ThinkingLevel::High,
-                ReasoningEffort::Max => ThinkingLevel::High,
-            };
-            gc_config.set_thinking_level(Some(level));
-        }
-        if let Some(max_tokens) = config.max_tokens() {
-            gc_config.set_max_output_tokens(Some(max_tokens as i32));
-        }
+        let Config {
+            model,
+            max_tokens,
+            endpoint,
+            temperature,
+            top_p,
+            top_k,
+            frequency_penalty,
+            presence_penalty,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
 
-        Ok(gc_config)
+        let thinking_level = reasoning_effort.map(|effort| match effort {
+            ReasoningEffort::None => ThinkingLevel::Minimal,
+            ReasoningEffort::Minimal => ThinkingLevel::Minimal,
+            ReasoningEffort::Low => ThinkingLevel::Low,
+            ReasoningEffort::Medium => ThinkingLevel::Medium,
+            ReasoningEffort::High => ThinkingLevel::High,
+            ReasoningEffort::Xhigh => ThinkingLevel::High,
+            ReasoningEffort::Max => ThinkingLevel::High,
+        });
+
+        Ok(Self {
+            model,
+            endpoint,
+            safety_settings: None,
+            system_instruction: None,
+            tool_config: None,
+            cached_content: None,
+            service_tier: None,
+            store: None,
+
+            stop_sequences,
+            response_mime_type: None,
+            response_schema: None,
+            candidate_count: None,
+            max_output_tokens: max_tokens.map(|t| t as i32),
+            temperature,
+            top_p,
+            top_k: top_k.map(|k| k as i32),
+            seed: seed.map(|s| s as i32),
+            presence_penalty,
+            frequency_penalty,
+            response_logprobs: None,
+            logprobs: None,
+            speech_config: None,
+            thinking_config: None,
+            image_config: None,
+            media_resolution: None,
+            response_json_schema: None,
+            response_modalities: None,
+            enable_enhanced_civic_answers: None,
+            enable_affective_dialog: None,
+            response_format: None,
+            translation_config: None,
+            thinking_level,
+            thinking_summaries: None,
+            video_config: None,
+        })
     }
 }

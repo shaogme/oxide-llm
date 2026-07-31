@@ -103,8 +103,22 @@ mod tests {
     impl TryFrom<Config> for DummyConfig {
         type Error = AgentError;
         fn try_from(config: Config) -> Result<Self> {
+            let Config {
+                model,
+                max_tokens: _,
+                endpoint: _,
+                temperature: _,
+                top_p: _,
+                top_k: _,
+                frequency_penalty: _,
+                presence_penalty: _,
+                stop_sequences: _,
+                seed: _,
+                reasoning_effort: _,
+            } = config;
+
             Ok(Self {
-                model: config.model().to_string(),
+                model: model.to_string(),
                 temperature: None,
             })
         }

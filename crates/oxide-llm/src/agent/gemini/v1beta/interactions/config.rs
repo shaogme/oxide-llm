@@ -715,33 +715,57 @@ impl TryFrom<Config> for InteractionsConfig {
     type Error = AgentError;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let mut int_config = Self::new();
-        int_config.set_model(Some(config.model_static()));
-        if let Some(ep) = config.endpoint_static() {
-            int_config.set_endpoint(Some(ep));
-        }
-        if let Some(stop) = config.stop_sequences() {
-            int_config.set_stop_sequences(Some(stop.to_vec()));
-        }
-        if let Some(seed) = config.seed() {
-            int_config.set_seed(Some(seed as i32));
-        }
-        if let Some(effort) = config.reasoning_effort() {
-            let level = match effort {
-                ReasoningEffort::None => ThinkingLevel::Minimal,
-                ReasoningEffort::Minimal => ThinkingLevel::Minimal,
-                ReasoningEffort::Low => ThinkingLevel::Low,
-                ReasoningEffort::Medium => ThinkingLevel::Medium,
-                ReasoningEffort::High => ThinkingLevel::High,
-                ReasoningEffort::Xhigh => ThinkingLevel::High,
-                ReasoningEffort::Max => ThinkingLevel::High,
-            };
-            int_config.set_thinking_level(Some(level));
-        }
-        if let Some(max_tokens) = config.max_tokens() {
-            int_config.set_max_output_tokens(Some(max_tokens as i32));
-        }
+        let Config {
+            model,
+            max_tokens,
+            endpoint,
+            temperature: _,
+            top_p: _,
+            top_k: _,
+            frequency_penalty: _,
+            presence_penalty: _,
+            stop_sequences,
+            seed,
+            reasoning_effort,
+        } = config;
 
-        Ok(int_config)
+        let thinking_level = reasoning_effort.map(|effort| match effort {
+            ReasoningEffort::None => ThinkingLevel::Minimal,
+            ReasoningEffort::Minimal => ThinkingLevel::Minimal,
+            ReasoningEffort::Low => ThinkingLevel::Low,
+            ReasoningEffort::Medium => ThinkingLevel::Medium,
+            ReasoningEffort::High => ThinkingLevel::High,
+            ReasoningEffort::Xhigh => ThinkingLevel::High,
+            ReasoningEffort::Max => ThinkingLevel::High,
+        });
+
+        Ok(Self {
+            model: Some(model),
+            agent: None,
+            endpoint,
+            system_instruction: None,
+            response_format: None,
+            stream: None,
+            store: None,
+            background: None,
+
+            max_output_tokens: max_tokens.map(|t| t as i32),
+            seed: seed.map(|s| s as i32),
+            speech_config: None,
+            stop_sequences,
+            thinking_level,
+            thinking_summaries: None,
+            tool_choice: None,
+            transcription_config: None,
+            video_config: None,
+
+            agent_config: None,
+            environment: None,
+            labels: None,
+            previous_interaction_id: None,
+            safety_settings: None,
+            service_tier: None,
+            webhook_config: None,
+        })
     }
 }

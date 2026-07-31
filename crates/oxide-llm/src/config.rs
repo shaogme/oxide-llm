@@ -46,20 +46,20 @@ pub struct Config {
     /// Model name.
     ///
     /// 模型名称。
-    model: StaticRefStr,
+    pub(crate) model: StaticRefStr,
     /// Maximum tokens to generate (Required for Anthropic protocol).
     ///
     /// 最大 token 限制（Anthropic 协议必须）。
-    max_tokens: Option<u32>,
-    endpoint: Option<StaticRefStr>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    top_k: Option<u32>,
-    frequency_penalty: Option<f32>,
-    presence_penalty: Option<f32>,
-    stop_sequences: Option<Vec<StaticRefStr>>,
-    seed: Option<i64>,
-    reasoning_effort: Option<ReasoningEffort>,
+    pub(crate) max_tokens: Option<u32>,
+    pub(crate) endpoint: Option<StaticRefStr>,
+    pub(crate) temperature: Option<f32>,
+    pub(crate) top_p: Option<f32>,
+    pub(crate) top_k: Option<u32>,
+    pub(crate) frequency_penalty: Option<f32>,
+    pub(crate) presence_penalty: Option<f32>,
+    pub(crate) stop_sequences: Option<Vec<StaticRefStr>>,
+    pub(crate) seed: Option<i64>,
+    pub(crate) reasoning_effort: Option<ReasoningEffort>,
 }
 
 impl Config {
