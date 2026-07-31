@@ -1,16 +1,11 @@
 use oxide_llm_core::{
     message::ContentPart,
     tool::{
-        DynTool, Executor, ToolCall, ToolDefinition, ToolExecutionError, ToolRegistry,
-        ToolResult, ToolRunnable,
+        DynTool, Executor, ToolCall, ToolDefinition, ToolExecutionError, ToolRegistry, ToolResult,
+        ToolRunnable,
     },
 };
-use std::{
-    collections::HashMap,
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use tokio::{sync::Semaphore, task::JoinSet};
 
 /// A Tokio-based dynamic tool registry based on `HashMap`.
@@ -56,8 +51,8 @@ impl TokioToolRegistry {
 }
 
 impl ToolRegistry for TokioToolRegistry {
-    type ExecFuture
-        = Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>>;
+    type ExecFuture =
+        Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolExecutionError>> + Send>>;
 
     fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.definition()).collect()
@@ -113,11 +108,7 @@ impl<R: ToolRegistry> Executor<R> for TokioExecutor {
         Self: 'a,
         R: 'a;
 
-    fn execute<'a>(
-        &'a self,
-        registry: &'a R,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self::Future<'a> {
+    fn execute<'a>(&'a self, registry: &'a R, tool_calls: Vec<ToolCall>) -> Self::Future<'a> {
         let max_concurrency = self.max_concurrency;
         Box::pin(async move {
             let semaphore = max_concurrency.map(|c| Arc::new(Semaphore::new(c)));
@@ -216,7 +207,8 @@ mod tests {
 
     impl ToolRunnable for SlowTool {
         type Error = String;
-        type Future = Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolError<String>>> + Send>>;
+        type Future =
+            Pin<Box<dyn Future<Output = Result<Vec<ContentPart>, ToolError<String>>> + Send>>;
 
         fn definition(&self) -> ToolDefinition {
             ToolDefinition {

@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    config::{Config, ReasoningEffort},
     error::AgentError,
 };
 use oxide_llm_proto::gemini::v1beta::generate_content::{
@@ -12,64 +12,13 @@ use oxide_llm_proto::gemini::v1beta::generate_content::{
 };
 use ref_str::StaticRefStr;
 
-/// Configuration for Gemini Agent (Required).
+/// Configuration for Gemini Agent.
 ///
-/// Gemini 代理配置 (必须)。
+/// Gemini 代理配置。
 #[derive(Debug, Clone)]
-pub struct GenerateContentRequiredConfig {
+pub struct GenerateContentConfig {
     model: StaticRefStr,
-    endpoint: StaticRefStr,
-}
-
-impl GenerateContentRequiredConfig {
-    /// Create a new `GenerateContentRequiredConfig`.
-    pub fn new(model: impl Into<StaticRefStr>, endpoint: impl Into<StaticRefStr>) -> Self {
-        Self {
-            model: model.into(),
-            endpoint: endpoint.into(),
-        }
-    }
-
-    /// Get model name.
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
-    /// Set model name.
-    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Set model name (builder pattern).
-    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Get endpoint.
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
-
-    /// Set endpoint.
-    pub fn set_endpoint(&mut self, endpoint: impl Into<StaticRefStr>) -> &mut Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-
-    /// Set endpoint (builder pattern).
-    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-}
-
-/// Configuration for Gemini Agent (Optional).
-///
-/// Gemini 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct GenerateContentOptionalConfig {
+    endpoint: Option<StaticRefStr>,
     safety_settings: Option<Vec<SafetySetting>>,
     system_instruction: Option<Content>,
     tool_config: Option<ToolConfig>,
@@ -106,10 +55,85 @@ pub struct GenerateContentOptionalConfig {
     video_config: Option<VideoConfig>,
 }
 
-impl GenerateContentOptionalConfig {
-    /// Create a new `GenerateContentOptionalConfig`.
-    pub fn new() -> Self {
-        Self::default()
+impl GenerateContentConfig {
+    /// Create a new `GenerateContentConfig`.
+    pub fn new(model: impl Into<StaticRefStr>) -> Self {
+        Self {
+            model: model.into(),
+            endpoint: None,
+            safety_settings: None,
+            system_instruction: None,
+            tool_config: None,
+            cached_content: None,
+            service_tier: None,
+            store: None,
+
+            stop_sequences: None,
+            response_mime_type: None,
+            response_schema: None,
+            candidate_count: None,
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            seed: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            response_logprobs: None,
+            logprobs: None,
+            speech_config: None,
+            thinking_config: None,
+            image_config: None,
+            media_resolution: None,
+            response_json_schema: None,
+            response_modalities: None,
+            enable_enhanced_civic_answers: None,
+            enable_affective_dialog: None,
+            response_format: None,
+            translation_config: None,
+            thinking_level: None,
+            thinking_summaries: None,
+            video_config: None,
+        }
+    }
+
+    /// Get model name.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Set model name.
+    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Set model name (builder pattern).
+    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Get endpoint.
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Get endpoint as `StaticRefStr`.
+    pub fn endpoint_static(&self) -> Option<StaticRefStr> {
+        self.endpoint.clone()
+    }
+
+    /// Set endpoint.
+    pub fn set_endpoint(&mut self, endpoint: Option<impl Into<StaticRefStr>>) -> &mut Self {
+        self.endpoint = endpoint.map(Into::into);
+        self
+    }
+
+    /// Set endpoint (builder pattern).
+    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
     }
 
     /// Get safety settings.
@@ -688,51 +712,6 @@ impl GenerateContentOptionalConfig {
         self.video_config = Some(video_config);
         self
     }
-}
-
-/// Configuration for Gemini Agent.
-///
-/// Gemini 代理配置。
-#[derive(Debug, Clone)]
-pub struct GenerateContentConfig {
-    required: GenerateContentRequiredConfig,
-    optional: GenerateContentOptionalConfig,
-}
-
-impl GenerateContentConfig {
-    /// Create a new `GenerateContentConfig`.
-    pub fn new(required: GenerateContentRequiredConfig) -> Self {
-        Self {
-            required,
-            optional: GenerateContentOptionalConfig::default(),
-        }
-    }
-
-    /// Get reference to required configuration.
-    pub fn required(&self) -> &GenerateContentRequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    pub fn required_mut(&mut self) -> &mut GenerateContentRequiredConfig {
-        &mut self.required
-    }
-
-    /// Get reference to optional configuration.
-    pub fn optional(&self) -> &GenerateContentOptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    pub fn optional_mut(&mut self) -> &mut GenerateContentOptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    pub fn with_optional(mut self, optional: GenerateContentOptionalConfig) -> Self {
-        self.optional = optional;
-        self
-    }
 
     /// Convert Config to GenerateContentRequest with provided contents.
     ///
@@ -745,114 +724,78 @@ impl GenerateContentConfig {
         tool_config_override: Option<ToolConfig>,
     ) -> GenerateContentRequest {
         let generation_config = Some(GenerationConfig {
-            stop_sequences: self.optional.stop_sequences,
-            response_mime_type: self.optional.response_mime_type,
-            response_schema: self.optional.response_schema,
-            candidate_count: self.optional.candidate_count,
-            max_output_tokens: self.optional.max_output_tokens,
-            temperature: self.optional.temperature,
-            top_p: self.optional.top_p,
-            top_k: self.optional.top_k,
-            seed: self.optional.seed,
-            presence_penalty: self.optional.presence_penalty,
-            frequency_penalty: self.optional.frequency_penalty,
-            response_logprobs: self.optional.response_logprobs,
-            logprobs: self.optional.logprobs,
-            speech_config: self.optional.speech_config,
-            thinking_config: self.optional.thinking_config,
-            image_config: self.optional.image_config,
-            media_resolution: self.optional.media_resolution,
-            response_json_schema: self.optional.response_json_schema,
-            response_modalities: self.optional.response_modalities,
-            enable_enhanced_civic_answers: self.optional.enable_enhanced_civic_answers,
-            enable_affective_dialog: self.optional.enable_affective_dialog,
-            response_format: self.optional.response_format,
-            translation_config: self.optional.translation_config,
-            thinking_level: self.optional.thinking_level,
-            thinking_summaries: self.optional.thinking_summaries,
-            video_config: self.optional.video_config,
+            stop_sequences: self.stop_sequences,
+            response_mime_type: self.response_mime_type,
+            response_schema: self.response_schema,
+            candidate_count: self.candidate_count,
+            max_output_tokens: self.max_output_tokens,
+            temperature: self.temperature,
+            top_p: self.top_p,
+            top_k: self.top_k,
+            seed: self.seed,
+            presence_penalty: self.presence_penalty,
+            frequency_penalty: self.frequency_penalty,
+            response_logprobs: self.response_logprobs,
+            logprobs: self.logprobs,
+            speech_config: self.speech_config,
+            thinking_config: self.thinking_config,
+            image_config: self.image_config,
+            media_resolution: self.media_resolution,
+            response_json_schema: self.response_json_schema,
+            response_modalities: self.response_modalities,
+            enable_enhanced_civic_answers: self.enable_enhanced_civic_answers,
+            enable_affective_dialog: self.enable_affective_dialog,
+            response_format: self.response_format,
+            translation_config: self.translation_config,
+            thinking_level: self.thinking_level,
+            thinking_summaries: self.thinking_summaries,
+            video_config: self.video_config,
         });
 
         GenerateContentRequest {
             contents,
             tools,
-            tool_config: tool_config_override.or(self.optional.tool_config),
-            safety_settings: self.optional.safety_settings,
-            system_instruction: system_instruction_override.or(self.optional.system_instruction),
+            tool_config: tool_config_override.or(self.tool_config),
+            safety_settings: self.safety_settings,
+            system_instruction: system_instruction_override.or(self.system_instruction),
             generation_config,
-            cached_content: self.optional.cached_content,
-            service_tier: self.optional.service_tier,
-            store: self.optional.store,
+            cached_content: self.cached_content,
+            service_tier: self.service_tier,
+            store: self.store,
         }
     }
 }
 
-impl crate::agent::builder::AgentConfigTrait for GenerateContentConfig {
-    type Required = GenerateContentRequiredConfig;
-    type Optional = GenerateContentOptionalConfig;
-
-    fn from_required(required: Self::Required) -> Self {
-        Self::new(required)
-    }
-
-    fn with_optional(self, optional: Self::Optional) -> Self {
-        self.with_optional(optional)
-    }
-}
-
-impl TryFrom<RequiredConfig> for GenerateContentRequiredConfig {
+impl TryFrom<Config> for GenerateContentConfig {
     type Error = AgentError;
 
-    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
-        let model = config
-            .model_static()
-            .ok_or_else(|| AgentError::Config("model is required".into()))?;
-        let endpoint = config
-            .endpoint_static()
-            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
-
-        Ok(Self::new(model, endpoint))
-    }
-}
-
-impl TryFrom<OptionalConfig> for GenerateContentOptionalConfig {
-    type Error = AgentError;
-
-    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
-        let OptionalConfig {
-            temperature,
-            top_p,
-            top_k,
-            frequency_penalty,
-            presence_penalty,
-            stop_sequences,
-            seed,
-            reasoning_effort,
-        } = config;
-
-        let mut optional = Self::new();
-        if let Some(temp) = temperature {
-            optional.set_temperature(Some(temp));
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let mut gc_config = Self::new(config.model_static());
+        if let Some(ep) = config.endpoint_static() {
+            gc_config.set_endpoint(Some(ep));
         }
-        if let Some(top_p) = top_p {
-            optional.set_top_p(Some(top_p));
+        if let Some(temp) = config.temperature() {
+            gc_config.set_temperature(Some(temp));
         }
-        if let Some(top_k) = top_k {
-            optional.set_top_k(Some(top_k as i32));
+        if let Some(top_p) = config.top_p() {
+            gc_config.set_top_p(Some(top_p));
         }
-        if let Some(freq_pen) = frequency_penalty {
-            optional.set_frequency_penalty(Some(freq_pen));
+        if let Some(top_k) = config.top_k() {
+            gc_config.set_top_k(Some(top_k as i32));
         }
-        if let Some(pres_pen) = presence_penalty {
-            optional.set_presence_penalty(Some(pres_pen));
+        if let Some(freq_pen) = config.frequency_penalty() {
+            gc_config.set_frequency_penalty(Some(freq_pen));
         }
-        if let Some(stop) = stop_sequences {
-            optional.set_stop_sequences(Some(stop));
+        if let Some(pres_pen) = config.presence_penalty() {
+            gc_config.set_presence_penalty(Some(pres_pen));
         }
-        if let Some(seed) = seed {
-            optional.set_seed(Some(seed as i32));
+        if let Some(stop) = config.stop_sequences() {
+            gc_config.set_stop_sequences(Some(stop.to_vec()));
         }
-        if let Some(effort) = reasoning_effort {
+        if let Some(seed) = config.seed() {
+            gc_config.set_seed(Some(seed as i32));
+        }
+        if let Some(effort) = config.reasoning_effort() {
             let level = match effort {
                 ReasoningEffort::None => ThinkingLevel::Minimal,
                 ReasoningEffort::Minimal => ThinkingLevel::Minimal,
@@ -862,25 +805,12 @@ impl TryFrom<OptionalConfig> for GenerateContentOptionalConfig {
                 ReasoningEffort::Xhigh => ThinkingLevel::High,
                 ReasoningEffort::Max => ThinkingLevel::High,
             };
-            optional.set_thinking_level(Some(level));
+            gc_config.set_thinking_level(Some(level));
         }
-        Ok(optional)
-    }
-}
-
-impl TryFrom<Config> for GenerateContentConfig {
-    type Error = AgentError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let (required, optional) = (config.required().clone(), config.optional().clone());
-        let required = GenerateContentRequiredConfig::try_from(required)?;
-        let optional = GenerateContentOptionalConfig::try_from(optional)?;
-        if let Some(max_tokens) = config.required().max_tokens() {
-            let mut optional = optional;
-            optional.set_max_output_tokens(Some(max_tokens as i32));
-            Ok(Self::new(required).with_optional(optional))
-        } else {
-            Ok(Self::new(required).with_optional(optional))
+        if let Some(max_tokens) = config.max_tokens() {
+            gc_config.set_max_output_tokens(Some(max_tokens as i32));
         }
+
+        Ok(gc_config)
     }
 }

@@ -26,11 +26,7 @@ pub trait Executor<R: ToolRegistry>: Send + Sync + 'static {
     /// Executes tool calls using the provided tool registry.
     ///
     /// 使用提供的工具注册表执行工具调用。
-    fn execute<'a>(
-        &'a self,
-        registry: &'a R,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self::Future<'a>;
+    fn execute<'a>(&'a self, registry: &'a R, tool_calls: Vec<ToolCall>) -> Self::Future<'a>;
 }
 
 /// Default sequential tool executor.
@@ -47,11 +43,7 @@ pub type SequentialExecutor = DefaultExecutor;
 impl<R: ToolRegistry> Executor<R> for DefaultExecutor {
     type Future<'a> = ExecuteToolsFuture<'a, R>;
 
-    fn execute<'a>(
-        &'a self,
-        registry: &'a R,
-        tool_calls: Vec<ToolCall>,
-    ) -> Self::Future<'a> {
+    fn execute<'a>(&'a self, registry: &'a R, tool_calls: Vec<ToolCall>) -> Self::Future<'a> {
         ExecuteToolsFuture::new(registry, tool_calls)
     }
 }

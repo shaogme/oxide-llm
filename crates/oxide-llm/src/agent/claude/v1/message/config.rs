@@ -1,5 +1,5 @@
 use crate::{
-    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    config::{Config, ReasoningEffort},
     error::AgentError,
 };
 use oxide_llm_proto::claude::v1::messages::{
@@ -8,29 +8,49 @@ use oxide_llm_proto::claude::v1::messages::{
 };
 use ref_str::StaticRefStr;
 
-/// Configuration for Claude Messages Agent (Required).
+/// Configuration for Claude Messages Agent.
 ///
-/// Claude Messages 代理配置 (必须)。
+/// Claude Messages 代理配置。
 #[derive(Debug, Clone)]
-pub struct MessagesRequiredConfig {
+pub struct MessagesConfig {
     model: StaticRefStr,
     max_tokens: u32,
-    endpoint: StaticRefStr,
+    endpoint: Option<StaticRefStr>,
+    metadata: Option<Metadata>,
+    container: Option<Container>,
+    stop_sequences: Option<Vec<StaticRefStr>>,
+    temperature: Option<f32>,
+    tool_choice: Option<ToolChoice>,
+    top_k: Option<u32>,
+    top_p: Option<f32>,
+    thinking_param: Option<ThinkingConfigParam>,
+    output_effort: Option<OutputEffort>,
+    output_format: Option<OutputFormat>,
+    output_config: Option<OutputConfig>,
+    service_tier: Option<StaticRefStr>,
 }
 
-impl MessagesRequiredConfig {
-    /// Create a new `MessagesRequiredConfig`.
+impl MessagesConfig {
+    /// Create a new `MessagesConfig`.
     ///
-    /// 创建新的 `MessagesRequiredConfig`。
-    pub fn new(
-        model: impl Into<StaticRefStr>,
-        max_tokens: u32,
-        endpoint: impl Into<StaticRefStr>,
-    ) -> Self {
+    /// 创建新的 `MessagesConfig`。
+    pub fn new(model: impl Into<StaticRefStr>, max_tokens: u32) -> Self {
         Self {
             model: model.into(),
             max_tokens,
-            endpoint: endpoint.into(),
+            endpoint: None,
+            metadata: None,
+            container: None,
+            stop_sequences: None,
+            temperature: None,
+            tool_choice: None,
+            top_k: None,
+            top_p: None,
+            thinking_param: None,
+            output_effort: None,
+            output_format: None,
+            output_config: None,
+            service_tier: None,
         }
     }
 
@@ -83,15 +103,22 @@ impl MessagesRequiredConfig {
     /// Get endpoint.
     ///
     /// 获取 API Endpoint。
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Get endpoint as `StaticRefStr`.
+    ///
+    /// 获取 `StaticRefStr` 类型的 API Endpoint。
+    pub fn endpoint_static(&self) -> Option<StaticRefStr> {
+        self.endpoint.clone()
     }
 
     /// Set endpoint.
     ///
     /// 设置 API Endpoint。
-    pub fn set_endpoint(&mut self, endpoint: impl Into<StaticRefStr>) -> &mut Self {
-        self.endpoint = endpoint.into();
+    pub fn set_endpoint(&mut self, endpoint: Option<impl Into<StaticRefStr>>) -> &mut Self {
+        self.endpoint = endpoint.map(Into::into);
         self
     }
 
@@ -99,36 +126,8 @@ impl MessagesRequiredConfig {
     ///
     /// 设置 API Endpoint（构建器模式）。
     pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
-        self.endpoint = endpoint.into();
+        self.endpoint = Some(endpoint.into());
         self
-    }
-}
-
-/// Configuration for Claude Messages Agent (Optional).
-///
-/// Claude Messages 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct MessagesOptionalConfig {
-    metadata: Option<Metadata>,
-    container: Option<Container>,
-    stop_sequences: Option<Vec<StaticRefStr>>,
-    temperature: Option<f32>,
-    tool_choice: Option<ToolChoice>,
-    top_k: Option<u32>,
-    top_p: Option<f32>,
-    thinking_param: Option<ThinkingConfigParam>,
-    output_effort: Option<OutputEffort>,
-    output_format: Option<OutputFormat>,
-    output_config: Option<OutputConfig>,
-    service_tier: Option<StaticRefStr>,
-}
-
-impl MessagesOptionalConfig {
-    /// Create a new `MessagesOptionalConfig`.
-    ///
-    /// 创建新的 `MessagesOptionalConfig`。
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Get metadata.
@@ -406,63 +405,6 @@ impl MessagesOptionalConfig {
         self.service_tier = Some(service_tier.into());
         self
     }
-}
-
-/// Configuration for Claude Messages Agent.
-///
-/// Claude Messages 代理配置。
-#[derive(Debug, Clone)]
-pub struct MessagesConfig {
-    required: MessagesRequiredConfig,
-    optional: MessagesOptionalConfig,
-}
-
-impl MessagesConfig {
-    /// Create a new `MessagesConfig`.
-    ///
-    /// 创建新的 `MessagesConfig`。
-    pub fn new(required: MessagesRequiredConfig) -> Self {
-        Self {
-            required,
-            optional: MessagesOptionalConfig::default(),
-        }
-    }
-
-    /// Get reference to required configuration.
-    ///
-    /// 获取必要配置的引用。
-    pub fn required(&self) -> &MessagesRequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    ///
-    /// 获取必要配置的可变引用。
-    pub fn required_mut(&mut self) -> &mut MessagesRequiredConfig {
-        &mut self.required
-    }
-
-    /// Get reference to optional configuration.
-    ///
-    /// 获取选填配置的引用。
-    pub fn optional(&self) -> &MessagesOptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    ///
-    /// 获取选填配置的可变引用。
-    pub fn optional_mut(&mut self) -> &mut MessagesOptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    ///
-    /// 设置选填配置（构建器模式）。
-    pub fn with_optional(mut self, optional: MessagesOptionalConfig) -> Self {
-        self.optional = optional;
-        self
-    }
 
     /// Convert Config to MessagesRequest with provided messages.
     ///
@@ -475,97 +417,62 @@ impl MessagesConfig {
         tool_choice: Option<ToolChoice>,
         stream: bool,
     ) -> MessagesRequest {
-        let output_config =
-            if self.optional.output_effort.is_some() || self.optional.output_format.is_some() {
-                Some(OutputConfig {
-                    effort: self.optional.output_effort,
-                    format: self.optional.output_format,
-                })
-            } else {
-                self.optional.output_config
-            };
+        let output_config = if self.output_effort.is_some() || self.output_format.is_some() {
+            Some(OutputConfig {
+                effort: self.output_effort,
+                format: self.output_format,
+            })
+        } else {
+            self.output_config
+        };
 
         MessagesRequest {
-            model: self.required.model,
+            model: self.model,
             messages,
-            max_tokens: Some(self.required.max_tokens),
+            max_tokens: Some(self.max_tokens),
             system,
-            metadata: self.optional.metadata,
-            container: self.optional.container,
-            stop_sequences: self.optional.stop_sequences,
+            metadata: self.metadata,
+            container: self.container,
+            stop_sequences: self.stop_sequences,
             stream: Some(stream),
-            temperature: self.optional.temperature,
+            temperature: self.temperature,
             tool_choice,
             tools,
-            top_k: self.optional.top_k,
-            top_p: self.optional.top_p,
-            thinking: self.optional.thinking_param,
+            top_k: self.top_k,
+            top_p: self.top_p,
+            thinking: self.thinking_param,
             output_config,
-            service_tier: self.optional.service_tier,
+            service_tier: self.service_tier,
         }
     }
 }
 
-impl TryFrom<RequiredConfig> for MessagesRequiredConfig {
+impl TryFrom<Config> for MessagesConfig {
     type Error = AgentError;
 
-    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
-        let model = config
-            .model_static()
-            .ok_or_else(|| AgentError::Config("model is required".into()))?;
-        let max_tokens = config
-            .max_tokens()
-            .ok_or_else(|| AgentError::Config("max_tokens is required".into()))?;
-        let endpoint = config
-            .endpoint_static()
-            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let max_tokens = config.max_tokens().ok_or_else(|| {
+            AgentError::Config("max_tokens is required for Anthropic protocol".into())
+        })?;
 
-        Ok(Self::new(model, max_tokens, endpoint))
-    }
-}
+        let mut msg_config = Self::new(config.model_static(), max_tokens);
 
-impl crate::agent::builder::AgentConfigTrait for MessagesConfig {
-    type Required = MessagesRequiredConfig;
-    type Optional = MessagesOptionalConfig;
-
-    fn from_required(required: Self::Required) -> Self {
-        Self::new(required)
-    }
-
-    fn with_optional(self, optional: Self::Optional) -> Self {
-        self.with_optional(optional)
-    }
-}
-
-impl TryFrom<OptionalConfig> for MessagesOptionalConfig {
-    type Error = AgentError;
-
-    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
-        let OptionalConfig {
-            temperature,
-            top_p,
-            top_k,
-            frequency_penalty: _,
-            presence_penalty: _,
-            stop_sequences,
-            seed: _,
-            reasoning_effort,
-        } = config;
-
-        let mut optional = Self::new();
-        if let Some(temp) = temperature {
-            optional.set_temperature(Some(temp));
+        if let Some(ep) = config.endpoint_static() {
+            msg_config.set_endpoint(Some(ep));
         }
-        if let Some(top_p) = top_p {
-            optional.set_top_p(Some(top_p));
+        if let Some(temp) = config.temperature() {
+            msg_config.set_temperature(Some(temp));
         }
-        if let Some(top_k) = top_k {
-            optional.set_top_k(Some(top_k));
+        if let Some(top_p) = config.top_p() {
+            msg_config.set_top_p(Some(top_p));
         }
-        if let Some(stop) = stop_sequences {
-            optional.set_stop_sequences(Some(stop));
+        if let Some(top_k) = config.top_k() {
+            msg_config.set_top_k(Some(top_k));
         }
-        if let Some(effort) = reasoning_effort {
+        if let Some(stop) = config.stop_sequences() {
+            msg_config.set_stop_sequences(Some(stop.to_vec()));
+        }
+        if let Some(effort) = config.reasoning_effort() {
             let output_effort = match effort {
                 ReasoningEffort::None => OutputEffort::Low,
                 ReasoningEffort::Minimal => OutputEffort::Low,
@@ -575,19 +482,9 @@ impl TryFrom<OptionalConfig> for MessagesOptionalConfig {
                 ReasoningEffort::Xhigh => OutputEffort::Xhigh,
                 ReasoningEffort::Max => OutputEffort::Max,
             };
-            optional.set_output_effort(Some(output_effort));
+            msg_config.set_output_effort(Some(output_effort));
         }
-        Ok(optional)
-    }
-}
 
-impl TryFrom<Config> for MessagesConfig {
-    type Error = AgentError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let (required, optional) = (config.required().clone(), config.optional().clone());
-        let required = MessagesRequiredConfig::try_from(required)?;
-        let optional = MessagesOptionalConfig::try_from(optional)?;
-        Ok(Self::new(required).with_optional(optional))
+        Ok(msg_config)
     }
 }

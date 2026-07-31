@@ -14,9 +14,7 @@ use crate::error::{AgentError, Result};
 
 pub mod config;
 
-pub use config::{
-    GenerateContentConfig, GenerateContentOptionalConfig, GenerateContentRequiredConfig,
-};
+pub use config::GenerateContentConfig;
 
 /// Gemini Agent.
 ///
@@ -96,6 +94,23 @@ impl<T: Transport> GenerateContentAgent<T> {
             .config
             .clone()
             .to_request(messages, system_instruction, gemini_tools, tool_choice))
+    }
+
+    fn base_endpoint(&self) -> String {
+        match self.config.endpoint() {
+            Some(ep) => {
+                if let Some(base) = ep.strip_suffix(":generateContent") {
+                    base.to_string()
+                } else if let Some(base) = ep.strip_suffix(":streamGenerateContent") {
+                    base.to_string()
+                } else if let Some(base) = ep.strip_suffix(":streamGenerateContent?alt=sse") {
+                    base.to_string()
+                } else {
+                    ep.to_string()
+                }
+            }
+            None => format!("models/{}", self.config.model()),
+        }
     }
 }
 
@@ -198,7 +213,7 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
     async fn chat_raw(&self, state: Self::RawConversationState) -> Result<GenerateContentResponse> {
         let request = self.build_request(state)?;
 
-        let endpoint = format!("{}:generateContent", self.config.required().endpoint());
+        let endpoint = format!("{}:generateContent", self.base_endpoint());
         let transport_req = TransportRequest::new(Method::Post, endpoint, request);
         let response: GenerateContentResponse = self
             .transport
@@ -220,11 +235,8 @@ impl<T: Transport> ChatAgent for GenerateContentAgent<T> {
         let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state);
         let fut = request_res.map(|request| {
-            let endpoint = format!(
-                "{}:streamGenerateContent?alt=sse",
-                self.config.required().endpoint()
-            );
-            let transport_req = TransportRequest::new(Method::Post, endpoint.clone(), request);
+            let endpoint = format!("{}:streamGenerateContent?alt=sse", self.base_endpoint());
+            let transport_req = TransportRequest::new(Method::Post, endpoint, request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamRawFuture::with_hook(

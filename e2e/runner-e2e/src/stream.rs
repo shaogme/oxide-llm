@@ -8,14 +8,14 @@ mod tests {
     use oxide_llm::{
         Runner, TransportBuilder,
         agent::{
-            claude::v1::message::{MessagesAgent, MessagesRequiredConfig},
+            claude::v1::message::{MessagesAgent, MessagesConfig},
             gemini::v1beta::{
-                generate_content::{GenerateContentAgent, GenerateContentRequiredConfig},
-                interactions::{InteractionsAgent, InteractionsRequiredConfig},
+                generate_content::{GenerateContentAgent, GenerateContentConfig},
+                interactions::{InteractionsAgent, InteractionsConfig},
             },
             openai::v1::{
-                chat_completions::{ChatCompletionsAgent, ChatCompletionsRequiredConfig},
-                responses::{ResponsesAgent, ResponsesConfig, ResponsesRequiredConfig},
+                chat_completions::{ChatCompletionsAgent, ChatCompletionsConfig},
+                responses::{ResponsesAgent, ResponsesConfig},
             },
         },
         core::{
@@ -37,9 +37,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent_config =
+            ChatCompletionsConfig::new("gpt-4o").with_endpoint("/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -73,9 +74,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
+        let agent_config = ResponsesConfig::new("gpt-4o").with_endpoint("/v1/responses");
         let agent = ResponsesAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -109,9 +110,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let required = ResponsesRequiredConfig::new("gpt-4o", "/v1/responses");
-        let mut agent_config = ResponsesConfig::new(required.clone());
-        agent_config.optional_mut().set_store(Some(true));
+        let mut agent_config = ResponsesConfig::new("gpt-4o");
+        agent_config.set_endpoint(Some("/v1/responses"));
+        agent_config.set_store(Some(true));
         let agent = ResponsesAgent::builder(transport.clone())
             .with_raw_config(agent_config)
             .build()
@@ -158,9 +159,7 @@ mod tests {
 
         // Step 2: Discard first-round messages and set previous_response_id for next turn
         let mut updated_config = agent.config().clone();
-        updated_config
-            .optional_mut()
-            .set_previous_response_id(Some(previous_response_id));
+        updated_config.set_previous_response_id(Some(previous_response_id));
         let agent_step2 = ResponsesAgent::builder(transport)
             .with_raw_config(updated_config)
             .build()
@@ -193,9 +192,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent_config =
+            ChatCompletionsConfig::new("gpt-4o").with_endpoint("/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -234,9 +234,9 @@ mod tests {
             .unwrap();
 
         let agent_config =
-            MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
+            MessagesConfig::new("claude-3-5-sonnet-20240620", 1024).with_endpoint("/v1/messages");
         let agent = MessagesAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -268,9 +268,9 @@ mod tests {
             .unwrap();
 
         let agent_config =
-            MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
+            MessagesConfig::new("claude-3-5-sonnet-20240620", 1024).with_endpoint("/v1/messages");
         let agent = MessagesAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -308,10 +308,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config =
-            GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
+        let agent_config = GenerateContentConfig::new("gemini-1.5-pro")
+            .with_endpoint("/v1beta/models/gemini-1.5-pro");
         let agent = GenerateContentAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -342,10 +342,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config =
-            GenerateContentRequiredConfig::new("gemini-1.5-pro", "/v1beta/models/gemini-1.5-pro");
+        let agent_config = GenerateContentConfig::new("gemini-1.5-pro")
+            .with_endpoint("/v1beta/models/gemini-1.5-pro");
         let agent = GenerateContentAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -383,10 +383,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config =
-            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
+        let agent_config = InteractionsConfig::new()
+            .with_model("gemini-3.6-flash")
+            .with_endpoint("/v1beta/interactions");
         let agent = InteractionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -417,10 +418,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config =
-            InteractionsRequiredConfig::new("/v1beta/interactions").with_model("gemini-3.6-flash");
+        let agent_config = InteractionsConfig::new()
+            .with_model("gemini-3.6-flash")
+            .with_endpoint("/v1beta/interactions");
         let agent = InteractionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -470,9 +472,10 @@ mod tests {
             .unwrap();
         let transport = AnyTransport::new(concrete);
 
-        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent_config =
+            ChatCompletionsConfig::new("gpt-4o").with_endpoint("/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -515,9 +518,10 @@ mod tests {
         let transport = AnyTransport::new(concrete);
         let transport_clone = transport.clone();
 
-        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent_config =
+            ChatCompletionsConfig::new("gpt-4o").with_endpoint("/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport_clone)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 
@@ -558,9 +562,9 @@ mod tests {
         let transport = AnyTransport::new(concrete);
 
         let agent_config =
-            MessagesRequiredConfig::new("claude-3-5-sonnet-20240620", 1024, "/v1/messages");
+            MessagesConfig::new("claude-3-5-sonnet-20240620", 1024).with_endpoint("/v1/messages");
         let agent = MessagesAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 

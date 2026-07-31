@@ -16,7 +16,7 @@ use crate::{
 
 pub mod config;
 
-pub use config::{InteractionsConfig, InteractionsOptionalConfig, InteractionsRequiredConfig};
+pub use config::InteractionsConfig;
 
 /// Gemini Interactions Agent.
 ///
@@ -186,7 +186,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
     ) -> Result<Vec<InteractionSseEvent>> {
         let request = self.build_request(state, Some(true))?;
 
-        let endpoint = self.config.required().endpoint().to_string();
+        let endpoint = self.config.endpoint().unwrap_or("interactions").to_string();
         let transport_req = TransportRequest::new(Method::Post, endpoint, request);
         let stream = self
             .transport
@@ -194,10 +194,10 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
             .await
             .map_err(AgentError::Transport)?;
 
+        use futures::StreamExt;
         let mut message_stream =
             crate::stream::MessageStream::new(stream, RawInteractionsProcessor::new());
 
-        use futures::StreamExt;
         let mut events = Vec::new();
         while let Some(item) = message_stream.next().await {
             let event = item?;
@@ -218,7 +218,7 @@ impl<T: Transport> ChatAgent for InteractionsAgent<T> {
         let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, Some(true));
         let fut = request_res.map(|request| {
-            let endpoint = self.config.required().endpoint().to_string();
+            let endpoint = self.config.endpoint().unwrap_or("interactions").to_string();
             let transport_req = TransportRequest::new(Method::Post, endpoint, request);
             self.transport.stream(transport_req)
         });
@@ -300,12 +300,8 @@ mod tests {
 
     #[test]
     fn test_interactions_config_build_request() {
-        let required = InteractionsRequiredConfig::new(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-        )
-        .with_model("gemini-3.6-flash");
-
-        let config = InteractionsConfig::new(required);
+        let mut config = InteractionsConfig::new();
+        config.set_model(Some("gemini-3.6-flash"));
 
         let mut state = ConversationState::new();
         state.set_system_prompt("System prompt test");

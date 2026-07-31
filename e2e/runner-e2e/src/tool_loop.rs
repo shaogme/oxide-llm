@@ -6,9 +6,7 @@ mod tests {
     use crate::{MockServerGuard, WeatherTool};
     use oxide_llm::{
         Runner, TransportBuilder,
-        agent::openai::v1::chat_completions::{
-            ChatCompletionsAgent, ChatCompletionsRequiredConfig,
-        },
+        agent::openai::v1::chat_completions::{ChatCompletionsAgent, ChatCompletionsConfig},
         core::{
             message::{ContentPart, Message},
             state::ConversationState,
@@ -27,9 +25,10 @@ mod tests {
             .build()
             .unwrap();
 
-        let agent_config = ChatCompletionsRequiredConfig::new("gpt-4o", "/v1/chat/completions");
+        let agent_config =
+            ChatCompletionsConfig::new("gpt-4o").with_endpoint("/v1/chat/completions");
         let agent = ChatCompletionsAgent::builder(transport)
-            .with_required_config(agent_config)
+            .with_raw_config(agent_config)
             .build()
             .unwrap();
 

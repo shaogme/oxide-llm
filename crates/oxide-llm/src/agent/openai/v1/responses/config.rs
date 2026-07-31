@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, OptionalConfig, ReasoningEffort as ConfigReasoningEffort, RequiredConfig},
+    config::{Config, ReasoningEffort as ConfigReasoningEffort},
     error::AgentError,
 };
 use oxide_llm_proto::openai::v1::response::{
@@ -11,64 +11,13 @@ use oxide_llm_proto::openai::v1::response::{
 };
 use ref_str::StaticRefStr;
 
-/// Configuration for OpenAI Responses Agent (Required).
+/// Configuration for OpenAI Responses Agent.
 ///
-/// OpenAI Response 代理配置 (必须)。
+/// OpenAI Response 代理配置。
 #[derive(Debug, Clone)]
-pub struct ResponsesRequiredConfig {
+pub struct ResponsesConfig {
     model: StaticRefStr,
-    endpoint: StaticRefStr,
-}
-
-impl ResponsesRequiredConfig {
-    /// Create a new `ResponsesRequiredConfig`.
-    pub fn new(model: impl Into<StaticRefStr>, endpoint: impl Into<StaticRefStr>) -> Self {
-        Self {
-            model: model.into(),
-            endpoint: endpoint.into(),
-        }
-    }
-
-    /// Get model name.
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
-    /// Set model name.
-    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Set model name (builder pattern).
-    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Get endpoint.
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
-
-    /// Set endpoint.
-    pub fn set_endpoint(&mut self, endpoint: impl Into<StaticRefStr>) -> &mut Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-
-    /// Set endpoint (builder pattern).
-    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-}
-
-/// Configuration for OpenAI Responses Agent (Optional).
-///
-/// OpenAI Response 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct ResponsesOptionalConfig {
+    endpoint: Option<StaticRefStr>,
     include: Option<Vec<StaticRefStr>>,
     parallel_tool_calls: Option<bool>,
     store: Option<bool>,
@@ -91,10 +40,72 @@ pub struct ResponsesOptionalConfig {
     reasoning: Option<ReasoningConf>,
 }
 
-impl ResponsesOptionalConfig {
-    /// Create a new `ResponsesOptionalConfig`.
-    pub fn new() -> Self {
-        Self::default()
+impl ResponsesConfig {
+    /// Create a new `ResponsesConfig`.
+    pub fn new(model: impl Into<StaticRefStr>) -> Self {
+        Self {
+            model: model.into(),
+            endpoint: None,
+            include: None,
+            parallel_tool_calls: None,
+            store: None,
+            instructions: None,
+            metadata: None,
+            top_logprobs: None,
+            temperature: None,
+            top_p: None,
+            user: None,
+            safety_identifier: None,
+            prompt_cache_key: None,
+            service_tier: None,
+            prompt_cache_retention: None,
+            max_output_tokens: None,
+            max_tool_calls: None,
+            previous_response_id: None,
+            stream_options: None,
+            conversation: None,
+            background: None,
+            reasoning: None,
+        }
+    }
+
+    /// Get model name.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Set model name.
+    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Set model name (builder pattern).
+    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Get endpoint.
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Get endpoint as `StaticRefStr`.
+    pub fn endpoint_static(&self) -> Option<StaticRefStr> {
+        self.endpoint.clone()
+    }
+
+    /// Set endpoint.
+    pub fn set_endpoint(&mut self, endpoint: Option<impl Into<StaticRefStr>>) -> &mut Self {
+        self.endpoint = endpoint.map(Into::into);
+        self
+    }
+
+    /// Set endpoint (builder pattern).
+    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
     }
 
     /// Get include list.
@@ -460,51 +471,6 @@ impl ResponsesOptionalConfig {
         self.reasoning = Some(reasoning);
         self
     }
-}
-
-/// Configuration for OpenAI Responses Agent.
-///
-/// OpenAI Response 代理配置。
-#[derive(Debug, Clone)]
-pub struct ResponsesConfig {
-    required: ResponsesRequiredConfig,
-    optional: ResponsesOptionalConfig,
-}
-
-impl ResponsesConfig {
-    /// Create a new `ResponsesConfig`.
-    pub fn new(required: ResponsesRequiredConfig) -> Self {
-        Self {
-            required,
-            optional: ResponsesOptionalConfig::default(),
-        }
-    }
-
-    /// Get reference to required configuration.
-    pub fn required(&self) -> &ResponsesRequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    pub fn required_mut(&mut self) -> &mut ResponsesRequiredConfig {
-        &mut self.required
-    }
-
-    /// Get reference to optional configuration.
-    pub fn optional(&self) -> &ResponsesOptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    pub fn optional_mut(&mut self) -> &mut ResponsesOptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    pub fn with_optional(mut self, optional: ResponsesOptionalConfig) -> Self {
-        self.optional = optional;
-        self
-    }
 
     /// Convert Config to CreateResponseRequest with provided input.
     ///
@@ -518,30 +484,30 @@ impl ResponsesConfig {
     ) -> CreateResponseRequest {
         CreateResponseRequest {
             input,
-            model: Some(self.required.model),
-            include: self.optional.include,
-            parallel_tool_calls: self.optional.parallel_tool_calls,
-            store: self.optional.store,
-            instructions: self.optional.instructions,
+            model: Some(self.model),
+            include: self.include,
+            parallel_tool_calls: self.parallel_tool_calls,
+            store: self.store,
+            instructions: self.instructions,
             stream,
-            stream_options: self.optional.stream_options,
-            conversation: self.optional.conversation,
-            metadata: self.optional.metadata,
-            top_logprobs: self.optional.top_logprobs,
-            temperature: self.optional.temperature,
-            top_p: self.optional.top_p,
+            stream_options: self.stream_options,
+            conversation: self.conversation,
+            metadata: self.metadata,
+            top_logprobs: self.top_logprobs,
+            temperature: self.temperature,
+            top_p: self.top_p,
             tools,
             tool_choice,
-            user: self.optional.user,
-            safety_identifier: self.optional.safety_identifier,
-            prompt_cache_key: self.optional.prompt_cache_key,
-            service_tier: self.optional.service_tier,
-            prompt_cache_retention: self.optional.prompt_cache_retention,
-            max_output_tokens: self.optional.max_output_tokens,
-            max_tool_calls: self.optional.max_tool_calls,
-            previous_response_id: self.optional.previous_response_id,
-            reasoning: self.optional.reasoning,
-            background: self.optional.background,
+            user: self.user,
+            safety_identifier: self.safety_identifier,
+            prompt_cache_key: self.prompt_cache_key,
+            service_tier: self.service_tier,
+            prompt_cache_retention: self.prompt_cache_retention,
+            max_output_tokens: self.max_output_tokens,
+            max_tool_calls: self.max_tool_calls,
+            previous_response_id: self.previous_response_id,
+            reasoning: self.reasoning,
+            background: self.background,
             text: None,
             prompt: None,
             truncation: None,
@@ -549,57 +515,21 @@ impl ResponsesConfig {
     }
 }
 
-impl crate::agent::builder::AgentConfigTrait for ResponsesConfig {
-    type Required = ResponsesRequiredConfig;
-    type Optional = ResponsesOptionalConfig;
-
-    fn from_required(required: Self::Required) -> Self {
-        Self::new(required)
-    }
-
-    fn with_optional(self, optional: Self::Optional) -> Self {
-        self.with_optional(optional)
-    }
-}
-
-impl TryFrom<RequiredConfig> for ResponsesRequiredConfig {
+impl TryFrom<Config> for ResponsesConfig {
     type Error = AgentError;
 
-    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
-        let model = config
-            .model_static()
-            .ok_or_else(|| AgentError::Config("model is required".into()))?;
-        let endpoint = config
-            .endpoint_static()
-            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
-
-        Ok(Self::new(model, endpoint))
-    }
-}
-
-impl TryFrom<OptionalConfig> for ResponsesOptionalConfig {
-    type Error = AgentError;
-
-    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
-        let OptionalConfig {
-            temperature,
-            top_p,
-            top_k: _,
-            frequency_penalty: _,
-            presence_penalty: _,
-            stop_sequences: _,
-            seed: _,
-            reasoning_effort,
-        } = config;
-
-        let mut optional = Self::new();
-        if let Some(temp) = temperature {
-            optional.set_temperature(Some(temp));
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let mut resp_config = Self::new(config.model_static());
+        if let Some(ep) = config.endpoint_static() {
+            resp_config.set_endpoint(Some(ep));
         }
-        if let Some(top_p) = top_p {
-            optional.set_top_p(Some(top_p));
+        if let Some(temp) = config.temperature() {
+            resp_config.set_temperature(Some(temp));
         }
-        if let Some(effort) = reasoning_effort {
+        if let Some(top_p) = config.top_p() {
+            resp_config.set_top_p(Some(top_p));
+        }
+        if let Some(effort) = config.reasoning_effort() {
             let reasoning_effort = match effort {
                 ConfigReasoningEffort::None => ReasoningEffort::None,
                 ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
@@ -609,29 +539,16 @@ impl TryFrom<OptionalConfig> for ResponsesOptionalConfig {
                 ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
                 ConfigReasoningEffort::Max => ReasoningEffort::High,
             };
-            optional.set_reasoning(Some(ReasoningConf {
+            resp_config.set_reasoning(Some(ReasoningConf {
                 effort: Some(reasoning_effort),
                 summary: None,
                 generate_summary: None,
             }));
         }
-        Ok(optional)
-    }
-}
-
-impl TryFrom<Config> for ResponsesConfig {
-    type Error = AgentError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let (required, optional) = (config.required().clone(), config.optional().clone());
-        let required = ResponsesRequiredConfig::try_from(required)?;
-        let optional = ResponsesOptionalConfig::try_from(optional)?;
-        if let Some(max_tokens) = config.required().max_tokens() {
-            let mut optional = optional;
-            optional.set_max_output_tokens(Some(max_tokens));
-            Ok(Self::new(required).with_optional(optional))
-        } else {
-            Ok(Self::new(required).with_optional(optional))
+        if let Some(max_tokens) = config.max_tokens() {
+            resp_config.set_max_output_tokens(Some(max_tokens));
         }
+
+        Ok(resp_config)
     }
 }

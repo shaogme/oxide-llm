@@ -97,14 +97,14 @@ impl ModelConfig {
     ///
     /// 返回模型名称，若未设置则返回空字符串。
     pub fn model(&self) -> &str {
-        self.config.required().model().unwrap_or_default()
+        self.config.model()
     }
 
     /// Returns the API endpoint or empty string if unset.
     ///
     /// 返回 API 端点，若未设置则返回空字符串。
     pub fn endpoint(&self) -> &str {
-        self.config.required().endpoint().unwrap_or_default()
+        self.config.endpoint().unwrap_or_default()
     }
 
     /// Returns reference to unified `oxide_llm::Config`.
@@ -216,9 +216,9 @@ mod tests {
             .unwrap();
         assert_eq!(model.model(), "gpt-4.5-preview");
         assert_eq!(model.endpoint(), "responses");
-        assert_eq!(model.config.optional().temperature(), Some(0.7));
+        assert_eq!(model.config.temperature(), Some(0.7));
         assert_eq!(
-            model.config.optional().reasoning_effort(),
+            model.config.reasoning_effort(),
             Some(oxide_llm::config::ReasoningEffort::Medium)
         );
     }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, OptionalConfig, ReasoningEffort as ConfigReasoningEffort, RequiredConfig},
+    config::{Config, ReasoningEffort as ConfigReasoningEffort},
     error::AgentError,
 };
 use oxide_llm_proto::openai::v1::chat_completions::{
@@ -13,65 +13,13 @@ use oxide_llm_proto::openai::v1::chat_completions::{
 };
 use ref_str::StaticRefStr;
 
-/// Configuration for OpenAI Chat Completions Agent (Required).
+/// Configuration for OpenAI Chat Completions Agent.
 ///
-/// OpenAI Chat Completions 代理配置 (必须)。
+/// OpenAI Chat Completions 代理配置。
 #[derive(Debug, Clone)]
-pub struct ChatCompletionsRequiredConfig {
+pub struct ChatCompletionsConfig {
     model: StaticRefStr,
-    endpoint: StaticRefStr,
-}
-
-impl ChatCompletionsRequiredConfig {
-    /// Create a new `ChatCompletionsRequiredConfig`.
-    pub fn new(model: impl Into<StaticRefStr>, endpoint: impl Into<StaticRefStr>) -> Self {
-        Self {
-            model: model.into(),
-            endpoint: endpoint.into(),
-        }
-    }
-
-    /// Get model name.
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
-    /// Set model name.
-    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Set model name (builder pattern).
-    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
-        self.model = model.into();
-        self
-    }
-
-    /// Get endpoint.
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
-    }
-
-    /// Set endpoint.
-    pub fn set_endpoint(&mut self, endpoint: impl Into<StaticRefStr>) -> &mut Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-
-    /// Set endpoint (builder pattern).
-    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
-        self.endpoint = endpoint.into();
-        self
-    }
-}
-
-/// Configuration for OpenAI Chat Completions Agent (Optional).
-///
-/// OpenAI Chat Completions 代理配置 (选填)。
-/// 包含了除 `messages` 和 `model` 之外的所有 `ChatCompletionRequest` 可选参数。
-#[derive(Debug, Clone, Default)]
-pub struct ChatCompletionsOptionalConfig {
+    endpoint: Option<StaticRefStr>,
     frequency_penalty: Option<f32>,
     logit_bias: Option<HashMap<StaticRefStr, f32>>,
     logprobs: Option<bool>,
@@ -100,10 +48,78 @@ pub struct ChatCompletionsOptionalConfig {
     metadata: Option<HashMap<StaticRefStr, StaticRefStr>>,
 }
 
-impl ChatCompletionsOptionalConfig {
-    /// Create a new `ChatCompletionsOptionalConfig`.
-    pub fn new() -> Self {
-        Self::default()
+impl ChatCompletionsConfig {
+    /// Create a new `ChatCompletionsConfig`.
+    pub fn new(model: impl Into<StaticRefStr>) -> Self {
+        Self {
+            model: model.into(),
+            endpoint: None,
+            frequency_penalty: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            n: None,
+            modalities: None,
+            prediction: None,
+            audio: None,
+            presence_penalty: None,
+            response_format: None,
+            seed: None,
+            service_tier: None,
+            stop: None,
+            store: None,
+            temperature: None,
+            top_p: None,
+            parallel_tool_calls: None,
+            user: None,
+            function_call: None,
+            functions: None,
+            web_search_options: None,
+            verbosity: None,
+            reasoning_effort: None,
+            metadata: None,
+        }
+    }
+
+    /// Get model name.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Set model name.
+    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Set model name (builder pattern).
+    pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    /// Get endpoint.
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Get endpoint as `StaticRefStr`.
+    pub fn endpoint_static(&self) -> Option<StaticRefStr> {
+        self.endpoint.clone()
+    }
+
+    /// Set endpoint.
+    pub fn set_endpoint(&mut self, endpoint: Option<impl Into<StaticRefStr>>) -> &mut Self {
+        self.endpoint = endpoint.map(Into::into);
+        self
+    }
+
+    /// Set endpoint (builder pattern).
+    pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
     }
 
     /// Get frequency penalty.
@@ -553,51 +569,6 @@ impl ChatCompletionsOptionalConfig {
         self.metadata = Some(metadata);
         self
     }
-}
-
-/// Configuration for OpenAI Chat Completions Agent.
-///
-/// OpenAI Chat Completions 代理配置。
-#[derive(Debug, Clone)]
-pub struct ChatCompletionsConfig {
-    required: ChatCompletionsRequiredConfig,
-    optional: ChatCompletionsOptionalConfig,
-}
-
-impl ChatCompletionsConfig {
-    /// Create a new `ChatCompletionsConfig`.
-    pub fn new(required: ChatCompletionsRequiredConfig) -> Self {
-        Self {
-            required,
-            optional: ChatCompletionsOptionalConfig::default(),
-        }
-    }
-
-    /// Get reference to required configuration.
-    pub fn required(&self) -> &ChatCompletionsRequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    pub fn required_mut(&mut self) -> &mut ChatCompletionsRequiredConfig {
-        &mut self.required
-    }
-
-    /// Get reference to optional configuration.
-    pub fn optional(&self) -> &ChatCompletionsOptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    pub fn optional_mut(&mut self) -> &mut ChatCompletionsOptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    pub fn with_optional(mut self, optional: ChatCompletionsOptionalConfig) -> Self {
-        self.optional = optional;
-        self
-    }
 
     /// Convert Config to ChatCompletionRequest with provided messages.
     ///
@@ -612,109 +583,73 @@ impl ChatCompletionsConfig {
     ) -> ChatCompletionRequest {
         ChatCompletionRequest {
             messages,
-            model: self.required.model,
-            frequency_penalty: self.optional.frequency_penalty,
-            logit_bias: self.optional.logit_bias,
-            logprobs: self.optional.logprobs,
-            top_logprobs: self.optional.top_logprobs,
-            max_tokens: self.optional.max_tokens,
-            max_completion_tokens: self.optional.max_completion_tokens,
-            n: self.optional.n,
-            modalities: self.optional.modalities,
-            prediction: self.optional.prediction,
-            audio: self.optional.audio,
-            presence_penalty: self.optional.presence_penalty,
-            response_format: self.optional.response_format,
-            seed: self.optional.seed,
-            service_tier: self.optional.service_tier,
-            stop: self.optional.stop,
-            store: self.optional.store,
+            model: self.model,
+            frequency_penalty: self.frequency_penalty,
+            logit_bias: self.logit_bias,
+            logprobs: self.logprobs,
+            top_logprobs: self.top_logprobs,
+            max_tokens: self.max_tokens,
+            max_completion_tokens: self.max_completion_tokens,
+            n: self.n,
+            modalities: self.modalities,
+            prediction: self.prediction,
+            audio: self.audio,
+            presence_penalty: self.presence_penalty,
+            response_format: self.response_format,
+            seed: self.seed,
+            service_tier: self.service_tier,
+            stop: self.stop,
+            store: self.store,
             stream: Some(is_stream),
             stream_options,
-            temperature: self.optional.temperature,
-            top_p: self.optional.top_p,
+            temperature: self.temperature,
+            top_p: self.top_p,
             tools,
             tool_choice,
-            parallel_tool_calls: self.optional.parallel_tool_calls,
-            user: self.optional.user,
-            function_call: self.optional.function_call,
-            functions: self.optional.functions,
-            web_search_options: self.optional.web_search_options,
-            verbosity: self.optional.verbosity,
-            reasoning_effort: self.optional.reasoning_effort,
-            metadata: self.optional.metadata,
+            parallel_tool_calls: self.parallel_tool_calls,
+            user: self.user,
+            function_call: self.function_call,
+            functions: self.functions,
+            web_search_options: self.web_search_options,
+            verbosity: self.verbosity,
+            reasoning_effort: self.reasoning_effort,
+            metadata: self.metadata,
         }
     }
 }
 
-impl crate::agent::builder::AgentConfigTrait for ChatCompletionsConfig {
-    type Required = ChatCompletionsRequiredConfig;
-    type Optional = ChatCompletionsOptionalConfig;
-
-    fn from_required(required: Self::Required) -> Self {
-        Self::new(required)
-    }
-
-    fn with_optional(self, optional: Self::Optional) -> Self {
-        self.with_optional(optional)
-    }
-}
-
-impl TryFrom<RequiredConfig> for ChatCompletionsRequiredConfig {
+impl TryFrom<Config> for ChatCompletionsConfig {
     type Error = AgentError;
 
-    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
-        let model = config
-            .model_static()
-            .ok_or_else(|| AgentError::Config("model is required".into()))?;
-        let endpoint = config
-            .endpoint_static()
-            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
-
-        Ok(Self::new(model, endpoint))
-    }
-}
-
-impl TryFrom<OptionalConfig> for ChatCompletionsOptionalConfig {
-    type Error = AgentError;
-
-    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
-        let OptionalConfig {
-            temperature,
-            top_p,
-            top_k: _,
-            frequency_penalty,
-            presence_penalty,
-            stop_sequences,
-            seed,
-            reasoning_effort,
-        } = config;
-
-        let mut optional = Self::new();
-        if let Some(temp) = temperature {
-            optional.set_temperature(Some(temp));
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let mut cc_config = Self::new(config.model_static());
+        if let Some(ep) = config.endpoint_static() {
+            cc_config.set_endpoint(Some(ep));
         }
-        if let Some(top_p) = top_p {
-            optional.set_top_p(Some(top_p));
+        if let Some(temp) = config.temperature() {
+            cc_config.set_temperature(Some(temp));
         }
-        if let Some(freq_pen) = frequency_penalty {
-            optional.set_frequency_penalty(Some(freq_pen));
+        if let Some(top_p) = config.top_p() {
+            cc_config.set_top_p(Some(top_p));
         }
-        if let Some(pres_pen) = presence_penalty {
-            optional.set_presence_penalty(Some(pres_pen));
+        if let Some(freq_pen) = config.frequency_penalty() {
+            cc_config.set_frequency_penalty(Some(freq_pen));
         }
-        if let Some(stop) = stop_sequences {
+        if let Some(pres_pen) = config.presence_penalty() {
+            cc_config.set_presence_penalty(Some(pres_pen));
+        }
+        if let Some(stop) = config.stop_sequences() {
             let stop_val = if stop.len() == 1 {
                 Stop::String(stop[0].clone())
             } else {
-                Stop::Array(stop)
+                Stop::Array(stop.to_vec())
             };
-            optional.set_stop(Some(stop_val));
+            cc_config.set_stop(Some(stop_val));
         }
-        if let Some(seed) = seed {
-            optional.set_seed(Some(seed));
+        if let Some(seed) = config.seed() {
+            cc_config.set_seed(Some(seed));
         }
-        if let Some(effort) = reasoning_effort {
+        if let Some(effort) = config.reasoning_effort() {
             let reasoning_effort = match effort {
                 ConfigReasoningEffort::None => ReasoningEffort::None,
                 ConfigReasoningEffort::Minimal => ReasoningEffort::Minimal,
@@ -724,25 +659,12 @@ impl TryFrom<OptionalConfig> for ChatCompletionsOptionalConfig {
                 ConfigReasoningEffort::Xhigh => ReasoningEffort::Xhigh,
                 ConfigReasoningEffort::Max => ReasoningEffort::High,
             };
-            optional.set_reasoning_effort(Some(reasoning_effort));
+            cc_config.set_reasoning_effort(Some(reasoning_effort));
         }
-        Ok(optional)
-    }
-}
-
-impl TryFrom<Config> for ChatCompletionsConfig {
-    type Error = AgentError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let (required, optional) = (config.required().clone(), config.optional().clone());
-        let required = ChatCompletionsRequiredConfig::try_from(required)?;
-        let optional = ChatCompletionsOptionalConfig::try_from(optional)?;
-        if let Some(max_tokens) = config.required().max_tokens() {
-            let mut optional = optional;
-            optional.set_max_tokens(Some(max_tokens));
-            Ok(Self::new(required).with_optional(optional))
-        } else {
-            Ok(Self::new(required).with_optional(optional))
+        if let Some(max_tokens) = config.max_tokens() {
+            cc_config.set_max_tokens(Some(max_tokens));
         }
+
+        Ok(cc_config)
     }
 }

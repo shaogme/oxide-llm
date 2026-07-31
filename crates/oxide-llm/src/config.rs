@@ -2,53 +2,105 @@ use oxide_llm_core::message::DeltaMessage;
 use ref_str::StaticRefStr;
 use serde::{Deserialize, Serialize};
 
-/// Generic required configuration options for agents.
+/// Level or effort of model reasoning/thinking.
 ///
-/// 代理的基础通用必填配置。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RequiredConfig {
-    model: Option<StaticRefStr>,
+/// 模型思考/推理的努力程度。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    /// Disable reasoning effort.
+    ///
+    /// 禁用推理努力。
+    None,
+    /// Minimal reasoning effort.
+    ///
+    /// 极小程度的推理努力。
+    Minimal,
+    /// Low reasoning effort.
+    ///
+    /// 较低程度的推理努力。
+    Low,
+    /// Medium reasoning effort.
+    ///
+    /// 中等程度的推理努力。
+    Medium,
+    /// High reasoning effort.
+    ///
+    /// 较高程度的推理努力。
+    High,
+    /// Extra high reasoning effort.
+    ///
+    /// 超高程度的推理努力。
+    Xhigh,
+    /// Maximum reasoning effort.
+    ///
+    /// 最高程度的推理努力。
+    Max,
+}
+
+/// Unified generic agent configuration.
+///
+/// 统一通用代理配置。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Config {
+    /// Model name.
+    ///
+    /// 模型名称。
+    model: StaticRefStr,
+    /// Maximum tokens to generate (Required for Anthropic protocol).
+    ///
+    /// 最大 token 限制（Anthropic 协议必须）。
     max_tokens: Option<u32>,
     endpoint: Option<StaticRefStr>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
+    stop_sequences: Option<Vec<StaticRefStr>>,
+    seed: Option<i64>,
+    reasoning_effort: Option<ReasoningEffort>,
 }
 
-impl Default for RequiredConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RequiredConfig {
-    /// Create a new `RequiredConfig`.
+impl Config {
+    /// Create a new `Config`.
     ///
-    /// 创建新的 `RequiredConfig`。
-    pub fn new() -> Self {
+    /// 创建新的 `Config`。
+    pub fn new(model: impl Into<StaticRefStr>) -> Self {
         Self {
-            model: None,
+            model: model.into(),
             max_tokens: None,
             endpoint: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            stop_sequences: None,
+            seed: None,
+            reasoning_effort: None,
         }
     }
 
     /// Get model name.
     ///
     /// 获取模型名称。
-    pub fn model(&self) -> Option<&str> {
-        self.model.as_deref()
+    pub fn model(&self) -> &str {
+        &self.model
     }
 
     /// Get model name as `StaticRefStr`.
     ///
     /// 获取 `StaticRefStr` 类型的模型名称。
-    pub fn model_static(&self) -> Option<StaticRefStr> {
+    pub fn model_static(&self) -> StaticRefStr {
         self.model.clone()
     }
 
     /// Set model name.
     ///
     /// 设置模型名称。
-    pub fn set_model(&mut self, model: Option<impl Into<StaticRefStr>>) -> &mut Self {
-        self.model = model.map(Into::into);
+    pub fn set_model(&mut self, model: impl Into<StaticRefStr>) -> &mut Self {
+        self.model = model.into();
         self
     }
 
@@ -56,7 +108,7 @@ impl RequiredConfig {
     ///
     /// 设置模型名称（构建器模式）。
     pub fn with_model(mut self, model: impl Into<StaticRefStr>) -> Self {
-        self.model = Some(model.into());
+        self.model = model.into();
         self
     }
 
@@ -111,66 +163,6 @@ impl RequiredConfig {
     pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
         self.endpoint = Some(endpoint.into());
         self
-    }
-}
-
-/// Level or effort of model reasoning/thinking.
-///
-/// 模型思考/推理的努力程度。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReasoningEffort {
-    /// Disable reasoning effort.
-    ///
-    /// 禁用推理努力。
-    None,
-    /// Minimal reasoning effort.
-    ///
-    /// 极小程度的推理努力。
-    Minimal,
-    /// Low reasoning effort.
-    ///
-    /// 较低程度的推理努力。
-    Low,
-    /// Medium reasoning effort.
-    ///
-    /// 中等程度的推理努力。
-    Medium,
-    /// High reasoning effort.
-    ///
-    /// 较高程度的推理努力。
-    High,
-    /// Extra high reasoning effort.
-    ///
-    /// 超高程度的推理努力。
-    Xhigh,
-    /// Maximum reasoning effort.
-    ///
-    /// 最高程度的推理努力。
-    Max,
-}
-
-/// Generic optional configuration options for agents.
-///
-/// 代理的基础通用选填配置。
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct OptionalConfig {
-    pub(crate) temperature: Option<f32>,
-    pub(crate) top_p: Option<f32>,
-    pub(crate) top_k: Option<u32>,
-    pub(crate) frequency_penalty: Option<f32>,
-    pub(crate) presence_penalty: Option<f32>,
-    pub(crate) stop_sequences: Option<Vec<StaticRefStr>>,
-    pub(crate) seed: Option<i64>,
-    pub(crate) reasoning_effort: Option<ReasoningEffort>,
-}
-
-impl OptionalConfig {
-    /// Create a new `OptionalConfig`.
-    ///
-    /// 创建新的 `OptionalConfig`。
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Get temperature.
@@ -354,70 +346,6 @@ impl OptionalConfig {
     /// 设置思考/推理努力程度（构建器模式）。
     pub fn with_reasoning_effort(mut self, reasoning_effort: ReasoningEffort) -> Self {
         self.reasoning_effort = Some(reasoning_effort);
-        self
-    }
-}
-
-/// Unified generic agent configuration.
-///
-/// 统一通用代理配置。
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Config {
-    #[serde(flatten)]
-    required: RequiredConfig,
-    #[serde(flatten)]
-    optional: OptionalConfig,
-}
-
-impl Config {
-    /// Create a new `Config`.
-    ///
-    /// 创建新的 `Config`。
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Get reference to required configuration.
-    ///
-    /// 获取必要配置的引用。
-    pub fn required(&self) -> &RequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    ///
-    /// 获取必要配置的可变引用。
-    pub fn required_mut(&mut self) -> &mut RequiredConfig {
-        &mut self.required
-    }
-
-    /// Set required configuration (builder pattern).
-    ///
-    /// 设置必要配置（构建器模式）。
-    pub fn with_required(mut self, required: RequiredConfig) -> Self {
-        self.required = required;
-        self
-    }
-
-    /// Get reference to optional configuration.
-    ///
-    /// 获取选填配置的引用。
-    pub fn optional(&self) -> &OptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    ///
-    /// 获取选填配置的可变引用。
-    pub fn optional_mut(&mut self) -> &mut OptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    ///
-    /// 设置选填配置（构建器模式）。
-    pub fn with_optional(mut self, optional: OptionalConfig) -> Self {
-        self.optional = optional;
         self
     }
 }

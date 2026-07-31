@@ -15,7 +15,7 @@ use crate::error::{AgentError, Result};
 
 pub mod config;
 
-pub use config::{ResponsesConfig, ResponsesOptionalConfig, ResponsesRequiredConfig};
+pub use config::ResponsesConfig;
 
 /// OpenAI Responses Agent.
 ///
@@ -82,9 +82,9 @@ impl<T: Transport> ResponsesAgent<T> {
 
         let mut config = self.config.clone();
         if let Some(prompt) = system_prompt
-            && config.optional().instructions().is_none()
+            && config.instructions().is_none()
         {
-            config.optional_mut().set_instructions(Some(prompt));
+            config.set_instructions(Some(prompt));
         }
 
         let mut request = config.to_request(input_param, tools, tool_choice, None);
@@ -188,11 +188,9 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
     async fn chat_raw(&self, state: Self::RawConversationState) -> Result<Response> {
         let request = self.build_request(state, false)?;
 
-        let transport_req = TransportRequest::new(
-            Method::Post,
-            self.config.required().endpoint().to_string(),
-            request,
-        );
+        let endpoint = self.config.endpoint().unwrap_or("responses").to_string();
+
+        let transport_req = TransportRequest::new(Method::Post, endpoint, request);
         let response: Response = self
             .transport
             .send(transport_req)
@@ -213,11 +211,8 @@ impl<T: Transport> ChatAgent for ResponsesAgent<T> {
         let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
-            let transport_req = TransportRequest::new(
-                Method::Post,
-                self.config.required().endpoint().to_string(),
-                request,
-            );
+            let endpoint = self.config.endpoint().unwrap_or("responses").to_string();
+            let transport_req = TransportRequest::new(Method::Post, endpoint, request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamRawFuture::with_hook(

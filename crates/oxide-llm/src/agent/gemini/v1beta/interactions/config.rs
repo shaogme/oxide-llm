@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    config::{Config, OptionalConfig, ReasoningEffort, RequiredConfig},
+    config::{Config, ReasoningEffort},
     error::AgentError,
 };
 use oxide_llm_proto::gemini::v1beta::interactions::{
@@ -17,26 +17,46 @@ use oxide_llm_proto::gemini::v1beta::interactions::{
 use ref_str::StaticRefStr;
 use serde_json::Value;
 
-/// Configuration for Gemini Interactions Agent (Required).
+/// Configuration for Gemini Interactions Agent.
 ///
-/// Gemini Interactions 代理配置 (必须)。
-#[derive(Debug, Clone)]
-pub struct InteractionsRequiredConfig {
+/// Gemini Interactions 代理配置。
+#[derive(Debug, Clone, Default)]
+pub struct InteractionsConfig {
     model: Option<StaticRefStr>,
     agent: Option<StaticRefStr>,
-    endpoint: StaticRefStr,
+    endpoint: Option<StaticRefStr>,
+    system_instruction: Option<String>,
+    response_format: Option<Value>,
+    stream: Option<bool>,
+    store: Option<bool>,
+    background: Option<bool>,
+
+    // Generation Config fields
+    max_output_tokens: Option<i32>,
+    seed: Option<i32>,
+    speech_config: Option<SpeechConfig>,
+    stop_sequences: Option<Vec<StaticRefStr>>,
+    thinking_level: Option<ThinkingLevel>,
+    thinking_summaries: Option<ThinkingSummaries>,
+    tool_choice: Option<GeminiRequestToolChoice>,
+    transcription_config: Option<TranscriptionConfig>,
+    video_config: Option<VideoConfig>,
+
+    agent_config: Option<AgentConfig>,
+    environment: Option<Value>,
+    labels: Option<HashMap<String, String>>,
+    previous_interaction_id: Option<String>,
+    safety_settings: Option<Vec<SafetySetting>>,
+    service_tier: Option<ServiceTier>,
+    webhook_config: Option<WebhookConfig>,
 }
 
-impl InteractionsRequiredConfig {
-    /// Create a new `InteractionsRequiredConfig`.
+impl InteractionsConfig {
+    /// Create a new `InteractionsConfig`.
     ///
-    /// 创建一个新的 `InteractionsRequiredConfig`。
-    pub fn new(endpoint: impl Into<StaticRefStr>) -> Self {
-        Self {
-            model: None,
-            agent: None,
-            endpoint: endpoint.into(),
-        }
+    /// 创建一个新的 `InteractionsConfig`。
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Get model name.
@@ -102,15 +122,22 @@ impl InteractionsRequiredConfig {
     /// Get endpoint.
     ///
     /// 获取 Endpoint。
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Get endpoint as `StaticRefStr`.
+    ///
+    /// 获取 `StaticRefStr` 类型的 Endpoint。
+    pub fn endpoint_static(&self) -> Option<StaticRefStr> {
+        self.endpoint.clone()
     }
 
     /// Set endpoint.
     ///
     /// 设置 Endpoint。
-    pub fn set_endpoint(&mut self, endpoint: impl Into<StaticRefStr>) -> &mut Self {
-        self.endpoint = endpoint.into();
+    pub fn set_endpoint(&mut self, endpoint: Option<impl Into<StaticRefStr>>) -> &mut Self {
+        self.endpoint = endpoint.map(Into::into);
         self
     }
 
@@ -118,48 +145,8 @@ impl InteractionsRequiredConfig {
     ///
     /// 设置 Endpoint（构建器模式）。
     pub fn with_endpoint(mut self, endpoint: impl Into<StaticRefStr>) -> Self {
-        self.endpoint = endpoint.into();
+        self.endpoint = Some(endpoint.into());
         self
-    }
-}
-
-/// Configuration for Gemini Interactions Agent (Optional).
-///
-/// Gemini Interactions 代理配置 (选填)。
-#[derive(Debug, Clone, Default)]
-pub struct InteractionsOptionalConfig {
-    system_instruction: Option<String>,
-    response_format: Option<Value>,
-    stream: Option<bool>,
-    store: Option<bool>,
-    background: Option<bool>,
-
-    // Generation Config fields
-    max_output_tokens: Option<i32>,
-    seed: Option<i32>,
-    speech_config: Option<SpeechConfig>,
-    stop_sequences: Option<Vec<StaticRefStr>>,
-    thinking_level: Option<ThinkingLevel>,
-    thinking_summaries: Option<ThinkingSummaries>,
-    tool_choice: Option<GeminiRequestToolChoice>,
-    transcription_config: Option<TranscriptionConfig>,
-    video_config: Option<VideoConfig>,
-
-    agent_config: Option<AgentConfig>,
-    environment: Option<Value>,
-    labels: Option<HashMap<String, String>>,
-    previous_interaction_id: Option<String>,
-    safety_settings: Option<Vec<SafetySetting>>,
-    service_tier: Option<ServiceTier>,
-    webhook_config: Option<WebhookConfig>,
-}
-
-impl InteractionsOptionalConfig {
-    /// Create a new `InteractionsOptionalConfig`.
-    ///
-    /// 创建一个新的 `InteractionsOptionalConfig`。
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Get system instruction.
@@ -659,63 +646,6 @@ impl InteractionsOptionalConfig {
         self.webhook_config = Some(webhook_config);
         self
     }
-}
-
-/// Configuration for Gemini Interactions Agent.
-///
-/// Gemini Interactions 代理配置。
-#[derive(Debug, Clone)]
-pub struct InteractionsConfig {
-    required: InteractionsRequiredConfig,
-    optional: InteractionsOptionalConfig,
-}
-
-impl InteractionsConfig {
-    /// Create a new `InteractionsConfig`.
-    ///
-    /// 创建一个新的 `InteractionsConfig`。
-    pub fn new(required: InteractionsRequiredConfig) -> Self {
-        Self {
-            required,
-            optional: InteractionsOptionalConfig::default(),
-        }
-    }
-
-    /// Get reference to required configuration.
-    ///
-    /// 获取必填配置引用。
-    pub fn required(&self) -> &InteractionsRequiredConfig {
-        &self.required
-    }
-
-    /// Get mutable reference to required configuration.
-    ///
-    /// 获取必填配置的可变引用。
-    pub fn required_mut(&mut self) -> &mut InteractionsRequiredConfig {
-        &mut self.required
-    }
-
-    /// Get reference to optional configuration.
-    ///
-    /// 获取选填配置引用。
-    pub fn optional(&self) -> &InteractionsOptionalConfig {
-        &self.optional
-    }
-
-    /// Get mutable reference to optional configuration.
-    ///
-    /// 获取选填配置的可变引用。
-    pub fn optional_mut(&mut self) -> &mut InteractionsOptionalConfig {
-        &mut self.optional
-    }
-
-    /// Set optional configuration (builder pattern).
-    ///
-    /// 设置选填配置（构建器模式）。
-    pub fn with_optional(mut self, optional: InteractionsOptionalConfig) -> Self {
-        self.optional = optional;
-        self
-    }
 
     /// Convert Config to CreateInteractionRequest with provided input, tools, tool_choice, and overrides.
     ///
@@ -730,109 +660,73 @@ impl InteractionsConfig {
     ) -> CreateInteractionRequest {
         let system_instruction = sys_prompt_override
             .map(|s| s.to_string())
-            .or_else(|| self.optional.system_instruction.clone());
+            .or_else(|| self.system_instruction.clone());
 
-        let effective_tool_choice = tool_choice.or_else(|| self.optional.tool_choice.clone());
+        let effective_tool_choice = tool_choice.or_else(|| self.tool_choice.clone());
 
-        let generation_config = if self.optional.max_output_tokens.is_some()
-            || self.optional.seed.is_some()
-            || self.optional.speech_config.is_some()
-            || self.optional.stop_sequences.is_some()
-            || self.optional.thinking_level.is_some()
-            || self.optional.thinking_summaries.is_some()
+        let generation_config = if self.max_output_tokens.is_some()
+            || self.seed.is_some()
+            || self.speech_config.is_some()
+            || self.stop_sequences.is_some()
+            || self.thinking_level.is_some()
+            || self.thinking_summaries.is_some()
             || effective_tool_choice.is_some()
-            || self.optional.transcription_config.is_some()
-            || self.optional.video_config.is_some()
+            || self.transcription_config.is_some()
+            || self.video_config.is_some()
         {
             Some(GenerationConfig {
-                max_output_tokens: self.optional.max_output_tokens,
-                seed: self.optional.seed,
-                speech_config: self.optional.speech_config.clone(),
-                stop_sequences: self.optional.stop_sequences.clone(),
-                thinking_level: self.optional.thinking_level.clone(),
-                thinking_summaries: self.optional.thinking_summaries.clone(),
+                max_output_tokens: self.max_output_tokens,
+                seed: self.seed,
+                speech_config: self.speech_config.clone(),
+                stop_sequences: self.stop_sequences.clone(),
+                thinking_level: self.thinking_level.clone(),
+                thinking_summaries: self.thinking_summaries.clone(),
                 tool_choice: effective_tool_choice,
-                transcription_config: self.optional.transcription_config.clone(),
-                video_config: self.optional.video_config.clone(),
+                transcription_config: self.transcription_config.clone(),
+                video_config: self.video_config.clone(),
             })
         } else {
             None
         };
 
         CreateInteractionRequest {
-            model: self.required.model.clone(),
-            agent: self.required.agent.clone(),
+            model: self.model.clone(),
+            agent: self.agent.clone(),
             input,
             system_instruction,
             tools,
-            response_format: self.optional.response_format.clone(),
-            stream: stream_override.or(self.optional.stream),
-            store: self.optional.store,
-            background: self.optional.background,
+            response_format: self.response_format.clone(),
+            stream: stream_override.or(self.stream),
+            store: self.store,
+            background: self.background,
             generation_config,
-            agent_config: self.optional.agent_config.clone(),
-            environment: self.optional.environment.clone(),
-            labels: self.optional.labels.clone(),
-            previous_interaction_id: self.optional.previous_interaction_id.clone(),
-            safety_settings: self.optional.safety_settings.clone(),
-            service_tier: self.optional.service_tier.clone(),
-            webhook_config: self.optional.webhook_config.clone(),
+            agent_config: self.agent_config.clone(),
+            environment: self.environment.clone(),
+            labels: self.labels.clone(),
+            previous_interaction_id: self.previous_interaction_id.clone(),
+            safety_settings: self.safety_settings.clone(),
+            service_tier: self.service_tier.clone(),
+            webhook_config: self.webhook_config.clone(),
         }
     }
 }
 
-impl crate::agent::builder::AgentConfigTrait for InteractionsConfig {
-    type Required = InteractionsRequiredConfig;
-    type Optional = InteractionsOptionalConfig;
-
-    fn from_required(required: Self::Required) -> Self {
-        Self::new(required)
-    }
-
-    fn with_optional(self, optional: Self::Optional) -> Self {
-        self.with_optional(optional)
-    }
-}
-
-impl TryFrom<RequiredConfig> for InteractionsRequiredConfig {
+impl TryFrom<Config> for InteractionsConfig {
     type Error = AgentError;
 
-    fn try_from(config: RequiredConfig) -> Result<Self, Self::Error> {
-        let endpoint = config
-            .endpoint_static()
-            .ok_or_else(|| AgentError::Config("endpoint is required".into()))?;
-
-        let mut req = Self::new(endpoint);
-        if let Some(model) = config.model_static() {
-            req.set_model(Some(model));
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
+        let mut int_config = Self::new();
+        int_config.set_model(Some(config.model_static()));
+        if let Some(ep) = config.endpoint_static() {
+            int_config.set_endpoint(Some(ep));
         }
-        Ok(req)
-    }
-}
-
-impl TryFrom<OptionalConfig> for InteractionsOptionalConfig {
-    type Error = AgentError;
-
-    fn try_from(config: OptionalConfig) -> Result<Self, Self::Error> {
-        let OptionalConfig {
-            temperature: _,
-            top_p: _,
-            top_k: _,
-            frequency_penalty: _,
-            presence_penalty: _,
-            stop_sequences,
-            seed,
-            reasoning_effort,
-        } = config;
-
-        let mut optional = Self::new();
-        if let Some(stop) = stop_sequences {
-            optional.set_stop_sequences(Some(stop));
+        if let Some(stop) = config.stop_sequences() {
+            int_config.set_stop_sequences(Some(stop.to_vec()));
         }
-        if let Some(seed) = seed {
-            optional.set_seed(Some(seed as i32));
+        if let Some(seed) = config.seed() {
+            int_config.set_seed(Some(seed as i32));
         }
-        if let Some(effort) = reasoning_effort {
+        if let Some(effort) = config.reasoning_effort() {
             let level = match effort {
                 ReasoningEffort::None => ThinkingLevel::Minimal,
                 ReasoningEffort::Minimal => ThinkingLevel::Minimal,
@@ -842,25 +736,12 @@ impl TryFrom<OptionalConfig> for InteractionsOptionalConfig {
                 ReasoningEffort::Xhigh => ThinkingLevel::High,
                 ReasoningEffort::Max => ThinkingLevel::High,
             };
-            optional.set_thinking_level(Some(level));
+            int_config.set_thinking_level(Some(level));
         }
-        Ok(optional)
-    }
-}
-
-impl TryFrom<Config> for InteractionsConfig {
-    type Error = AgentError;
-
-    fn try_from(config: Config) -> Result<Self, Self::Error> {
-        let (required, optional) = (config.required().clone(), config.optional().clone());
-        let required = InteractionsRequiredConfig::try_from(required)?;
-        let optional = InteractionsOptionalConfig::try_from(optional)?;
-        if let Some(max_tokens) = config.required().max_tokens() {
-            let mut optional = optional;
-            optional.set_max_output_tokens(Some(max_tokens as i32));
-            Ok(Self::new(required).with_optional(optional))
-        } else {
-            Ok(Self::new(required).with_optional(optional))
+        if let Some(max_tokens) = config.max_tokens() {
+            int_config.set_max_output_tokens(Some(max_tokens as i32));
         }
+
+        Ok(int_config)
     }
 }

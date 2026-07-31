@@ -22,8 +22,9 @@ base_url = "https://generativelanguage.googleapis.com/v1beta"
 api_key = "AIza..."
 
 # --- Model Definitions ---
-# Unified agent configuration supports required fields (`model`, `endpoint`, `max_tokens`) 
-# and optional fields (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `stop_sequences`, `seed`, `reasoning_effort`).
+# Unified agent configuration supports required field (`model`), optional fields (`endpoint`, `max_tokens`),
+# and optional tuning parameters (`temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `stop_sequences`, `seed`, `reasoning_effort`).
+# Note: `endpoint` defaults automatically if omitted ("chat/completions", "responses", "messages", "interactions", or "models/{model}").
 
 # Example for OpenAI Responses API
 [[models]]

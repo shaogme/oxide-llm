@@ -15,9 +15,7 @@ use crate::error::{AgentError, Result};
 
 pub mod config;
 
-pub use config::{
-    ChatCompletionsConfig, ChatCompletionsOptionalConfig, ChatCompletionsRequiredConfig,
-};
+pub use config::ChatCompletionsConfig;
 
 /// OpenAI Chat Completions Agent.
 ///
@@ -193,12 +191,14 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
     async fn chat_raw(&self, state: Self::RawConversationState) -> Result<ChatCompletionResponse> {
         let request = self.build_request(state, false)?;
 
+        let endpoint = self
+            .config
+            .endpoint()
+            .unwrap_or("chat/completions")
+            .to_string();
+
         // Send Request
-        let transport_req = TransportRequest::new(
-            Method::Post,
-            self.config.required().endpoint().to_string(),
-            request,
-        );
+        let transport_req = TransportRequest::new(Method::Post, endpoint, request);
         let response: ChatCompletionResponse = self
             .transport
             .send(transport_req)
@@ -219,11 +219,12 @@ impl<T: Transport> ChatAgent for ChatCompletionsAgent<T> {
         let on_raw_delta = config.take_on_raw_delta();
         let request_res = self.build_request(state, true);
         let fut = request_res.map(|request| {
-            let transport_req = TransportRequest::new(
-                Method::Post,
-                self.config.required().endpoint().to_string(),
-                request,
-            );
+            let endpoint = self
+                .config
+                .endpoint()
+                .unwrap_or("chat/completions")
+                .to_string();
+            let transport_req = TransportRequest::new(Method::Post, endpoint, request);
             self.transport.stream(transport_req)
         });
         crate::stream::AgentChatStreamRawFuture::with_hook(
