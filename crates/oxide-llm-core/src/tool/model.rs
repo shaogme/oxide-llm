@@ -397,7 +397,32 @@ impl JSONSchema {
         }
         self
     }
+
+    /// Set format string (e.g. "date-time", "email").
+    ///
+    /// 设置格式字符串（例如 "date-time", "email"）。
+    pub fn format(mut self, format: impl Into<StaticRefStr>) -> Self {
+        self.format = Some(format.into());
+        self
+    }
+
+    /// Set nullable flag.
+    ///
+    /// 设置是否可为空。
+    pub fn nullable(mut self, nullable: bool) -> Self {
+        self.nullable = Some(nullable);
+        self
+    }
+
+    /// Set additional properties allowance.
+    ///
+    /// 设置是否允许额外属性。
+    pub fn additional_properties(mut self, allow: bool) -> Self {
+        self.additional_properties = Some(allow);
+        self
+    }
 }
+
 
 /// Builder for creating a `Tool`.
 pub struct ToolBuilder {
@@ -582,11 +607,55 @@ impl Schema for String {
     }
 }
 
+impl Schema for str {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
+impl Schema for &str {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
+impl Schema for StaticRefStr {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
+impl Schema for std::borrow::Cow<'_, str> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
+impl Schema for char {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::string()
+    }
+}
+
 impl Schema for bool {
     fn json_schema() -> JSONSchema {
         JSONSchema::boolean()
     }
 }
+
+macro_rules! impl_schema_integer {
+    ($($t:ty),*) => {
+        $(
+            impl Schema for $t {
+                fn json_schema() -> JSONSchema {
+                    JSONSchema::integer()
+                }
+            }
+        )*
+    };
+}
+
+impl_schema_integer!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
 macro_rules! impl_schema_number {
     ($($t:ty),*) => {
@@ -600,11 +669,59 @@ macro_rules! impl_schema_number {
     };
 }
 
-impl_schema_number!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64);
+impl_schema_number!(f32, f64);
 
 impl<T: Schema> Schema for Vec<T> {
     fn json_schema() -> JSONSchema {
         JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for &[T] {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema, const N: usize> Schema for [T; N] {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for std::collections::HashSet<T> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for std::collections::BTreeSet<T> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for std::collections::VecDeque<T> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<T: Schema> Schema for std::collections::LinkedList<T> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::array(T::json_schema())
+    }
+}
+
+impl<K, V: Schema> Schema for std::collections::HashMap<K, V> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::object()
+    }
+}
+
+impl<K, V: Schema> Schema for std::collections::BTreeMap<K, V> {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::object()
     }
 }
 
@@ -629,3 +746,40 @@ impl<T: Schema> Schema for Box<T> {
         T::is_optional()
     }
 }
+
+impl<T: Schema> Schema for std::sync::Arc<T> {
+    fn json_schema() -> JSONSchema {
+        T::json_schema()
+    }
+
+    fn is_optional() -> bool {
+        T::is_optional()
+    }
+}
+
+impl<T: Schema> Schema for std::rc::Rc<T> {
+    fn json_schema() -> JSONSchema {
+        T::json_schema()
+    }
+
+    fn is_optional() -> bool {
+        T::is_optional()
+    }
+}
+
+impl<T: Schema + Clone> Schema for std::borrow::Cow<'_, T> {
+    fn json_schema() -> JSONSchema {
+        T::json_schema()
+    }
+
+    fn is_optional() -> bool {
+        T::is_optional()
+    }
+}
+
+impl Schema for serde_json::Value {
+    fn json_schema() -> JSONSchema {
+        JSONSchema::default()
+    }
+}
+
