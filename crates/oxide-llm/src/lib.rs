@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod runner;
 pub mod stream;
+pub mod trace;
 pub mod traits;
 
 pub use config::{ChatStreamConfig, ChatStreamRawConfig, Config, ReasoningEffort};

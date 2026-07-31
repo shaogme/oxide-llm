@@ -169,6 +169,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_env_filter(filter)
         .try_init();
 
+    // Clean and initialize tracing logs directory
+    let _ = oxide_llm::trace::init_trace_dir("./tracing_logs", true);
+
     // 1. Load configuration
     let config_path = if Path::new("agent.toml").exists() {
         PathBuf::from("agent.toml")
@@ -278,6 +281,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     state.add_message(Message::user(user_input));
 
+    oxide_llm::trace::start_new_turn();
     let mut stream = runner.run_stream(&mut state);
 
     while let Some(event_result) = stream.next().await {

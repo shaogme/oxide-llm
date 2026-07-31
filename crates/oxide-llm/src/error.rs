@@ -12,6 +12,10 @@ set! {
         Json(serde_json::Error),
         #[display("UTF-8 error: {0}")]
         Utf8(std::str::Utf8Error),
+        #[display("IO error: {0}")]
+        Io(std::io::Error),
+        #[display("Trace error: {0}")]
+        Trace(String),
         #[display("Stream already polled: {0}")]
         AlreadyPolled(String),
         #[display("Tool execution error: {0}")]

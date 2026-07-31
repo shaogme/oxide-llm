@@ -31,7 +31,11 @@ where
         }
     };
 
-    debug!("Processing SSE raw block: {:?}", s);
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        if let Ok(path) = crate::trace::dump_sse_raw_block(s) {
+            debug!("Processing SSE raw block: {:?}", path);
+        }
+    }
 
     let mut chunk_to_yield = None;
     let mut done = false;
